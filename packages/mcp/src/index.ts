@@ -17,10 +17,15 @@ import {
   type DecisionKind,
 } from "@component-atlas/core";
 import {
+  findTaskDesignCandidates,
   graphSummary,
+  inspectFigmaDesignNode,
+  listFigmaDesignIndexes,
   loadProjectGraph,
+  mapFigmaDesign,
   recordDecision,
   scanProject,
+  type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -241,6 +246,105 @@ export function createMcpServer(): McpServer {
           ...(author ? { author } : {}),
         }),
       ),
+  );
+
+  server.tool(
+    "map_figma_file",
+    "Create or incrementally update a lightweight local Figma map from sparse get_metadata XML or a depth-limited REST response. Does not fetch deep design context or write to Figma.",
+    {
+      root_path: z.string(),
+      figma_url: z.string(),
+      metadata: z.union([z.string(), z.record(z.unknown())]),
+      format: z
+        .enum(["auto", "figma-mcp-xml", "figma-rest"])
+        .optional(),
+      file_name: z.string().optional(),
+      version: z.string().optional(),
+      last_modified: z.string().optional(),
+      scope_node_id: z.string().optional(),
+      enrichment: z
+        .object({
+          libraries: z
+            .union([z.array(z.unknown()), z.record(z.unknown())])
+            .optional(),
+          codeConnect: z.record(z.unknown()).optional(),
+          devResources: z.array(z.unknown()).optional(),
+          devStatusByNode: z.record(z.unknown()).optional(),
+          variableCatalog: z.unknown().optional(),
+        })
+        .optional(),
+      force: z.boolean().optional(),
+    },
+    async ({
+      root_path,
+      figma_url,
+      metadata,
+      format,
+      file_name,
+      version,
+      last_modified,
+      scope_node_id,
+      enrichment,
+      force,
+    }) =>
+      text(
+        await mapFigmaDesign({
+          rootPath: root_path,
+          figmaUrl: figma_url,
+          metadata,
+          ...(format ? { format } : {}),
+          ...(file_name ? { fileName: file_name } : {}),
+          ...(version ? { version } : {}),
+          ...(last_modified ? { lastModified: last_modified } : {}),
+          ...(scope_node_id ? { scopeNodeId: scope_node_id } : {}),
+          ...(enrichment
+            ? {
+                enrichment:
+                  enrichment as NonNullable<
+                    MapFigmaDesignInput["enrichment"]
+                  >,
+              }
+            : {}),
+          ...(force ? { force: true } : {}),
+        }),
+      ),
+  );
+
+  server.tool(
+    "list_figma_indexes",
+    "List compact cached Figma file maps for one repository.",
+    { root_path: z.string() },
+    async ({ root_path }) => text(await listFigmaDesignIndexes(root_path)),
+  );
+
+  server.tool(
+    "find_design_candidates",
+    "Rank a few explainable cached Figma nodes for a task and cross-check them with Component Atlas. Returns a decision/uncertainty gate; it never loads deep node context.",
+    {
+      root_path: z.string(),
+      task: z.string().min(1),
+      figma_file: z.string().optional(),
+      limit: z.number().int().min(1).max(10).optional(),
+    },
+    async ({ root_path, task, figma_file, limit }) =>
+      text(
+        await findTaskDesignCandidates(root_path, task, {
+          ...(figma_file ? { figmaFile: figma_file } : {}),
+          ...(limit ? { limit } : {}),
+        }),
+      ),
+  );
+
+  server.tool(
+    "inspect_design_node",
+    "Inspect one confirmed cached Figma node and return its hierarchy, states, findings, and exact handoff for get_design_context, get_screenshot, and selection variables. Does not call Figma itself.",
+    {
+      root_path: z.string(),
+      figma_file: z.string(),
+      node: z.string().describe("Confirmed node ID, exact name/path, or node URL."),
+    },
+    async ({ root_path, figma_file, node }) =>
+      text(await inspectFigmaDesignNode(root_path, figma_file, node)),
   );
 
   return server;

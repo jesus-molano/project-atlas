@@ -1,0 +1,7 @@
+<canvas id="0:3" name="Account">
+  <section id="40:1" name="Account settings">
+    <frame id="40:2" name="Delete account dialog" x="0" y="0" width="480" height="320" dev-status="READY_FOR_DEV">
+      <instance id="40:3" name="Confirm action button" />
+    </frame>
+  </section>
+</canvas>

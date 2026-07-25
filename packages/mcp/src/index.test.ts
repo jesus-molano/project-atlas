@@ -21,6 +21,9 @@ describe("Component Atlas MCP surface", () => {
       const names = tools.tools.map((tool) => tool.name);
       expect(names).toContain("get_reuse_context");
       expect(names).toContain("scan_repository");
+      expect(names).toContain("map_figma_file");
+      expect(names).toContain("find_design_candidates");
+      expect(names).toContain("inspect_design_node");
       expect(names).not.toContain("get_component_playground");
       expect(names).not.toContain("save_component_scenario");
       expect(
@@ -41,6 +44,19 @@ describe("Component Atlas MCP surface", () => {
           },
         });
       }
+      expect(
+        tools.tools.find((tool) => tool.name === "map_figma_file")?.inputSchema,
+      ).toMatchObject({
+        required: expect.arrayContaining([
+          "root_path",
+          "figma_url",
+          "metadata",
+        ]),
+        properties: {
+          enrichment: { type: "object" },
+          force: { type: "boolean" },
+        },
+      });
     } finally {
       await client.close();
       await server.close();

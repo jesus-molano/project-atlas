@@ -1,0 +1,94 @@
+{
+  "libraries": [
+    {
+      "name": "Storefront UI",
+      "key": "library-storefront",
+      "description": "Shared commerce primitives",
+      "sourceType": "organization"
+    }
+  ],
+  "codeConnect": {
+    "10:11": {
+      "componentName": "UiTextInput",
+      "source": "components/ui/UiTextInput.vue",
+      "label": "Vue"
+    },
+    "10:12": {
+      "componentName": "UiButton",
+      "source": "components/ui/UiButton.vue",
+      "label": "Vue"
+    }
+  },
+  "devResources": [
+    {
+      "node_id": "10:1",
+      "name": "SHOP-142",
+      "url": "https://jira.example.test/browse/SHOP-142"
+    }
+  ],
+  "variableCatalog": {
+    "valuesIncluded": false,
+    "meta": {
+      "variableCollections": {
+        "VariableCollectionId:1": {
+          "id": "VariableCollectionId:1",
+          "name": "Theme",
+          "modes": [
+            {
+              "modeId": "1:0",
+              "name": "Light"
+            },
+            {
+              "modeId": "1:1",
+              "name": "Dark"
+            }
+          ],
+          "variableIds": [
+            "VariableID:1",
+            "VariableID:2"
+          ]
+        }
+      },
+      "variables": {
+        "VariableID:1": {
+          "id": "VariableID:1",
+          "name": "color/surface/default",
+          "variableCollectionId": "VariableCollectionId:1",
+          "resolvedType": "COLOR",
+          "remote": false,
+          "scopes": [
+            "ALL_FILLS"
+          ],
+          "valuesByMode": {
+            "1:0": {
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1
+            },
+            "1:1": {
+              "r": 0.05,
+              "g": 0.06,
+              "b": 0.08,
+              "a": 1
+            }
+          }
+        },
+        "VariableID:2": {
+          "id": "VariableID:2",
+          "name": "space/control/gap",
+          "variableCollectionId": "VariableCollectionId:1",
+          "resolvedType": "FLOAT",
+          "remote": false,
+          "scopes": [
+            "GAP"
+          ],
+          "valuesByMode": {
+            "1:0": 8,
+            "1:1": 8
+          }
+        }
+      }
+    }
+  }
+}

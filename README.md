@@ -16,6 +16,9 @@ The repository contains a working context-engine release:
 - public, feature, and internal scope classification
 - explainable similarity and transitive impact analysis
 - compact reuse-context bundle through CLI and MCP
+- lightweight cached Figma Design Index with explainable task matching
+- optional Ready for dev, Code Connect, library, and variable-catalog signals
+- decision/uncertainty findings with evidence and recommendations
 - explicit reuse/extend/compose/extract/create decision records
 - read-only relationship map
 - reusable `reuse-first` workflow module
@@ -30,6 +33,7 @@ pnpm install
 pnpm build
 pnpm atlas scan /path/to/project
 pnpm atlas context /path/to/project "confirmation dialog for destructive action"
+pnpm atlas figma find /path/to/project "add coupon validation to checkout"
 pnpm atlas open /path/to/project
 ```
 
@@ -48,6 +52,7 @@ repository under the operating system's local application-data directory.
 Running `component-atlas setup` keeps local artifacts globally ignored by Git.
 
 See [docs/architecture.md](docs/architecture.md) for the data model,
+[docs/design-index.md](docs/design-index.md) for the two Figma routes,
 [docs/workflow.md](docs/workflow.md) for the intended agent workflow, and
 [docs/frontend-task-integration.md](docs/frontend-task-integration.md) for the
 future portable skill boundary.

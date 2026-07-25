@@ -25,10 +25,15 @@ import {
 } from "@component-atlas/core";
 import { startMcpServer } from "@component-atlas/mcp";
 import {
+  findTaskDesignCandidates,
   graphSummary,
+  inspectFigmaDesignNode,
+  listFigmaDesignIndexes,
   loadProjectGraph,
+  mapFigmaDesign,
   recordDecision,
   scanProject,
+  type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
 import { Command } from "commander";
 import open from "open";
@@ -315,6 +320,126 @@ export function createProgram(): Command {
             ...(options.author ? { author: options.author } : {}),
           }),
         );
+      },
+    );
+
+  const figma = program
+    .command("figma")
+    .description("Build and query the local lightweight Figma Design Index.");
+
+  figma
+    .command("map")
+    .argument("<path>", "repository root")
+    .argument("<figma-url>", "Figma file, page, or node URL")
+    .requiredOption(
+      "--metadata <file>",
+      "file containing get_metadata XML or Figma REST JSON",
+    )
+    .option(
+      "--format <format>",
+      "auto, figma-mcp-xml, or figma-rest",
+      "auto",
+    )
+    .option("--file-name <name>", "Figma file name")
+    .option("--file-version <version>", "Figma file version")
+    .option("--last-modified <date>", "Figma lastModified value")
+    .option("--scope-node <id>", "page or node covered by this metadata")
+    .option(
+      "--enrichment <file>",
+      "optional JSON with status, resources, libraries, Code Connect, or variables",
+    )
+    .option("--force", "reprocess an unchanged metadata snapshot")
+    .description("Create or incrementally update one cached Figma map.")
+    .action(
+      async (
+        rootPath: string,
+        figmaUrl: string,
+        options: {
+          metadata: string;
+          format: "auto" | "figma-mcp-xml" | "figma-rest";
+          fileName?: string;
+          fileVersion?: string;
+          lastModified?: string;
+          scopeNode?: string;
+          enrichment?: string;
+          force?: boolean;
+        },
+      ) => {
+        if (
+          !["auto", "figma-mcp-xml", "figma-rest"].includes(options.format)
+        ) {
+          throw new Error(
+            `Invalid Figma metadata format "${options.format}".`,
+          );
+        }
+        const metadata = await readFile(path.resolve(options.metadata), "utf8");
+        const enrichment = options.enrichment
+          ? (JSON.parse(
+              await readFile(path.resolve(options.enrichment), "utf8"),
+            ) as NonNullable<MapFigmaDesignInput["enrichment"]>)
+          : undefined;
+        printJson(
+          await mapFigmaDesign({
+            rootPath,
+            figmaUrl,
+            metadata,
+            format: options.format,
+            ...(options.fileName ? { fileName: options.fileName } : {}),
+            ...(options.fileVersion ? { version: options.fileVersion } : {}),
+            ...(options.lastModified
+              ? { lastModified: options.lastModified }
+              : {}),
+            ...(options.scopeNode ? { scopeNodeId: options.scopeNode } : {}),
+            ...(enrichment ? { enrichment } : {}),
+            ...(options.force ? { force: true } : {}),
+          }),
+        );
+      },
+    );
+
+  figma
+    .command("list")
+    .argument("<path>", "repository root")
+    .description("List cached Figma maps without loading their full nodes.")
+    .action(async (rootPath: string) => {
+      printJson(await listFigmaDesignIndexes(rootPath));
+    });
+
+  figma
+    .command("find")
+    .argument("<path>", "repository root")
+    .argument("<task>", "task or implementation intent")
+    .option("--file <figma-file>", "Figma URL or file key")
+    .option("-l, --limit <number>", "maximum candidates", "5")
+    .description(
+      "Rank a few explainable design candidates using Figma and Atlas signals.",
+    )
+    .action(
+      async (
+        rootPath: string,
+        task: string,
+        options: { file?: string; limit: string },
+      ) => {
+        printJson(
+          await findTaskDesignCandidates(rootPath, task, {
+            ...(options.file ? { figmaFile: options.file } : {}),
+            limit: parseLimit(options.limit, 10),
+          }),
+        );
+      },
+    );
+
+  figma
+    .command("inspect")
+    .argument("<path>", "repository root")
+    .argument("<figma-file>", "Figma URL or file key")
+    .argument("<node>", "confirmed node ID, exact name, path, or node URL")
+    .description(
+      "Inspect one confirmed cached node and return its deep-context handoff.",
+    )
+    .action(
+      async (rootPath: string, figmaFile: string, node: string) => {
+        printJson(await inspectFigmaDesignNode(rootPath, figmaFile, node));
       },
     );
 

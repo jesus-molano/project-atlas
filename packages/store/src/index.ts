@@ -12,6 +12,7 @@ import {
   type GraphEdge,
   type ProjectMetadata,
 } from "@component-atlas/core";
+import type { DesignFileIndex } from "@component-atlas/design";
 
 interface ProjectRow {
   id: string;
@@ -105,6 +106,17 @@ export class AtlasStore {
         decision TEXT NOT NULL,
         payload TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS design_indexes (
+        project_id TEXT NOT NULL,
+        file_key TEXT NOT NULL,
+        version TEXT,
+        last_modified TEXT,
+        indexed_at TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (project_id, file_key)
+      );
+      CREATE INDEX IF NOT EXISTS design_indexes_project
+        ON design_indexes(project_id, indexed_at);
     `);
   }
 
@@ -241,6 +253,49 @@ export class AtlasStore {
       )
       .all(projectId) as unknown as JsonRow[];
     return rows.map((row) => JSON.parse(row.payload) as ComponentDecision);
+  }
+
+  saveDesignIndex(projectId: string, index: DesignFileIndex): void {
+    this.database
+      .prepare(`
+        INSERT INTO design_indexes (
+          project_id, file_key, version, last_modified, indexed_at, payload
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, file_key) DO UPDATE SET
+          version = excluded.version,
+          last_modified = excluded.last_modified,
+          indexed_at = excluded.indexed_at,
+          payload = excluded.payload
+      `)
+      .run(
+        projectId,
+        index.file.key,
+        index.file.version ?? null,
+        index.file.lastModified ?? null,
+        index.indexedAt,
+        JSON.stringify(index),
+      );
+  }
+
+  loadDesignIndex(
+    projectId: string,
+    fileKey: string,
+  ): DesignFileIndex | undefined {
+    const row = this.database
+      .prepare(
+        "SELECT payload FROM design_indexes WHERE project_id = ? AND file_key = ?",
+      )
+      .get(projectId, fileKey) as JsonRow | undefined;
+    return row ? (JSON.parse(row.payload) as DesignFileIndex) : undefined;
+  }
+
+  listDesignIndexes(projectId: string): DesignFileIndex[] {
+    const rows = this.database
+      .prepare(
+        "SELECT payload FROM design_indexes WHERE project_id = ? ORDER BY indexed_at DESC",
+      )
+      .all(projectId) as unknown as JsonRow[];
+    return rows.map((row) => JSON.parse(row.payload) as DesignFileIndex);
   }
 
   close(): void {

@@ -13,6 +13,7 @@ import {
   GRAPH_SCHEMA_VERSION,
   buildGraphEdges,
   projectId,
+  searchComponentContext,
   slash,
   type ComponentDecision,
   type ComponentGraph,
@@ -21,6 +22,22 @@ import {
   type DecisionKind,
   type Framework,
 } from "@component-atlas/core";
+import {
+  buildFigmaDesignIndex,
+  decisionGate,
+  designIndexSummary,
+  inspectDesignNode,
+  isDesignSnapshotCurrent,
+  mergeDesignIndexes,
+  parseFigmaReference,
+  rankDesignCandidates,
+  type BuildFigmaDesignIndexInput,
+  type DesignCandidateResult,
+  type DesignFileIndex,
+  type DesignFinding,
+  type DesignIndexSummary,
+  type DesignNodeInspection,
+} from "@component-atlas/design";
 import { AtlasStore } from "@component-atlas/store";
 
 interface PackageJson {
@@ -43,6 +60,27 @@ export interface RecordDecisionInput {
   rejectedComponentIds?: string[];
   rationale: string;
   author?: string;
+}
+
+export interface MapFigmaDesignInput extends BuildFigmaDesignIndexInput {
+  rootPath: string;
+  force?: boolean;
+}
+
+export interface MapFigmaDesignResult {
+  status: "created" | "updated" | "unchanged";
+  summary: DesignIndexSummary;
+}
+
+export interface TaskDesignCandidateResult extends DesignCandidateResult {
+  task: string;
+  project: {
+    name: string;
+    framework: Framework;
+    scannedAt: string;
+  };
+  designFile: DesignFileIndex["file"];
+  atlasCandidates: ReturnType<typeof searchComponentContext>;
 }
 
 async function exists(filePath: string): Promise<boolean> {
@@ -340,4 +378,170 @@ export function graphSummary(graph: ComponentGraph): Record<string, unknown> {
     tokens: graph.tokens.length,
     scannedAt: graph.project.scannedAt,
   };
+}
+
+export async function mapFigmaDesign(
+  input: MapFigmaDesignInput,
+): Promise<MapFigmaDesignResult> {
+  const rootPath = path.resolve(input.rootPath);
+  const graph = await loadProjectGraph(rootPath);
+  const incoming = buildFigmaDesignIndex(input);
+  const store = new AtlasStore(graph.project.id);
+  try {
+    const existing = store.loadDesignIndex(
+      graph.project.id,
+      incoming.file.key,
+    );
+    if (
+      existing &&
+      !input.force &&
+      isDesignSnapshotCurrent(existing, incoming)
+    ) {
+      return { status: "unchanged", summary: designIndexSummary(existing) };
+    }
+    const next = existing
+      ? mergeDesignIndexes(existing, incoming)
+      : incoming;
+    store.saveDesignIndex(graph.project.id, next);
+    return {
+      status: existing ? "updated" : "created",
+      summary: designIndexSummary(next),
+    };
+  } finally {
+    store.close();
+  }
+}
+
+export async function listFigmaDesignIndexes(
+  rootPath: string,
+): Promise<DesignIndexSummary[]> {
+  const graph = await loadProjectGraph(rootPath);
+  const store = new AtlasStore(graph.project.id);
+  try {
+    return store
+      .listDesignIndexes(graph.project.id)
+      .map(designIndexSummary);
+  } finally {
+    store.close();
+  }
+}
+
+export async function loadFigmaDesignIndex(
+  rootPath: string,
+  figmaFile: string,
+): Promise<DesignFileIndex> {
+  const graph = await loadProjectGraph(rootPath);
+  const reference = parseFigmaReference(figmaFile);
+  const store = new AtlasStore(graph.project.id);
+  try {
+    const index = store.loadDesignIndex(graph.project.id, reference.fileKey);
+    if (!index) {
+      throw new Error(
+        `No Design Index exists for Figma file ${reference.fileKey}. Map its sparse metadata first.`,
+      );
+    }
+    return index;
+  } finally {
+    store.close();
+  }
+}
+
+export async function findTaskDesignCandidates(
+  rootPath: string,
+  task: string,
+  options: { figmaFile?: string; limit?: number } = {},
+): Promise<TaskDesignCandidateResult> {
+  const graph = await loadProjectGraph(rootPath);
+  const store = new AtlasStore(graph.project.id);
+  let designIndex: DesignFileIndex;
+  try {
+    const indexes = store.listDesignIndexes(graph.project.id);
+    if (options.figmaFile) {
+      const reference = parseFigmaReference(options.figmaFile);
+      const selected = indexes.find(
+        (index) => index.file.key === reference.fileKey,
+      );
+      if (!selected) {
+        throw new Error(
+          `No Design Index exists for Figma file ${reference.fileKey}.`,
+        );
+      }
+      designIndex = selected;
+    } else {
+      if (indexes.length === 0) {
+        throw new Error(
+          "No Figma Design Index exists for this repository. Map one file before requesting design candidates.",
+        );
+      }
+      if (indexes.length > 1) {
+        throw new Error(
+          `This repository has ${indexes.length} Figma indexes. Specify figma_file to keep candidate ranking explicit.`,
+        );
+      }
+      designIndex = indexes[0]!;
+    }
+  } finally {
+    store.close();
+  }
+  const atlasCandidates = searchComponentContext(graph, task, 3);
+  const result = rankDesignCandidates(designIndex, task, {
+    ...(options.limit ? { limit: options.limit } : {}),
+    codeSignals: atlasCandidates.map(
+      (candidate) => candidate.component.name,
+    ),
+  });
+  const apiFindings = atlasCandidates.flatMap((candidate): DesignFinding[] => {
+    const component = graph.components.find(
+      (item) => item.id === candidate.component.id,
+    );
+    if (!component) return [];
+    const booleanProps = component.props.filter((prop) =>
+      /\bboolean\b/i.test(prop.type),
+    );
+    if (component.props.length < 12 && booleanProps.length < 4) return [];
+    return [
+      {
+        id: `suspicious-component-api:${component.id}`,
+        level: "warning",
+        code: "suspicious-component-api",
+        title: `Existing component API may be costly to extend: ${component.effectiveName}`,
+        evidence: [
+          `${component.relativePath} exposes ${component.props.length} props.`,
+          ...(booleanProps.length >= 4
+            ? [
+                `Boolean variants: ${booleanProps
+                  .slice(0, 8)
+                  .map((prop) => prop.name)
+                  .join(", ")}.`,
+              ]
+            : []),
+        ],
+        recommendation:
+          "Inspect responsibility and change impact before adding another prop; prefer composition or extraction when the new behavior is independent.",
+      },
+    ];
+  });
+  const findings = [...result.findings, ...apiFindings];
+  return {
+    task: task.trim(),
+    project: {
+      name: graph.project.name,
+      framework: graph.project.framework,
+      scannedAt: graph.project.scannedAt,
+    },
+    designFile: designIndex.file,
+    atlasCandidates,
+    candidates: result.candidates,
+    findings,
+    gate: decisionGate(findings),
+  };
+}
+
+export async function inspectFigmaDesignNode(
+  rootPath: string,
+  figmaFile: string,
+  selector: string,
+): Promise<DesignNodeInspection> {
+  const index = await loadFigmaDesignIndex(rootPath, figmaFile);
+  return inspectDesignNode(index, selector);
 }

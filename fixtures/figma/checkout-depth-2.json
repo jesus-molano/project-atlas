@@ -1,0 +1,119 @@
+{
+  "name": "Storefront product",
+  "version": "v42",
+  "lastModified": "2026-07-24T10:00:00Z",
+  "document": {
+    "id": "0:0",
+    "name": "Document",
+    "type": "DOCUMENT",
+    "children": [
+      {
+        "id": "0:1",
+        "name": "Checkout",
+        "type": "CANVAS",
+        "children": [
+          {
+            "id": "10:1",
+            "name": "Checkout / Promo code",
+            "type": "FRAME",
+            "devStatus": {
+              "type": "READY_FOR_DEV",
+              "description": "Add coupon validation and pending state"
+            },
+            "annotations": [
+              {
+                "label": "Behavior",
+                "properties": [
+                  {
+                    "type": "text",
+                    "text": "Invalid codes keep the field visible and show an inline error"
+                  }
+                ]
+              }
+            ],
+            "children": [
+              {
+                "id": "10:11",
+                "name": "Text input",
+                "type": "INSTANCE",
+                "componentId": "30:1"
+              },
+              {
+                "id": "10:12",
+                "name": "Apply button",
+                "type": "INSTANCE",
+                "componentId": "30:2"
+              }
+            ]
+          },
+          {
+            "id": "10:2",
+            "name": "Checkout mobile / Promo code",
+            "type": "FRAME",
+            "children": [
+              {
+                "id": "10:21",
+                "name": "Text input",
+                "type": "INSTANCE",
+                "componentId": "30:1"
+              }
+            ]
+          },
+          {
+            "id": "10:3",
+            "name": "Checkout / Summary",
+            "type": "FRAME",
+            "devStatus": {
+              "type": "COMPLETED"
+            }
+          }
+        ]
+      },
+      {
+        "id": "0:2",
+        "name": "Library",
+        "type": "CANVAS",
+        "children": [
+          {
+            "id": "30:3",
+            "name": "Text input",
+            "type": "COMPONENT_SET",
+            "componentPropertyDefinitions": {
+              "State": {
+                "type": "VARIANT"
+              },
+              "Size": {
+                "type": "VARIANT"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "components": {
+    "30:1": {
+      "name": "Text input / Default",
+      "description": "Shared text input",
+      "componentSetId": "30:3"
+    },
+    "30:2": {
+      "name": "Button / Primary",
+      "description": "Primary action"
+    }
+  },
+  "componentSets": {
+    "30:3": {
+      "name": "Text input",
+      "description": "Input states and sizes",
+      "componentPropertyDefinitions": {
+        "State": {
+          "type": "VARIANT"
+        },
+        "Size": {
+          "type": "VARIANT"
+        }
+      }
+    }
+  }
+}

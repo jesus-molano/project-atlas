@@ -49,6 +49,15 @@ Use the equivalent CLI commands from `references/tool-map.md` when MCP is not
 available. If neither is available, search the repository manually and still
 write the five-way decision before implementation.
 
+## Use optional design evidence
+
+When the parent workflow supplies Figma context, prefer a confirmed node. If it
+supplies only a file/page, use `find_design_candidates` and respect its gate:
+stop for `decision-required`, report `warning` with its recommendation, and keep
+`resolved` findings as non-blocking evidence. Do not request deep design
+context, variables, or a screenshot until the node is confirmed. Missing Figma
+or global Variables access does not block the component gate.
+
 ## Integration boundary
 
 This workflow is the component-decision module for a future global

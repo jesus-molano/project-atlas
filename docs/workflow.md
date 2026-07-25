@@ -55,6 +55,17 @@ component-atlas open "C:\path\to\repo"
 These queries return compact agent context. Add `--raw` only when debugging an
 incorrect index result, not while deciding whether to reuse a component.
 
+Optional Figma context:
+
+```powershell
+component-atlas figma map "C:\path\to\repo" "<figma-url>" `
+  --metadata ".\figma-metadata.xml" `
+  --format figma-mcp-xml `
+  --scope-node "12:34"
+component-atlas figma find "C:\path\to\repo" "add coupon validation to checkout"
+component-atlas figma inspect "C:\path\to\repo" "<figma-file>" "12:34"
+```
+
 Record a decision:
 
 ```powershell
@@ -67,6 +78,7 @@ component-atlas decision "C:\path\to\repo" `
 
 ## Current boundary
 
-Jira, Confluence, Figma links, screenshots, and pasted text are task context
-owned by the calling agent or future `frontend-task` skill. Atlas itself indexes
-only local source code and never assumes a connector is installed.
+Jira, Confluence, screenshots, and pasted text remain task context owned by the
+calling agent or future `frontend-task` skill. Atlas indexes local source code
+and can cache sparse Figma metadata supplied by that agent; it never assumes a
+connector, credential, Code Connect mapping, or Variables permission exists.
