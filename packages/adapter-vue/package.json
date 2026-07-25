@@ -20,7 +20,7 @@
     "@vue/compiler-dom": "^3.5.0",
     "@vue/compiler-sfc": "^3.5.0",
     "fast-glob": "^3.3.3",
-    "typescript": "^5.9.0"
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0"

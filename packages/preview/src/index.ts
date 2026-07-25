@@ -12,7 +12,6 @@ import {
   type Plugin,
   type ViteDevServer,
 } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { styleFidelityPlugin } from "./style-fidelity.js";
 
 export interface PreviewServerOptions {
@@ -450,9 +449,9 @@ export async function startPreviewServer(
     resolve: {
       alias: runtimeAliases(rootPath, options.framework),
       preserveSymlinks: true,
+      tsconfigPaths: true,
     },
     plugins: [
-      tsconfigPaths({ root: rootPath }),
       styleFidelityPlugin(rootPath, styles),
       frameworkPlugin,
       atlasPlugin(options.framework, styles, viewerOrigin),

@@ -4,6 +4,14 @@
 
 Requirements: Node 24+ and pnpm.
 
+The workspace currently resolves Nuxt 4.5.0, TypeScript 7.0.2, and Vite 8.1.5.
+TypeScript 7.0 is the workspace compiler. Because 7.0 does not yet ship a
+stable programmatic Compiler API, the React and Vue AST adapters follow the
+official side-by-side migration: they import the TypeScript 6 compatibility
+package while package builds and typechecks run with the TypeScript 7 `tsc`.
+Vite uses its native `resolve.tsconfigPaths` support rather than the legacy
+`vite-tsconfig-paths` plugin.
+
 ```powershell
 cd "C:\Users\jessu\dev\component-atlas"
 pnpm install

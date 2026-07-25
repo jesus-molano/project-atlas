@@ -10,6 +10,7 @@ coding agents a reuse-first workflow.
 
 This repository contains a working local-first release:
 
+- Nuxt 4.5, TypeScript 7, and Vite 8 toolchain
 - Vue/Nuxt and React/Next static analyzers
 - SQLite-backed local graph
 - inferred prop controls and semantic CSS-token discovery
