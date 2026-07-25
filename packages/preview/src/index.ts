@@ -13,6 +13,7 @@ import {
   type ViteDevServer,
 } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+import { styleFidelityPlugin } from "./style-fidelity.js";
 
 export interface PreviewServerOptions {
   rootPath: string;
@@ -452,6 +453,7 @@ export async function startPreviewServer(
     },
     plugins: [
       tsconfigPaths({ root: rootPath }),
+      styleFidelityPlugin(rootPath, styles),
       frameworkPlugin,
       atlasPlugin(options.framework, styles, viewerOrigin),
     ],

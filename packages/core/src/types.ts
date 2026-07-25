@@ -101,11 +101,28 @@ export interface PreviewScenario {
   notes?: string;
 }
 
+export type PreviewStylePipeline =
+  | "tailwind-v4"
+  | "tailwind-v3"
+  | "project-css"
+  | "none"
+  | "unknown";
+
+export interface PreviewStyleEnvironment {
+  pipeline: PreviewStylePipeline;
+  entryPoints: string[];
+  sourceRegistration:
+    | "project-root"
+    | "project-config"
+    | "not-applicable";
+}
+
 export interface ComponentPlaygroundContract {
   component: ComponentNode;
   controls: PreviewControl[];
   tokens: DesignToken[];
   scenarios: PreviewScenario[];
+  styling: PreviewStyleEnvironment;
   renderable: boolean;
   renderabilityReason?: string;
 }

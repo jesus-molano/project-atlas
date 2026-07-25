@@ -147,7 +147,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     "get_component_playground",
-    "Return inferred controls, semantic design tokens, renderability, and saved preview scenarios for a component.",
+    "Return inferred controls, semantic design tokens, CSS pipeline fidelity, renderability, and saved preview scenarios for a component.",
     {
       root_path: z.string(),
       component: z.string(),

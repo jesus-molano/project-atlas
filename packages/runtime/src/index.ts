@@ -24,6 +24,7 @@ import {
   type DecisionKind,
   type Framework,
   type PreviewScenario,
+  type PreviewStyleEnvironment,
   type PreviewViewport,
 } from "@component-atlas/core";
 import { AtlasStore } from "@component-atlas/store";
@@ -62,6 +63,18 @@ export interface SavePreviewScenarioInput {
   notes?: string;
 }
 
+const PREVIEW_STYLE_CANDIDATES = [
+  "app/assets/css/main.css",
+  "app/assets/css/app.css",
+  "assets/css/main.css",
+  "assets/css/app.css",
+  "styles/main.css",
+  "src/app/globals.css",
+  "app/globals.css",
+  "src/styles/globals.css",
+  "styles/globals.css",
+];
+
 async function exists(filePath: string): Promise<boolean> {
   try {
     await access(filePath);
@@ -78,6 +91,49 @@ async function packageJson(rootPath: string): Promise<PackageJson> {
   } catch (error) {
     throw new Error(`Cannot read ${filePath}: ${String(error)}`);
   }
+}
+
+export async function detectPreviewStyleEnvironment(
+  inputPath: string,
+): Promise<PreviewStyleEnvironment> {
+  const rootPath = path.resolve(inputPath);
+  const entries: string[] = [];
+  const contents: string[] = [];
+  for (const candidate of PREVIEW_STYLE_CANDIDATES) {
+    const filePath = path.join(rootPath, candidate);
+    if (!(await exists(filePath))) continue;
+    entries.push(slash(path.relative(rootPath, filePath)));
+    contents.push(await readFile(filePath, "utf8"));
+  }
+
+  const manifest = await packageJson(rootPath);
+  const dependencies = {
+    ...manifest.dependencies,
+    ...manifest.devDependencies,
+  };
+  const tailwindVersion = dependencies.tailwindcss;
+  const usesTailwindImport = contents.some((content) =>
+    /@import\s+(?:url\(\s*)?["']tailwindcss["']/.test(content),
+  );
+  const pipeline =
+    usesTailwindImport || /^(\^|~|>=?)?4(?:\.|$)/.test(tailwindVersion ?? "")
+      ? "tailwind-v4"
+      : tailwindVersion
+        ? "tailwind-v3"
+        : entries.length > 0
+          ? "project-css"
+          : "none";
+
+  return {
+    pipeline,
+    entryPoints: entries,
+    sourceRegistration:
+      pipeline === "tailwind-v4"
+        ? "project-root"
+        : pipeline === "tailwind-v3"
+          ? "project-config"
+          : "not-applicable",
+  };
 }
 
 function tokenKind(name: string, value: string): DesignTokenKind {
@@ -368,7 +424,8 @@ export async function getComponentPlayground(
     throw new Error(`Component "${componentSelector}" was not found.`);
   }
   const scenarios = await listPreviewScenarios(inputPath, component.id);
-  return buildPlaygroundContract(graph, component, scenarios);
+  const styling = await detectPreviewStyleEnvironment(graph.project.rootPath);
+  return buildPlaygroundContract(graph, component, scenarios, styling);
 }
 
 export async function savePreviewScenario(

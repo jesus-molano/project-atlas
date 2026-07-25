@@ -699,6 +699,22 @@ kbd {
   box-shadow: 0 0 0 3px rgba(226, 119, 91, 0.1);
 }
 
+.style-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--blue) 24%, var(--line));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--blue) 78%, var(--muted));
+  background: color-mix(in srgb, var(--blue) 5%, transparent);
+  font-family: "DM Mono", monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .lab-commandbar {
   min-width: 0;
   min-height: 46px;

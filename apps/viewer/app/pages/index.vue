@@ -10,11 +10,15 @@ import {
   type DesignToken,
   type PreviewControl,
   type PreviewScenario,
+  type PreviewStyleEnvironment,
   type PreviewViewport,
 } from "@component-atlas/core/browser";
 
 const { data: graph, error, refresh } = await useFetch<ComponentGraph>("/api/graph");
-const { data: runtime } = await useFetch<{ previewOrigin: string }>("/api/runtime");
+const { data: runtime } = await useFetch<{
+  previewOrigin: string;
+  styling: PreviewStyleEnvironment;
+}>("/api/runtime");
 
 const mode = ref<"map" | "lab">("lab");
 const query = ref("");
@@ -157,11 +161,21 @@ const agentContract = computed(() =>
       tokens: tokenOverrides.value,
       viewport: viewport.value,
       background: background.value,
+      styling: runtime.value?.styling,
     },
     null,
     2,
   ),
 );
+
+const stylePipelineLabel = computed(() => {
+  const pipeline = runtime.value?.styling.pipeline;
+  if (pipeline === "tailwind-v4") return "TW4 · FULL SOURCE";
+  if (pipeline === "tailwind-v3") return "TW3 · PROJECT CONFIG";
+  if (pipeline === "project-css") return "PROJECT CSS";
+  if (pipeline === "none") return "NO GLOBAL CSS";
+  return "CSS · CHECKING";
+});
 
 function selectComponent(component: ComponentNode): void {
   selectedId.value = component.id;
@@ -451,6 +465,12 @@ function setPreviewStatus(
               <span :class="['render-status', previewStatus]">
                 <i />
                 {{ previewStatus }}
+              </span>
+              <span
+                class="style-status"
+                :title="runtime?.styling.entryPoints.join(', ')"
+              >
+                {{ stylePipelineLabel }}
               </span>
             </div>
           </header>

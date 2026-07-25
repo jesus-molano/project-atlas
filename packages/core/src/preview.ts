@@ -6,6 +6,7 @@ import type {
   DesignToken,
   PreviewControl,
   PreviewScenario,
+  PreviewStyleEnvironment,
 } from "./types.js";
 
 function titleCase(value: string): string {
@@ -164,6 +165,11 @@ export function buildPlaygroundContract(
   graph: ComponentGraph,
   component: ComponentNode,
   scenarios: PreviewScenario[] = [],
+  styling: PreviewStyleEnvironment = {
+    pipeline: "unknown",
+    entryPoints: [],
+    sourceRegistration: "not-applicable",
+  },
 ): ComponentPlaygroundContract {
   const renderable = component.framework === "vue" || component.exported;
   return {
@@ -173,6 +179,7 @@ export function buildPlaygroundContract(
     scenarios: scenarios.filter(
       (scenario) => scenario.componentId === component.id,
     ),
+    styling,
     renderable,
     ...(!renderable
       ? {

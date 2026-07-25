@@ -45,6 +45,9 @@ flowchart LR
   scenarios, artifacts, and decision records.
 - `preview`: loopback-only Vite runtime that imports components from their real
   repository and streams prop, token, background, viewport, and action state.
+  It reuses the target project's PostCSS pipeline and explicitly registers that
+  project as a Tailwind v4 source, preserving complete utility CSS without
+  changing the target repository.
 - `cli`: human and script interface.
 - `mcp`: agent-facing tools over stdio.
 - `viewer`: local Nuxt application with a relationship Map and interactive
