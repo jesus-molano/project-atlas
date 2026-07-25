@@ -13,7 +13,8 @@ flowchart LR
   A[.component-atlas catalog and decisions]
   C[CLI]
   M[MCP server]
-  W[Nuxt graph viewer]
+  P[Vite preview runtime]
+  W[Nuxt Map and Lab viewer]
   K[reuse-first skill]
 
   R --> V
@@ -25,23 +26,30 @@ flowchart LR
   S --> C
   S --> M
   S --> W
+  R --> P
+  P --> W
   K --> M
   K -. fallback .-> C
 ```
 
 ## Package boundaries
 
-- `core`: graph schema, search, explainable similarity, and impact traversal.
+- `core`: graph schema, search, explainable similarity, impact traversal, and
+  framework-neutral playground contracts.
 - `adapter-vue`: Vue SFC macros, templates, Nuxt runtime names, autoimports, and
   mirrored tests.
 - `adapter-react`: exported and file-local React components, props, JSX
   composition, styling tokens, and tests.
 - `store`: SQLite persistence using Node's built-in `node:sqlite`.
-- `runtime`: detection, indexing orchestration, artifacts, and decision records.
+- `runtime`: detection, indexing orchestration, design-token discovery,
+  scenarios, artifacts, and decision records.
+- `preview`: loopback-only Vite runtime that imports components from their real
+  repository and streams prop, token, background, viewport, and action state.
 - `cli`: human and script interface.
 - `mcp`: agent-facing tools over stdio.
-- `viewer`: read-only local Nuxt application. It reads the database through a
-  minimal server boundary and does not bundle the analyzers.
+- `viewer`: local Nuxt application with a relationship Map and interactive
+  component Lab. It reads the database through a minimal server boundary and
+  persists only explicit preview scenarios.
 
 ## Graph model
 
@@ -52,6 +60,12 @@ A component node records:
 - props, emits, slots, and models;
 - rendered component names and imports;
 - tests, source location, class tokens, and a content hash.
+
+The project graph also records CSS custom properties as semantic design tokens.
+Each component playground contract combines the indexed component, inferred
+controls, relevant tokens, renderability, and saved scenarios. The contract is
+plain JSON so the viewer, CLI, Codex, and Claude can share exactly the same
+state.
 
 The graph currently has three edge types:
 
@@ -84,7 +98,8 @@ The analyzed repository receives only:
 .component-atlas/
 ├── project.json
 ├── catalog.md
-└── decisions/
+├── decisions/
+└── scenarios/
 ```
 
 The CLI setup command adds `.component-atlas/` to the Git global excludes file.

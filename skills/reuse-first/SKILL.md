@@ -14,25 +14,34 @@ create a component until the discovery and decision gate is complete.
    and expected interactions.
 2. Interrogate missing requirements before choosing an implementation:
    accessibility, empty/loading/error states, responsive behavior, variants,
-   ownership, reuse horizon, and API constraints. Ask only questions whose
-   answers can change the component decision; group them into one compact batch.
+   ownership, reuse horizon, and API constraints. Challenge ambiguous or
+   contradictory assumptions. Ask only questions whose answers can change the
+   component decision; group them into one compact batch.
 3. Refresh the index with `scan_repository`.
 4. Run two to four focused `search_components` queries. Include the visual
    pattern, domain intent, likely props, and known design-system primitive.
 5. Inspect plausible results with `get_component`. For the strongest candidate,
    call `find_similar_components` and `list_component_usages`.
-6. If extending a public API, call `analyze_prop_change_impact` before editing.
-7. Choose exactly one decision:
+6. Call `get_component_playground` for the strongest candidate. Inspect inferred
+   controls, semantic tokens, renderability, and existing scenarios. Use these
+   concrete inputs to expose missing variants, states, copy, viewport behavior,
+   or provider requirements before deciding.
+7. Save a target state with `save_component_scenario` when props, tokens, or
+   responsive behavior materially define acceptance. Name the state by intent,
+   not implementation, such as `Danger / disabled` or `Mobile / empty`.
+8. If extending a public API, call `analyze_prop_change_impact` before editing.
+9. Choose exactly one decision:
    - `reuse`: use the existing API unchanged.
    - `extend`: add a cohesive backward-compatible variant or prop.
    - `compose`: combine existing primitives without changing their APIs.
    - `extract-and-reuse`: move a useful private pattern behind a shared API.
    - `create`: no candidate has the same responsibility or can evolve cleanly.
-8. Call `record_component_decision` with selected and rejected component IDs
+10. Call `record_component_decision` with selected and rejected component IDs
    plus concrete evidence. A `create` rationale must name the nearest rejected
    candidates and explain why extension or composition would be harmful.
-9. Implement the recorded decision, refresh the index, and inspect the changed
-   component and its impact.
+11. Implement the recorded decision, refresh the index, and inspect the changed
+   component, playground, saved state, and impact. Update the scenario if the
+   validated contract differs from the draft.
 
 ## Apply scope rules
 
@@ -56,4 +65,5 @@ write the five-way decision before implementation.
 ## Report the gate
 
 In the implementation summary, include the decision, selected component, nearest
-rejected alternative, and validation performed. Keep the graph evidence concise.
+rejected alternative, saved scenario or validated state, and validation
+performed. Keep the graph evidence concise.

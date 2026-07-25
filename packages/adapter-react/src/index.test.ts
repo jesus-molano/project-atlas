@@ -19,6 +19,17 @@ describe("ReactAdapter", () => {
     expect(button?.visibility).toBe("public");
     expect(button?.slots).toContain("children");
     expect(button?.testPaths).toHaveLength(1);
+    expect(button?.props).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "children", required: true }),
+        expect.objectContaining({
+          name: "variant",
+          type: '"primary" | "danger"',
+          defaultValue: '"primary"',
+        }),
+        expect.objectContaining({ name: "disabled", required: false }),
+      ]),
+    );
     expect(salary?.renderedNames).toEqual(
       expect.arrayContaining(["DialogSummary", "Button"]),
     );

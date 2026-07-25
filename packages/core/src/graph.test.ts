@@ -69,6 +69,7 @@ describe("component graph", () => {
       },
       components: [salary, savings, modal],
       edges: buildGraphEdges([salary, savings, modal]),
+      tokens: [],
     };
     expect(searchComponents(graph, "salary")[0]?.component.name).toBe(
       "MonthlySalaryDialog",

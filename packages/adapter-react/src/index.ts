@@ -51,24 +51,42 @@ function resolveProps(
   node: ts.TypeNode | undefined,
   source: ts.SourceFile,
   declarations: Map<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration>,
+  visited = new Set<string>(),
 ): ComponentProp[] {
   if (!node) return [];
+  if (ts.isIntersectionTypeNode(node) || ts.isUnionTypeNode(node)) {
+    const props = node.types.flatMap((type) =>
+      resolveProps(type, source, declarations, visited),
+    );
+    return [...new Map(props.map((prop) => [prop.name, prop])).values()];
+  }
   let members: ts.NodeArray<ts.TypeElement> | undefined;
+  const inherited: ComponentProp[] = [];
   if (ts.isTypeLiteralNode(node)) members = node.members;
   if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
-    const declaration = declarations.get(node.typeName.text);
+    const referenceName = node.typeName.text;
+    if (visited.has(referenceName)) return [];
+    visited.add(referenceName);
+    const declaration = declarations.get(referenceName);
     if (declaration && ts.isInterfaceDeclaration(declaration)) {
       members = declaration.members;
-    } else if (
-      declaration &&
-      ts.isTypeAliasDeclaration(declaration) &&
-      ts.isTypeLiteralNode(declaration.type)
-    ) {
-      members = declaration.type.members;
+      for (const clause of declaration.heritageClauses ?? []) {
+        for (const type of clause.types) {
+          inherited.push(
+            ...resolveProps(type, source, declarations, new Set(visited)),
+          );
+        }
+      }
+    } else if (declaration && ts.isTypeAliasDeclaration(declaration)) {
+      return resolveProps(
+        declaration.type,
+        source,
+        declarations,
+        new Set(visited),
+      );
     }
   }
-  if (!members) return [];
-  return members.flatMap((member) => {
+  const own = (members ?? []).flatMap((member) => {
     if (!ts.isPropertySignature(member)) return [];
     const name = propertyName(member.name);
     if (!name) return [];
@@ -80,6 +98,41 @@ function resolveProps(
       },
     ];
   });
+  return [
+    ...new Map([...inherited, ...own].map((prop) => [prop.name, prop])).values(),
+  ];
+}
+
+function withParameterDefaults(
+  props: ComponentProp[],
+  parameter: ts.ParameterDeclaration | undefined,
+  source: ts.SourceFile,
+): ComponentProp[] {
+  if (!parameter || !ts.isObjectBindingPattern(parameter.name)) return props;
+  const resolved = new Map(props.map((prop) => [prop.name, prop]));
+  for (const element of parameter.name.elements) {
+    if (element.dotDotDotToken || !ts.isIdentifier(element.name)) continue;
+    const name =
+      element.propertyName && ts.isIdentifier(element.propertyName)
+        ? element.propertyName.text
+        : element.name.text;
+    const defaultValue = element.initializer?.getText(source);
+    const known = resolved.get(name);
+    if (known) {
+      resolved.set(
+        name,
+        defaultValue === undefined ? known : { ...known, defaultValue },
+      );
+    } else {
+      resolved.set(name, {
+        name,
+        type: name === "children" ? "React.ReactNode" : "unknown",
+        required: false,
+        ...(defaultValue === undefined ? {} : { defaultValue }),
+      });
+    }
+  }
+  return [...resolved.values()];
 }
 
 function hasExportModifier(node: ts.Node): boolean {
@@ -273,7 +326,11 @@ export class ReactAdapter implements FrameworkAdapter {
 
       for (const candidate of findCandidates(source)) {
         const parameter = candidate.node.parameters[0];
-        const props = resolveProps(parameter?.type, source, declarations);
+        const props = withParameterDefaults(
+          resolveProps(parameter?.type, source, declarations),
+          parameter,
+          source,
+        );
         const facts = jsxFacts(candidate.node);
         const classification = classify(relativePath, candidate.exported);
         components.push({

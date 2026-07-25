@@ -7,8 +7,10 @@ import {
   type ComponentDecision,
   type ComponentGraph,
   type ComponentNode,
+  type DesignToken,
   type Framework,
   type GraphEdge,
+  type PreviewScenario,
   type ProjectMetadata,
 } from "@component-atlas/core";
 
@@ -91,6 +93,12 @@ export class AtlasStore {
       );
       CREATE INDEX IF NOT EXISTS edges_source ON edges(project_id, source, kind);
       CREATE INDEX IF NOT EXISTS edges_target ON edges(project_id, target, kind);
+      CREATE TABLE IF NOT EXISTS tokens (
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (project_id, name)
+      );
       CREATE TABLE IF NOT EXISTS decisions (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -98,6 +106,15 @@ export class AtlasStore {
         decision TEXT NOT NULL,
         payload TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS scenarios (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        component_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS scenarios_component
+        ON scenarios(project_id, component_id, updated_at);
     `);
   }
 
@@ -125,6 +142,10 @@ export class AtlasStore {
       INSERT INTO edges (id, project_id, kind, source, target, payload)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
+    const tokenStatement = this.database.prepare(`
+      INSERT INTO tokens (project_id, name, payload)
+      VALUES (?, ?, ?)
+    `);
     this.database.exec("BEGIN IMMEDIATE");
     try {
       projectStatement.run(
@@ -141,6 +162,7 @@ export class AtlasStore {
         .prepare("DELETE FROM components WHERE project_id = ?")
         .run(graph.project.id);
       this.database.prepare("DELETE FROM edges WHERE project_id = ?").run(graph.project.id);
+      this.database.prepare("DELETE FROM tokens WHERE project_id = ?").run(graph.project.id);
       for (const component of graph.components) {
         componentStatement.run(
           component.id,
@@ -162,6 +184,9 @@ export class AtlasStore {
           JSON.stringify(edge),
         );
       }
+      for (const token of graph.tokens) {
+        tokenStatement.run(graph.project.id, token.name, JSON.stringify(token));
+      }
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
@@ -180,6 +205,9 @@ export class AtlasStore {
     const edges = this.database
       .prepare("SELECT payload FROM edges WHERE project_id = ? ORDER BY kind, source")
       .all(projectId) as unknown as JsonRow[];
+    const tokens = this.database
+      .prepare("SELECT payload FROM tokens WHERE project_id = ? ORDER BY name")
+      .all(projectId) as unknown as JsonRow[];
     const metadata: ProjectMetadata = {
       id: project.id,
       name: project.name,
@@ -196,6 +224,7 @@ export class AtlasStore {
       project: metadata,
       components: components.map((row) => JSON.parse(row.payload) as ComponentNode),
       edges: edges.map((row) => JSON.parse(row.payload) as GraphEdge),
+      tokens: tokens.map((row) => JSON.parse(row.payload) as DesignToken),
     };
   }
 
@@ -222,6 +251,45 @@ export class AtlasStore {
       )
       .all(projectId) as unknown as JsonRow[];
     return rows.map((row) => JSON.parse(row.payload) as ComponentDecision);
+  }
+
+  saveScenario(scenario: PreviewScenario): void {
+    this.database
+      .prepare(`
+        INSERT INTO scenarios (
+          id, project_id, component_id, updated_at, payload
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          component_id = excluded.component_id,
+          updated_at = excluded.updated_at,
+          payload = excluded.payload
+      `)
+      .run(
+        scenario.id,
+        scenario.projectId,
+        scenario.componentId,
+        scenario.updatedAt,
+        JSON.stringify(scenario),
+      );
+  }
+
+  listScenarios(projectId: string, componentId?: string): PreviewScenario[] {
+    const rows = componentId
+      ? (this.database
+          .prepare(`
+            SELECT payload FROM scenarios
+            WHERE project_id = ? AND component_id = ?
+            ORDER BY updated_at DESC
+          `)
+          .all(projectId, componentId) as unknown as JsonRow[])
+      : (this.database
+          .prepare(`
+            SELECT payload FROM scenarios
+            WHERE project_id = ?
+            ORDER BY updated_at DESC
+          `)
+          .all(projectId) as unknown as JsonRow[]);
+    return rows.map((row) => JSON.parse(row.payload) as PreviewScenario);
   }
 
   close(): void {

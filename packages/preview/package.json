@@ -1,11 +1,14 @@
 {
-  "name": "@component-atlas/cli",
-  "version": "0.1.0",
+  "name": "@component-atlas/preview",
+  "version": "0.2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "component-atlas": "./dist/index.js"
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": ["dist"],
   "scripts": {
@@ -14,11 +17,13 @@
   },
   "dependencies": {
     "@component-atlas/core": "workspace:*",
-    "@component-atlas/mcp": "workspace:*",
-    "@component-atlas/preview": "workspace:*",
-    "@component-atlas/runtime": "workspace:*",
-    "commander": "^14.0.0",
-    "open": "^10.2.0"
+    "@vitejs/plugin-react": "^6.0.4",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "vite": "^8.1.5",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vue": "^3.5.40"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

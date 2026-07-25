@@ -6,17 +6,25 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import fg from "fast-glob";
 import { scanReactProject } from "@component-atlas/adapter-react";
 import { scanVueProject } from "@component-atlas/adapter-vue";
 import {
   GRAPH_SCHEMA_VERSION,
   buildGraphEdges,
+  buildPlaygroundContract,
+  findComponent,
   projectId,
   slash,
   type ComponentDecision,
   type ComponentGraph,
+  type ComponentPlaygroundContract,
+  type DesignToken,
+  type DesignTokenKind,
   type DecisionKind,
   type Framework,
+  type PreviewScenario,
+  type PreviewViewport,
 } from "@component-atlas/core";
 import { AtlasStore } from "@component-atlas/store";
 
@@ -42,6 +50,18 @@ export interface RecordDecisionInput {
   author?: string;
 }
 
+export interface SavePreviewScenarioInput {
+  rootPath: string;
+  component: string;
+  name: string;
+  id?: string;
+  props?: Record<string, unknown>;
+  tokens?: Record<string, string>;
+  viewport?: PreviewViewport;
+  background?: string;
+  notes?: string;
+}
+
 async function exists(filePath: string): Promise<boolean> {
   try {
     await access(filePath);
@@ -58,6 +78,62 @@ async function packageJson(rootPath: string): Promise<PackageJson> {
   } catch (error) {
     throw new Error(`Cannot read ${filePath}: ${String(error)}`);
   }
+}
+
+function tokenKind(name: string, value: string): DesignTokenKind {
+  if (
+    /color|background|foreground|surface|accent|brand|text|border|fill/i.test(
+      name,
+    ) ||
+    /^(#|rgb|hsl|oklch|lab|lch|color\()/i.test(value)
+  ) {
+    return "color";
+  }
+  if (/radius|rounded/i.test(name)) return "radius";
+  if (/shadow/i.test(name)) return "shadow";
+  if (/font|type|text-size|line-height/i.test(name)) return "typography";
+  if (/space|gap|padding|margin|size/i.test(name)) return "space";
+  return "other";
+}
+
+async function scanDesignTokens(rootPath: string): Promise<DesignToken[]> {
+  const files = await fg(
+    [
+      "app/**/*.{css,scss,sass}",
+      "src/**/*.{css,scss,sass}",
+      "assets/**/*.{css,scss,sass}",
+      "styles/**/*.{css,scss,sass}",
+      "*.{css,scss,sass}",
+    ],
+    {
+      cwd: rootPath,
+      absolute: true,
+      onlyFiles: true,
+      unique: true,
+      ignore: [
+        "**/node_modules/**",
+        "**/.nuxt/**",
+        "**/.next/**",
+        "**/.output/**",
+      ],
+    },
+  );
+  const tokens = new Map<string, DesignToken>();
+  for (const filePath of files.sort()) {
+    const source = await readFile(filePath, "utf8");
+    for (const match of source.matchAll(/--([A-Za-z0-9_-]+)\s*:\s*([^;{}]+);/g)) {
+      const name = match[1];
+      const value = match[2]?.trim();
+      if (!name || !value || value.startsWith("var(")) continue;
+      tokens.set(name, {
+        name,
+        value,
+        kind: tokenKind(name, value),
+        sourcePath: slash(path.relative(rootPath, filePath)),
+      });
+    }
+  }
+  return [...tokens.values()].slice(0, 500);
 }
 
 export async function detectFramework(rootPath: string): Promise<Framework> {
@@ -143,6 +219,7 @@ export async function scanProject(
     framework === "vue"
       ? await scanVueProject({ rootPath })
       : await scanReactProject({ rootPath });
+  const tokens = await scanDesignTokens(rootPath);
   const metadata = {
     id: projectId(rootPath),
     name: manifest.name ?? path.basename(rootPath),
@@ -157,6 +234,7 @@ export async function scanProject(
     project: metadata,
     components,
     edges: buildGraphEdges(components),
+    tokens,
   };
   const store = new AtlasStore(metadata.id);
   try {
@@ -261,6 +339,106 @@ ${input.rationale}
   return decision;
 }
 
+export async function listPreviewScenarios(
+  inputPath: string,
+  componentSelector?: string,
+): Promise<PreviewScenario[]> {
+  const graph = await loadProjectGraph(inputPath);
+  const component = componentSelector
+    ? findComponent(graph, componentSelector)
+    : undefined;
+  if (componentSelector && !component) {
+    throw new Error(`Component "${componentSelector}" was not found.`);
+  }
+  const store = new AtlasStore(graph.project.id);
+  try {
+    return store.listScenarios(graph.project.id, component?.id);
+  } finally {
+    store.close();
+  }
+}
+
+export async function getComponentPlayground(
+  inputPath: string,
+  componentSelector: string,
+): Promise<ComponentPlaygroundContract> {
+  const graph = await loadProjectGraph(inputPath);
+  const component = findComponent(graph, componentSelector);
+  if (!component) {
+    throw new Error(`Component "${componentSelector}" was not found.`);
+  }
+  const scenarios = await listPreviewScenarios(inputPath, component.id);
+  return buildPlaygroundContract(graph, component, scenarios);
+}
+
+export async function savePreviewScenario(
+  input: SavePreviewScenarioInput,
+): Promise<PreviewScenario> {
+  const rootPath = path.resolve(input.rootPath);
+  const name = input.name.trim();
+  if (!name) throw new Error("Scenario name is required.");
+  const graph = await loadProjectGraph(rootPath);
+  const component = findComponent(graph, input.component);
+  if (!component) {
+    throw new Error(`Component "${input.component}" was not found.`);
+  }
+  const viewport = input.viewport ?? { width: 768, height: 560 };
+  if (
+    !Number.isInteger(viewport.width) ||
+    !Number.isInteger(viewport.height) ||
+    viewport.width < 240 ||
+    viewport.width > 2560 ||
+    viewport.height < 200 ||
+    viewport.height > 1600
+  ) {
+    throw new Error("Viewport must be between 240x200 and 2560x1600.");
+  }
+  const now = new Date().toISOString();
+  const existing = input.id
+    ? (await listPreviewScenarios(rootPath, component.id)).find(
+        (scenario) => scenario.id === input.id,
+      )
+    : undefined;
+  const id =
+    input.id ??
+    createHash("sha256")
+      .update(`${graph.project.id}\0${component.id}\0${name}`)
+      .digest("hex")
+      .slice(0, 24);
+  const scenario: PreviewScenario = {
+    id,
+    projectId: graph.project.id,
+    componentId: component.id,
+    name,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    props: input.props ?? {},
+    tokens: input.tokens ?? {},
+    viewport,
+    background: input.background ?? "#11161d",
+    ...(input.notes ? { notes: input.notes } : {}),
+  };
+  const store = new AtlasStore(graph.project.id);
+  try {
+    store.saveScenario(scenario);
+  } finally {
+    store.close();
+  }
+  const directory = path.join(rootPath, ".component-atlas", "scenarios");
+  await mkdir(directory, { recursive: true });
+  const fileName = `${component.effectiveName}-${name}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+  await writeFile(
+    path.join(directory, `${fileName || scenario.id}.json`),
+    `${JSON.stringify(scenario, null, 2)}\n`,
+    "utf8",
+  );
+  return scenario;
+}
+
 export function graphSummary(graph: ComponentGraph): Record<string, unknown> {
   const edgeCounts = Object.fromEntries(
     ["renders", "similar_to", "tested_by"].map((kind) => [
@@ -276,6 +454,7 @@ export function graphSummary(graph: ComponentGraph): Record<string, unknown> {
     feature: graph.components.filter((item) => item.visibility === "feature").length,
     private: graph.components.filter((item) => item.visibility === "private").length,
     edges: edgeCounts,
+    tokens: graph.tokens.length,
     scannedAt: graph.project.scannedAt,
   };
 }

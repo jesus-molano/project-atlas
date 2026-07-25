@@ -8,7 +8,7 @@ flowchart TD
   Q[Clarify behavior and missing states]
   I[State implementation intent]
   D[Refresh and search Component Atlas]
-  E[Inspect candidates and change impact]
+  E[Inspect candidates, Lab states, and change impact]
   C{Decision gate}
   R[Reuse]
   P[Extend or compose]
@@ -37,10 +37,12 @@ substantially changes frontend UI. It forces:
 1. a compact requirements interrogation;
 2. multiple intent-based component searches;
 3. inspection of source API, similarity, usage, and change impact;
-4. one explicit `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`
+4. interrogation of inferred props, semantic tokens, and missing visual states
+   in the shared Lab;
+5. one explicit `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`
    decision;
-5. a local Markdown decision record before implementation;
-6. a post-change graph refresh.
+6. a local Markdown decision record before implementation;
+7. a post-change graph refresh and saved validation scenario.
 
 This prevents “search by filename only,” which misses private components,
 autoimports, components with domain-specific names, and near-duplicates.
@@ -53,8 +55,18 @@ component-atlas search "C:\path\to\repo" "empty state with retry"
 component-atlas show "C:\path\to\repo" UiEmptyState
 component-atlas similar "C:\path\to\repo" MonthlySalaryDialog
 component-atlas impact "C:\path\to\repo" UiModal
+component-atlas playground "C:\path\to\repo" UiModal
 component-atlas open "C:\path\to\repo"
 ```
+
+Save a state that both people and agents can reopen:
+
+```powershell
+component-atlas --% scenario "C:\path\to\repo" UiButton --name "Danger / disabled" --props "{\"variant\":\"danger\",\"disabled\":true,\"children\":\"Delete account\"}" --viewport 390x720
+```
+
+`--%` is PowerShell's stop-parsing marker; it preserves JSON quotes and values
+with spaces for the native Node CLI. The Lab avoids shell escaping entirely.
 
 Record a decision:
 

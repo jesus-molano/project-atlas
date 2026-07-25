@@ -19,10 +19,13 @@ import {
   type Framework,
 } from "@component-atlas/core";
 import { startMcpServer } from "@component-atlas/mcp";
+import { startPreviewServer } from "@component-atlas/preview";
 import {
+  getComponentPlayground,
   graphSummary,
   loadProjectGraph,
   recordDecision,
+  savePreviewScenario,
   scanProject,
 } from "@component-atlas/runtime";
 import { Command } from "commander";
@@ -37,8 +40,40 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function waitForUrl(url: string, attempts = 30): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {
+      // The local server may still be binding its port.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Local server did not become ready at ${url}.`);
+}
+
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function parseJsonObject(
+  value: string,
+  label: string,
+): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("expected an object");
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(
+      `${label} must be a valid JSON object: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 }
 
 function printComponent(component: ReturnType<typeof findComponent>): void {
@@ -82,7 +117,7 @@ function requireFound<T>(value: T | undefined, selector: string): T {
 
 async function openViewer(
   rootPath: string,
-  options: { port: string; browser: boolean },
+  options: { port: string; previewPort: string; browser: boolean },
 ): Promise<void> {
   const graph = await scanProject(rootPath);
   const currentFile = fileURLToPath(import.meta.url);
@@ -101,21 +136,41 @@ async function openViewer(
     );
   }
   const url = `http://127.0.0.1:${options.port}`;
+  const preview = await startPreviewServer({
+    rootPath: graph.project.rootPath,
+    framework: graph.project.framework,
+    port: Number(options.previewPort),
+    viewerOrigin: url,
+  });
   const child = spawn(process.execPath, [serverEntry], {
     stdio: "inherit",
     env: {
       ...process.env,
       ATLAS_PROJECT_ROOT: graph.project.rootPath,
+      ATLAS_PREVIEW_ORIGIN: preview.origin,
       NITRO_HOST: "127.0.0.1",
       NITRO_PORT: options.port,
     },
   });
+  const shutdown = (): void => {
+    if (!child.killed) child.kill();
+    preview.close().catch(() => undefined);
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+  child.once("error", (error) => {
+    preview.close().catch(() => undefined);
+    process.stderr.write(`Viewer process failed: ${error.message}\n`);
+  });
   child.on("exit", (code) => {
+    preview.close().catch(() => undefined);
     if (code && code !== 0) process.exitCode = code;
   });
-  await new Promise((resolve) => setTimeout(resolve, 700));
+  await waitForUrl(url);
   if (options.browser) await open(url);
-  process.stdout.write(`Component Atlas is running at ${url}\n`);
+  process.stdout.write(
+    `Component Atlas is running at ${url}\nPreview runtime: ${preview.origin}\n`,
+  );
 }
 
 export function createProgram(): Command {
@@ -196,6 +251,67 @@ export function createProgram(): Command {
     });
 
   program
+    .command("playground")
+    .argument("<path>", "repository root")
+    .argument("<component>", "id, name, runtime name, or source path")
+    .description("Return agent-readable controls, tokens, and saved scenarios.")
+    .action(async (rootPath: string, selector: string) => {
+      printJson(await getComponentPlayground(rootPath, selector));
+    });
+
+  program
+    .command("scenario")
+    .argument("<path>", "repository root")
+    .argument("<component>", "id, name, runtime name, or source path")
+    .requiredOption("--name <name>", "scenario name")
+    .option("--props <json>", "JSON object with component props", "{}")
+    .option("--tokens <json>", "JSON object with CSS variable overrides", "{}")
+    .option("--viewport <size>", "WIDTHxHEIGHT", "768x560")
+    .option("--background <color>", "preview background", "#11161d")
+    .option("--notes <text>", "agent-readable scenario notes")
+    .description("Save a deterministic component preview scenario.")
+    .action(
+      async (
+        rootPath: string,
+        selector: string,
+        options: {
+          name: string;
+          props: string;
+          tokens: string;
+          viewport: string;
+          background: string;
+          notes?: string;
+        },
+      ) => {
+        const [widthText, heightText] = options.viewport.split("x");
+        const width = Number(widthText);
+        const height = Number(heightText);
+        if (!Number.isFinite(width) || !Number.isFinite(height)) {
+          throw new Error('Viewport must use the format "768x560".');
+        }
+        const props = parseJsonObject(options.props, "Props");
+        const parsedTokens = parseJsonObject(options.tokens, "Tokens");
+        if (
+          Object.values(parsedTokens).some((value) => typeof value !== "string")
+        ) {
+          throw new Error("Every token override must be a string.");
+        }
+        printJson(
+          await savePreviewScenario({
+            rootPath,
+            component: selector,
+            name: options.name,
+            props,
+            tokens: parsedTokens as Record<string, string>,
+            viewport: { width, height },
+            background: options.background,
+            ...(options.notes ? { notes: options.notes } : {}),
+          }),
+        );
+      },
+    );
+
+  program
     .command("decision")
     .argument("<path>", "repository root")
     .requiredOption("--intent <text>", "what UI is being implemented")
@@ -238,12 +354,13 @@ export function createProgram(): Command {
     .command("open")
     .argument("[path]", "repository root", ".")
     .option("-p, --port <port>", "local viewer port", "4173")
+    .option("--preview-port <port>", "component preview runtime port", "4174")
     .option("--no-browser", "do not open the default browser")
     .description("Refresh the graph and launch the read-only local viewer.")
     .action(
       async (
         rootPath: string,
-        options: { port: string; browser: boolean },
+        options: { port: string; previewPort: string; browser: boolean },
       ) => openViewer(rootPath, options),
     );
 

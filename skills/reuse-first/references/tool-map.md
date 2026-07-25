@@ -8,6 +8,8 @@
 | Explain similarity | `find_similar_components` | `component-atlas similar <root> <selector>` |
 | Find consumers | `list_component_usages` | `component-atlas impact <root> <selector>` |
 | Estimate API impact | `analyze_prop_change_impact` | `component-atlas impact <root> <selector>` |
+| Inspect live contract | `get_component_playground` | `component-atlas playground <root> <selector>` |
+| Save shared state | `save_component_scenario` | `component-atlas scenario <root> <selector> --name <name> --props <json>` |
 | Record gate | `record_component_decision` | `component-atlas decision <root> --intent <text> --decision <kind> --rationale <text>` |
 
 Component selectors accept an Atlas ID, source path, source name, or effective

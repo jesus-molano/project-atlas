@@ -57,6 +57,8 @@ instruction, or equivalent reusable workflow.
 - `find_similar_components`
 - `list_component_usages`
 - `analyze_prop_change_impact`
+- `get_component_playground`
+- `save_component_scenario`
 - `record_component_decision`
 
 All tools take an absolute `root_path`. Read operations automatically use the
@@ -69,8 +71,19 @@ node packages/cli/dist/index.js open "C:\path\to\project"
 ```
 
 The viewer binds to `127.0.0.1:4173`, refreshes the repository first, and opens
-the browser. Use `--port` to choose another port and `--no-browser` for a
+the browser. Its isolated component runtime binds to `127.0.0.1:4174`. Use
+`--port` and `--preview-port` to choose other ports, or `--no-browser` for a
 headless launch.
+
+Map mode explains composition, similarity, and impact. Lab mode renders source
+components with inferred prop controls, semantic CSS-token overrides, viewport
+presets, and saved scenarios. A saved scenario is available immediately through
+the CLI and MCP, so humans and coding agents inspect the same state.
+
+Install the target repository's dependencies before using Lab mode. Atlas
+provides framework fallbacks for simple isolated components, but components that
+import project libraries, Nuxt modules, or Next packages need the repository's
+normal `node_modules`.
 
 ## Validate development changes
 

@@ -19,7 +19,8 @@
     "@component-atlas/adapter-react": "workspace:*",
     "@component-atlas/adapter-vue": "workspace:*",
     "@component-atlas/core": "workspace:*",
-    "@component-atlas/store": "workspace:*"
+    "@component-atlas/store": "workspace:*",
+    "fast-glob": "^3.3.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

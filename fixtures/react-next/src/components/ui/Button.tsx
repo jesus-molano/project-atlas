@@ -1,11 +1,11 @@
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-interface ButtonProps {
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   children: ReactNode;
   variant?: "primary" | "danger";
   disabled?: boolean;
-}
+};
 
-export function Button({ children }: ButtonProps) {
+export function Button({ children, variant = "primary" }: ButtonProps) {
   return <button className="rounded-md action-control">{children}</button>;
 }

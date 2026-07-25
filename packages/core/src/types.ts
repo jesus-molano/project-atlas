@@ -1,4 +1,4 @@
-export const GRAPH_SCHEMA_VERSION = 1 as const;
+export const GRAPH_SCHEMA_VERSION = 2 as const;
 
 export type Framework = "vue" | "react";
 export type ComponentVisibility = "public" | "feature" | "private";
@@ -9,6 +9,21 @@ export type DecisionKind =
   | "compose"
   | "extract-and-reuse"
   | "create";
+export type PreviewControlKind =
+  | "boolean"
+  | "select"
+  | "number"
+  | "color"
+  | "text"
+  | "json"
+  | "action";
+export type DesignTokenKind =
+  | "color"
+  | "space"
+  | "radius"
+  | "typography"
+  | "shadow"
+  | "other";
 
 export interface SourceLocation {
   line: number;
@@ -49,6 +64,52 @@ export interface ComponentNode {
   sourceHash: string;
 }
 
+export interface DesignToken {
+  name: string;
+  value: string;
+  kind: DesignTokenKind;
+  sourcePath: string;
+}
+
+export interface PreviewControl {
+  name: string;
+  label: string;
+  kind: PreviewControlKind;
+  type: string;
+  required: boolean;
+  options: string[];
+  defaultValue?: unknown;
+  description?: string;
+}
+
+export interface PreviewViewport {
+  width: number;
+  height: number;
+}
+
+export interface PreviewScenario {
+  id: string;
+  projectId: string;
+  componentId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  props: Record<string, unknown>;
+  tokens: Record<string, string>;
+  viewport: PreviewViewport;
+  background: string;
+  notes?: string;
+}
+
+export interface ComponentPlaygroundContract {
+  component: ComponentNode;
+  controls: PreviewControl[];
+  tokens: DesignToken[];
+  scenarios: PreviewScenario[];
+  renderable: boolean;
+  renderabilityReason?: string;
+}
+
 export interface SimilarityEvidence {
   score: number;
   reasons: string[];
@@ -80,6 +141,7 @@ export interface ComponentGraph {
   project: ProjectMetadata;
   components: ComponentNode[];
   edges: GraphEdge[];
+  tokens: DesignToken[];
 }
 
 export interface ComponentSearchResult {
