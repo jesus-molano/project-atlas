@@ -24,7 +24,8 @@ const { data: runtime } = await useFetch<{
 
 const mode = ref<"map" | "lab">("lab");
 const query = ref("");
-const scope = ref<"all" | ComponentNode["visibility"]>("all");
+const scope = ref<"all" | ComponentNode["visibility"]>("public");
+const searchInput = ref<HTMLInputElement>();
 const selectedId = ref<string>();
 const showSimilar = ref(true);
 const showComposition = ref(true);
@@ -116,6 +117,23 @@ const details = computed(() => {
     similar: similarComponents(graph.value, selected.value.id).slice(0, 6),
     impact: componentImpact(graph.value, selected.value.id),
   };
+});
+
+const impactSignal = computed(() => {
+  const consumers = details.value?.impact.transitiveConsumers.length ?? 0;
+  if (consumers >= 8) {
+    return { label: "High blast radius", tone: "high", consumers };
+  }
+  if (consumers >= 3) {
+    return { label: "Moderate impact", tone: "medium", consumers };
+  }
+  return { label: "Contained impact", tone: "low", consumers };
+});
+
+const reuseSignal = computed(() => {
+  if (selected.value?.visibility === "public") return "Shared primitive";
+  if (selected.value?.visibility === "feature") return "Feature-owned";
+  return "Internal detail";
 });
 
 const controls = computed<PreviewControl[]>(() => {
@@ -383,6 +401,31 @@ function setPreviewStatus(
     previewHistory.value[selected.value.id] = status;
   }
 }
+
+function focusSearch(event: KeyboardEvent): void {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    searchInput.value?.focus();
+  }
+}
+
+function moveSelection(direction: 1 | -1): void {
+  if (filteredComponents.value.length === 0) return;
+  const currentIndex = filteredComponents.value.findIndex(
+    (component) => component.id === selected.value?.id,
+  );
+  const nextIndex =
+    currentIndex < 0
+      ? 0
+      : Math.min(
+          filteredComponents.value.length - 1,
+          Math.max(0, currentIndex + direction),
+        );
+  selectedId.value = filteredComponents.value[nextIndex]?.id;
+}
+
+onMounted(() => window.addEventListener("keydown", focusSearch));
+onBeforeUnmount(() => window.removeEventListener("keydown", focusSearch));
 </script>
 
 <template>
@@ -438,8 +481,8 @@ function setPreviewStatus(
         <aside class="catalog-panel">
           <div class="panel-heading">
             <div>
-              <span class="eyebrow">Reuse index</span>
-              <h1>Components</h1>
+              <span class="eyebrow">Repository graph</span>
+              <h1>Component index</h1>
             </div>
             <span class="result-count">{{ filteredComponents.length }}</span>
           </div>
@@ -447,12 +490,15 @@ function setPreviewStatus(
           <label class="search-box">
             <span aria-hidden="true">⌕</span>
             <input
+              ref="searchInput"
               v-model="query"
               type="search"
               aria-label="Search components"
               placeholder="Find by name, prop, or intent"
+              @keydown.down.prevent="moveSelection(1)"
+              @keydown.up.prevent="moveSelection(-1)"
             >
-            <kbd>⌘K</kbd>
+            <kbd>Ctrl K</kbd>
           </label>
 
           <div class="scope-tabs" role="tablist" aria-label="Component scope">
@@ -470,9 +516,14 @@ function setPreviewStatus(
             </button>
           </div>
 
-          <p class="scope-help">
-            Shared is the first place to look before creating anything new.
-          </p>
+          <details class="scope-guide">
+            <summary>Start here before creating</summary>
+            <p>
+              <strong>Shared</strong> contains the reusable surface.
+              <strong>Feature</strong> is product-area code.
+              <strong>Internal</strong> is an implementation detail.
+            </p>
+          </details>
 
           <div class="component-list">
             <button
@@ -508,8 +559,8 @@ function setPreviewStatus(
         <section v-if="mode === 'map'" class="map-panel">
           <div class="map-toolbar">
             <div>
-              <span class="eyebrow">Relationship field / 02</span>
-              <p>Click a node to isolate its neighborhood</p>
+              <span class="eyebrow">Dependency graph</span>
+              <p>Composition, similarity, and change surface</p>
             </div>
             <div class="edge-toggles">
               <label>
@@ -534,6 +585,7 @@ function setPreviewStatus(
             <span><i class="scope-dot public" /> shared</span>
             <span><i class="scope-dot feature" /> feature</span>
             <span><i class="scope-dot private" /> internal</span>
+            <span class="degree-legend">node size = connections</span>
           </div>
         </section>
 
@@ -675,6 +727,15 @@ function setPreviewStatus(
             </div>
             <h2>{{ selected.effectiveName }}</h2>
             <code>{{ selected.relativePath }}</code>
+            <div class="evidence-strip">
+              <span>
+                <i :class="['scope-dot', selected.visibility]" />
+                {{ reuseSignal }}
+              </span>
+              <span :class="['impact-signal', impactSignal.tone]">
+                {{ impactSignal.label }} · {{ impactSignal.consumers }}
+              </span>
+            </div>
           </div>
 
           <template v-if="mode === 'map'">
@@ -733,6 +794,11 @@ function setPreviewStatus(
                   <strong>{{ candidate.component.effectiveName }}</strong>
                   <span>{{ Math.round(candidate.evidence.score * 100) }}%</span>
                 </div>
+                <i class="similar-meter">
+                  <span
+                    :style="{ width: `${Math.round(candidate.evidence.score * 100)}%` }"
+                  />
+                </i>
                 <p>{{ candidate.evidence.reasons.slice(0, 2).join(" · ") }}</p>
               </button>
               <p v-if="details?.similar.length === 0" class="muted">

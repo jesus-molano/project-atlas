@@ -31,6 +31,7 @@ function specimen(overrides: Partial<ComponentNode> = {}): ComponentNode {
       { name: "label", type: "string", required: true },
       { name: "lineClamp", type: "1 | 2 | 3", required: false },
       { name: "items", type: "Item[]", required: true },
+      { name: "anime", type: "Anime | FavoriteAnime", required: true },
       { name: "className", type: "unknown", required: false },
       { name: "onClick", type: "() => void", required: false },
     ],
@@ -71,6 +72,13 @@ describe("component playground", () => {
             expect.objectContaining({ label: "Sample list" }),
           ]),
         }),
+        expect.objectContaining({
+          name: "anime",
+          kind: "json",
+          presets: expect.arrayContaining([
+            expect.objectContaining({ label: "Sample data" }),
+          ]),
+        }),
         expect.objectContaining({ name: "onClick", kind: "action" }),
         expect.objectContaining({
           name: "onClose",
@@ -91,6 +99,13 @@ describe("component playground", () => {
           label: "Sample item",
         },
       ],
+      anime: expect.objectContaining({
+        title: "Sample anime",
+        images: {
+          jpg: expect.objectContaining({ large_image_url: expect.any(String) }),
+          webp: expect.objectContaining({ large_image_url: expect.any(String) }),
+        },
+      }),
       className: "",
     });
   });

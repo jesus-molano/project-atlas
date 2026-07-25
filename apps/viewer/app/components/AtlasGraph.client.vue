@@ -20,12 +20,18 @@ let cy: Core | undefined;
 
 function graphElements(): ElementDefinition[] {
   const componentIds = new Set(props.components.map((component) => component.id));
+  const degrees = new Map<string, number>();
+  for (const edge of props.edges) {
+    degrees.set(edge.source, (degrees.get(edge.source) ?? 0) + 1);
+    degrees.set(edge.target, (degrees.get(edge.target) ?? 0) + 1);
+  }
   const nodes: ElementDefinition[] = props.components.map((component) => ({
     data: {
       id: component.id,
       label: component.effectiveName,
       visibility: component.visibility,
       feature: component.feature ?? "shared",
+      degree: degrees.get(component.id) ?? 0,
     },
   }));
   const edges: ElementDefinition[] = props.edges
@@ -59,42 +65,42 @@ function renderGraph(): void {
       {
         selector: "node",
         style: {
-          width: 28,
-          height: 28,
+          width: "mapData(degree, 0, 12, 22, 42)",
+          height: "mapData(degree, 0, 12, 22, 42)",
           label: "data(label)",
           "font-family": "Inter, ui-sans-serif, system-ui",
           "font-size": 9,
           "font-weight": 600,
-          color: "#aeb8c7",
+          color: "#aab5c4",
           "text-valign": "bottom",
           "text-margin-y": 7,
-          "text-background-color": "#11161d",
-          "text-background-opacity": 0.82,
+          "text-background-color": "#0b0f15",
+          "text-background-opacity": 0.9,
           "text-background-padding": "3px",
-          "background-color": "#6f7d90",
+          "background-color": "#657386",
           "border-width": 2,
-          "border-color": "#1c242e",
+          "border-color": "#111923",
         },
       },
       {
         selector: 'node[visibility = "public"]',
         style: {
-          "background-color": "#43d1a0",
-          "border-color": "#143c34",
+          "background-color": "#4de2b8",
+          "border-color": "#173f38",
         },
       },
       {
         selector: 'node[visibility = "feature"]',
         style: {
-          "background-color": "#7b9cff",
-          "border-color": "#222f59",
+          "background-color": "#7aa2ff",
+          "border-color": "#26385f",
         },
       },
       {
         selector: 'node[visibility = "private"]',
         style: {
-          "background-color": "#d28b59",
-          "border-color": "#50301f",
+          "background-color": "#718096",
+          "border-color": "#2c3643",
         },
       },
       {
@@ -102,8 +108,8 @@ function renderGraph(): void {
         style: {
           width: 1,
           opacity: 0.42,
-          "line-color": "#637083",
-          "target-arrow-color": "#637083",
+          "line-color": "#526174",
+          "target-arrow-color": "#526174",
           "target-arrow-shape": "triangle",
           "curve-style": "bezier",
         },
@@ -112,7 +118,7 @@ function renderGraph(): void {
         selector: 'edge[kind = "similar_to"]',
         style: {
           "line-style": "dashed",
-          "line-color": "#b078e8",
+          "line-color": "#78dce8",
           "target-arrow-shape": "none",
           opacity: 0.35,
         },
@@ -123,8 +129,8 @@ function renderGraph(): void {
           width: 39,
           height: 39,
           "border-width": 4,
-          "border-color": "#f7d97e",
-          "overlay-color": "#f7d97e",
+          "border-color": "#eef4ff",
+          "overlay-color": "#7aa2ff",
           "overlay-opacity": 0.1,
           color: "#f8fafc",
           "font-size": 11,
