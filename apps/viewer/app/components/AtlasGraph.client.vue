@@ -1,0 +1,191 @@
+<script setup lang="ts">
+import type {
+  ComponentNode,
+  GraphEdge,
+} from "@component-atlas/core/types";
+import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
+
+const props = defineProps<{
+  components: ComponentNode[];
+  edges: GraphEdge[];
+  selectedId?: string;
+}>();
+
+const emit = defineEmits<{
+  select: [id: string];
+}>();
+
+const container = ref<HTMLElement>();
+let cy: Core | undefined;
+
+function graphElements(): ElementDefinition[] {
+  const componentIds = new Set(props.components.map((component) => component.id));
+  const nodes: ElementDefinition[] = props.components.map((component) => ({
+    data: {
+      id: component.id,
+      label: component.effectiveName,
+      visibility: component.visibility,
+      feature: component.feature ?? "shared",
+    },
+  }));
+  const edges: ElementDefinition[] = props.edges
+    .filter(
+      (edge) =>
+        edge.kind !== "tested_by" &&
+        componentIds.has(edge.source) &&
+        componentIds.has(edge.target),
+    )
+    .map((edge) => ({
+      data: {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        kind: edge.kind,
+        score: edge.evidence?.score ?? 0,
+      },
+    }));
+  return [...nodes, ...edges];
+}
+
+function renderGraph(): void {
+  if (!container.value) return;
+  cy?.destroy();
+  cy = cytoscape({
+    container: container.value,
+    elements: graphElements(),
+    minZoom: 0.15,
+    maxZoom: 2.4,
+    style: [
+      {
+        selector: "node",
+        style: {
+          width: 28,
+          height: 28,
+          label: "data(label)",
+          "font-family": "Inter, ui-sans-serif, system-ui",
+          "font-size": 9,
+          "font-weight": 600,
+          color: "#aeb8c7",
+          "text-valign": "bottom",
+          "text-margin-y": 7,
+          "text-background-color": "#11161d",
+          "text-background-opacity": 0.82,
+          "text-background-padding": "3px",
+          "background-color": "#6f7d90",
+          "border-width": 2,
+          "border-color": "#1c242e",
+        },
+      },
+      {
+        selector: 'node[visibility = "public"]',
+        style: {
+          "background-color": "#43d1a0",
+          "border-color": "#143c34",
+        },
+      },
+      {
+        selector: 'node[visibility = "feature"]',
+        style: {
+          "background-color": "#7b9cff",
+          "border-color": "#222f59",
+        },
+      },
+      {
+        selector: 'node[visibility = "private"]',
+        style: {
+          "background-color": "#d28b59",
+          "border-color": "#50301f",
+        },
+      },
+      {
+        selector: "edge",
+        style: {
+          width: 1,
+          opacity: 0.42,
+          "line-color": "#637083",
+          "target-arrow-color": "#637083",
+          "target-arrow-shape": "triangle",
+          "curve-style": "bezier",
+        },
+      },
+      {
+        selector: 'edge[kind = "similar_to"]',
+        style: {
+          "line-style": "dashed",
+          "line-color": "#b078e8",
+          "target-arrow-shape": "none",
+          opacity: 0.35,
+        },
+      },
+      {
+        selector: "node:selected",
+        style: {
+          width: 39,
+          height: 39,
+          "border-width": 4,
+          "border-color": "#f7d97e",
+          "overlay-color": "#f7d97e",
+          "overlay-opacity": 0.1,
+          color: "#f8fafc",
+          "font-size": 11,
+        },
+      },
+      {
+        selector: ".faded",
+        style: { opacity: 0.08 },
+      },
+      {
+        selector: ".neighbor",
+        style: { opacity: 1 },
+      },
+    ],
+    layout: {
+      name: "cose",
+      animate: false,
+      fit: true,
+      padding: 45,
+      nodeRepulsion: () => 7200,
+      idealEdgeLength: () => 86,
+    },
+  });
+  cy.on("tap", "node", (event) => {
+    emit("select", event.target.id());
+  });
+  cy.on("select", "node", (event) => {
+    const selected = event.target;
+    const neighborhood = selected.closedNeighborhood();
+    cy?.elements().addClass("faded");
+    neighborhood.removeClass("faded").addClass("neighbor");
+  });
+  cy.on("unselect", "node", () => {
+    cy?.elements().removeClass("faded neighbor");
+  });
+  selectCurrent();
+}
+
+function selectCurrent(): void {
+  if (!cy || !props.selectedId) return;
+  const node = cy.getElementById(props.selectedId);
+  if (node.nonempty()) {
+    cy.elements().unselect();
+    node.select();
+    cy.animate({ center: { eles: node }, duration: 180 });
+  }
+}
+
+watch(
+  () => [props.components, props.edges],
+  () => nextTick(renderGraph),
+  { deep: false, flush: "post" },
+);
+watch(() => props.selectedId, selectCurrent);
+onMounted(async () => {
+  await nextTick();
+  renderGraph();
+});
+onBeforeUnmount(() => cy?.destroy());
+</script>
+
+<template>
+  <div ref="container" class="atlas-graph" />
+</template>

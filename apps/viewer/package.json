@@ -1,0 +1,23 @@
+{
+  "name": "@component-atlas/viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev --host 127.0.0.1",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@component-atlas/core": "workspace:*",
+    "@component-atlas/store": "workspace:*",
+    "cytoscape": "^3.33.1",
+    "nuxt": "^4.2.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/cytoscape": "^3.21.9",
+    "typescript": "^5.9.0",
+    "vue-tsc": "^3.0.0"
+  }
+}
