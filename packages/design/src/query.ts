@@ -333,7 +333,7 @@ function selectionFindings(
                 `${item.node.name} (${item.node.id}) scored ${item.score}: ${item.reasons.slice(0, 2).join("; ")}`,
             ),
           recommendation:
-            "Prefer the Ready for dev candidate in the correct product area; choose a device variant explicitly when the task is device-specific.",
+            "Prefer the candidate in the correct product area and choose a device variant explicitly when the task is device-specific. Use Ready for dev only as supporting evidence or a tie-breaker.",
           question: `Which node should be the implementation source: ${scored
             .slice(0, 3)
             .map((item) => item.node.name)

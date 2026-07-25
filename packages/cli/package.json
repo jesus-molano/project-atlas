@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@component-atlas/core": "workspace:*",
+    "@component-atlas/memory": "workspace:*",
     "@component-atlas/mcp": "workspace:*",
     "@component-atlas/runtime": "workspace:*",
     "commander": "^14.0.0",

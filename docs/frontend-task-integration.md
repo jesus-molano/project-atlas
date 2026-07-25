@@ -1,32 +1,36 @@
-# Future `frontend-task` integration
+# `frontend-task` integration
 
-`frontend-task` should orchestrate task sources and use Component Atlas as its
-local-code context engine.
+`skills/frontend-task` is the portable task orchestrator. Component Atlas
+remains its local-code and cached-design context engine.
 
-## Portable sequence
+## Adaptive sequence
 
-1. Collect whichever sources are available: pasted requirements, Jira,
-   Confluence, Figma nodes, screenshots, or repository instructions.
-2. Build a minimal brief and ask only questions that can change behavior,
-   ownership, design target, or component strategy.
-3. Reduce the result to one implementation intent.
-4. Call `scan_repository` for the target repository.
-5. Call `get_reuse_context` once with that intent.
-6. If Figma exists, use a confirmed node directly or call
-   `find_design_candidates` against an existing Design Index. Do not require
-   Figma when the task does not provide it.
-7. Stop for a `decision-required` finding, surface `warning` findings with a
-   recommendation, and retain `resolved` findings without interrupting the
-   user.
-8. Only after node confirmation, request `get_design_context`,
-   `get_screenshot`, and exact selection variables.
-9. Record the component decision, implement, validate, and rescan.
+1. Detect whichever sources are actually available. Repository and conversation
+   form the baseline; Jira, Confluence, Figma, screenshots, and pasted
+   requirements are optional.
+2. Build the minimal brief from
+   `skills/frontend-task/references/brief-contract.md`.
+3. Ask only questions that can change behavior, ownership, accessibility,
+   architecture, design target, or component strategy. Every question includes
+   evidence and a recommendation.
+4. Reduce the brief to one implementation intent.
+5. Call `scan_repository` and one budgeted `get_task_context`. This composes the
+   most relevant memory, code, and cached-design signals under a shared cap.
+6. If a concrete Figma node is confirmed, use it directly. If only a file/page
+   exists, map sparse metadata and call `find_design_candidates`.
+7. Treat Ready for dev as a ranking boost, never a filter or prerequisite.
+8. Stop for `decision-required`, surface `warning` with its recommendation, and
+   retain `resolved` findings without interrupting the user.
+9. Retrieve deep Figma context, screenshot, and exact variables only after node
+   confirmation.
+10. Run `check_before_change`, record the component decision, implement,
+    validate, and rescan.
+11. Record the observed/verified outcome. Propose any durable memory delta;
+    apply it only after explicit confirmation.
 
-Focused queries remain compact by default. The orchestrator should never request
-`raw` Atlas nodes unless it is explicitly diagnosing index extraction.
-
-The skill must feature-detect sources. Missing Jira, Figma, or Confluence access
-must not block repository analysis, and Atlas must never invent external context.
+Focused Atlas queries remain compact. The retrieval ladder is orientation,
+search, then expansion of a confirmed ID. The orchestrator requests `raw` nodes
+only when diagnosing incorrect extraction.
 
 ## Stable Atlas handoff
 
@@ -40,11 +44,26 @@ Input:
 }
 ```
 
-Output: the `ReuseContextBundle` JSON contract documented in
-`docs/architecture.md`. This contract is deliberately independent from Codex,
-Claude, and any specific task-source connector.
+Output: a hard-capped Project Atlas bundle with relevant memory, code
+candidates, optional design candidates, findings, uncertainty gate, next
+actions, and size metrics. It is independent from Codex, Claude, and
+task-source connectors.
 
-The Figma handoff is likewise portable: the parent skill orchestrates the Figma
-connector when present, while Atlas only accepts sparse metadata and serves
-cached queries. Missing Figma, file-level Variables access, Code Connect, Jira,
-or Confluence must degrade to repository plus conversation.
+The Figma handoff is also portable. The agent owns its approved Figma
+connection; Atlas accepts sparse metadata and serves cached queries. Missing
+Figma, Ready for dev, global Variables access, Code Connect, Jira, or Confluence
+degrades to repository plus conversation.
+
+## Test matrix
+
+`fixtures/frontend-task/cases.json` describes the portable source combinations.
+`fixtures/figma/personal-no-dev-mode.xml` and the design-package tests prove that
+a file with zero Ready for dev nodes still yields semantic and device-specific
+candidates.
+
+## Distribution
+
+`frontend-codex-kit/install.ps1` links the same skill source into the personal
+skill directories used by Codex and Claude Code, builds the Atlas MCP, and
+registers it without credentials. The installer can be run in dry-run mode and
+refuses to overwrite conflicting skill folders.

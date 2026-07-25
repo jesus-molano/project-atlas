@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "repository-and-conversation",
+      "request": "Añade estado vacío con reintento a la lista de gastos.",
+      "sources": ["conversation", "repository"],
+      "expected": {
+        "atlas": "required-when-available",
+        "figma": "skip",
+        "readyForDevRequired": false,
+        "gate": "continue-unless-behavior-is-ambiguous"
+      }
+    },
+    {
+      "id": "personal-figma-without-dev-mode",
+      "request": "Añade cupón en checkout móvil.",
+      "sources": ["conversation", "repository", "figma-file"],
+      "fixture": "../figma/personal-no-dev-mode.xml",
+      "expected": {
+        "atlas": "compact-context",
+        "figma": "map-rank-confirm",
+        "topNode": "60:2",
+        "readyForDevRequired": false,
+        "gate": "confirm-design-target"
+      }
+    },
+    {
+      "id": "direct-figma-node",
+      "request": "Implementa este frame.",
+      "sources": ["conversation", "repository", "figma-node-url"],
+      "expected": {
+        "atlas": "compact-context",
+        "figma": "inspect-confirmed-node",
+        "readyForDevRequired": false,
+        "gate": "skip-candidate-selection"
+      }
+    },
+    {
+      "id": "jira-without-confluence-or-figma",
+      "request": "Prepara la tarea SHOP-142.",
+      "sources": ["conversation", "repository", "jira"],
+      "expected": {
+        "atlas": "compact-context",
+        "figma": "skip",
+        "readyForDevRequired": false,
+        "gate": "ask-only-impact-decisions"
+      }
+    },
+    {
+      "id": "conflicting-sources",
+      "request": "El ticket permite cerrar el modal pero el frame confirmado no tiene cierre.",
+      "sources": ["conversation", "repository", "jira", "figma-node-url"],
+      "expected": {
+        "atlas": "compact-context",
+        "figma": "inspect-confirmed-node",
+        "readyForDevRequired": false,
+        "gate": "decision-required-with-evidence-and-recommendation"
+      }
+    }
+  ]
+}

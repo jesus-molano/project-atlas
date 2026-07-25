@@ -187,6 +187,53 @@ describe("Figma Design Index", () => {
     expect(replaced.pages).toHaveLength(1);
   });
 
+  it("ranks personal Figma files without Dev Mode or Ready for dev", async () => {
+    const metadata = await readFile(
+      fixture("personal-no-dev-mode.xml"),
+      "utf8",
+    );
+    const index = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/PersonalShop/Personal-shop",
+      metadata,
+      format: "figma-mcp-xml",
+      fileName: "Personal shop",
+      indexedAt: "2026-07-25T02:00:00.000Z",
+    });
+
+    expect(index.stats.readyForDev).toBe(0);
+    expect(index.nodes.every((node) => node.devStatus === "none")).toBe(true);
+
+    const desktop = rankDesignCandidates(
+      index,
+      "añadir cupón en checkout",
+      { limit: 3 },
+    );
+    expect(desktop.candidates[0]).toMatchObject({
+      confidence: "high",
+      node: {
+        id: "60:1",
+        name: "Checkout / Promo code",
+        status: "none",
+      },
+    });
+    expect(desktop.candidates[0]?.reasons.join(" ")).not.toContain(
+      "Ready for dev",
+    );
+
+    const mobile = rankDesignCandidates(
+      index,
+      "añadir cupón en checkout móvil",
+      { limit: 3 },
+    );
+    expect(mobile.candidates[0]?.node).toMatchObject({
+      id: "60:2",
+      status: "none",
+    });
+    expect(mobile.candidates[0]?.reasons).toContain(
+      "matches requested mobile variant",
+    );
+  });
+
   it("extracts file and node IDs from direct Figma links", () => {
     expect(
       parseFigmaReference(

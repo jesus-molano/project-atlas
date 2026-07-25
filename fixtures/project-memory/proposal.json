@@ -1,0 +1,33 @@
+{
+  "rationale": "Fixture proposal proving reviewable durable writes.",
+  "evidence": [
+    "Fixture test suite verified the URL behavior."
+  ],
+  "proposedBy": "project-atlas-fixture",
+  "items": [
+    {
+      "id": "fixture-decision-filter-reset",
+      "type": "decision",
+      "title": "Reset pagination when filters change",
+      "summary": "Changing a search filter resets the page query parameter before navigation.",
+      "confidence": 0.95,
+      "authority": "verified",
+      "tags": [
+        "search",
+        "filters",
+        "pagination"
+      ],
+      "provenance": {
+        "evidence": [
+          "Fixture search-flow test"
+        ]
+      },
+      "relations": [
+        {
+          "kind": "references_code",
+          "targetId": "app/components/SearchFilters.vue"
+        }
+      ]
+    }
+  ]
+}

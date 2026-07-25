@@ -1,0 +1,5 @@
+interface:
+  display_name: "Frontend Task"
+  short_description: "Prepare frontend work from available evidence"
+  brand_color: "#57D6B6"
+  default_prompt: "Use $frontend-task to prepare this frontend task from the repository and any available Jira, Confluence, or Figma evidence."

@@ -18,13 +18,23 @@ import {
 } from "@component-atlas/core";
 import {
   findTaskDesignCandidates,
+  fitBudgetedResponse,
+  getProjectMemoryItem,
+  getTaskContext,
   graphSummary,
+  indexProjectMemory,
   inspectFigmaDesignNode,
   listFigmaDesignIndexes,
   loadProjectGraph,
   mapFigmaDesign,
+  applyMemoryUpdate,
+  checkBeforeChange,
+  orientProject,
+  proposeMemoryUpdate,
   recordDecision,
+  recordProjectOutcome,
   scanProject,
+  searchProjectMemory,
   type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -32,7 +42,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 function text(value: unknown) {
-  const serialized = JSON.stringify(value, null, 2) ?? "null";
+  const serialized = JSON.stringify(value) ?? "null";
   const jsonValue = JSON.parse(serialized) as unknown;
   const structuredContent =
     jsonValue !== null && typeof jsonValue === "object" && !Array.isArray(jsonValue)
@@ -44,7 +54,35 @@ function text(value: unknown) {
     content: [
       {
         type: "text" as const,
-        text: serialized,
+        text:
+          jsonValue &&
+          typeof jsonValue === "object" &&
+          !Array.isArray(jsonValue) &&
+          "metrics" in jsonValue
+            ? `Project Atlas returned compact structured context: ${
+                (
+                  jsonValue as {
+                    metrics?: {
+                      usedChars?: number;
+                      estimatedTokens?: number;
+                      truncated?: boolean;
+                    };
+                  }
+                ).metrics?.usedChars ?? serialized.length
+              } chars, ~${(
+                jsonValue as {
+                  metrics?: { estimatedTokens?: number };
+                }
+              ).metrics?.estimatedTokens ?? Math.ceil(serialized.length / 4)} tokens${
+                (
+                  jsonValue as {
+                    metrics?: { truncated?: boolean };
+                  }
+                ).metrics?.truncated
+                  ? ", truncated to budget"
+                  : ""
+              }.`
+            : `Component Atlas returned structured context (${serialized.length} chars).`,
       },
     ],
     structuredContent,
@@ -104,10 +142,20 @@ export function createMcpServer(): McpServer {
       root_path: z.string(),
       intent: z.string().min(1),
       limit: z.number().int().min(1).max(5).optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
     },
-    async ({ root_path, intent, limit }) => {
+    async ({ root_path, intent, limit, budget_chars }) => {
       const graph = await loadProjectGraph(root_path);
-      return text(buildReuseContext(graph, intent, limit ?? 3));
+      const context = buildReuseContext(graph, intent, limit ?? 3);
+      return text(
+        fitBudgetedResponse(context as unknown as Record<string, unknown>, {
+          budgetChars: budget_chars,
+          totalMatches: context.candidates.length,
+          expandableIds: context.candidates.map(
+            (candidate) => candidate.component.id,
+          ),
+        }),
+      );
     },
   );
 
@@ -345,6 +393,308 @@ export function createMcpServer(): McpServer {
     },
     async ({ root_path, figma_file, node }) =>
       text(await inspectFigmaDesignNode(root_path, figma_file, node)),
+  );
+
+  server.tool(
+    "orient_project",
+    "Return a hard-capped Project Atlas map: Code Atlas modules, Design Atlas files, memory sources/counts, current decisions, and expandable IDs.",
+    {
+      root_path: z.string(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+      refresh_memory: z.boolean().optional(),
+    },
+    async ({ root_path, budget_chars, refresh_memory }) =>
+      text(
+        await orientProject(root_path, {
+          ...(budget_chars ? { budgetChars: budget_chars } : {}),
+          ...(refresh_memory ? { refreshMemory: true } : {}),
+        }),
+      ),
+  );
+
+  server.tool(
+    "search_project_memory",
+    "Search typed, project-scoped memory. Returns a small page of summaries and expandable IDs; active memory only unless requested.",
+    {
+      root_path: z.string(),
+      query: z.string(),
+      types: z
+        .array(
+          z.enum([
+            "project",
+            "domain",
+            "glossary-term",
+            "subsystem",
+            "module",
+            "convention",
+            "decision",
+            "constraint",
+            "integration",
+            "known-issue",
+            "fragile-area",
+            "attempt",
+            "outcome",
+            "plan",
+            "debt",
+            "note",
+          ]),
+        )
+        .optional(),
+      statuses: z
+        .array(
+          z.enum([
+            "proposed",
+            "active",
+            "superseded",
+            "archived",
+            "rejected",
+          ]),
+        )
+        .optional(),
+      tags: z.array(z.string()).optional(),
+      limit: z.number().int().min(1).max(10).optional(),
+      cursor: z.string().optional(),
+      include_inactive: z.boolean().optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({
+      root_path,
+      query,
+      types,
+      statuses,
+      tags,
+      limit,
+      cursor,
+      include_inactive,
+      budget_chars,
+    }) =>
+      text(
+        await searchProjectMemory(root_path, query, {
+          ...(types ? { types } : {}),
+          ...(statuses ? { statuses } : {}),
+          ...(tags ? { tags } : {}),
+          ...(limit ? { limit } : {}),
+          ...(cursor ? { cursor } : {}),
+          ...(include_inactive ? { includeInactive: true } : {}),
+          ...(budget_chars ? { budgetChars: budget_chars } : {}),
+        }),
+      ),
+  );
+
+  server.tool(
+    "get_memory_item",
+    "Expand one confirmed project-memory ID under a hard response budget.",
+    {
+      root_path: z.string(),
+      id: z.string(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({ root_path, id, budget_chars }) =>
+      text(
+        await getProjectMemoryItem(root_path, id, {
+          ...(budget_chars ? { budgetChars: budget_chars } : {}),
+        }),
+      ),
+  );
+
+  server.tool(
+    "get_task_context",
+    "Build one hard-capped task bundle from Project Memory, Code Atlas, and optional Design Atlas using a shared budget.",
+    {
+      root_path: z.string(),
+      task: z.string().min(1),
+      figma_file: z.string().optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+      refresh_memory: z.boolean().optional(),
+    },
+    async ({
+      root_path,
+      task,
+      figma_file,
+      budget_chars,
+      refresh_memory,
+    }) =>
+      text(
+        await getTaskContext(root_path, task, {
+          ...(figma_file ? { figmaFile: figma_file } : {}),
+          ...(budget_chars ? { budgetChars: budget_chars } : {}),
+          ...(refresh_memory ? { refreshMemory: true } : {}),
+        }),
+      ),
+  );
+
+  server.tool(
+    "check_before_change",
+    "Run the project-memory gate before editing: current contradictions, stale rules, fragile areas, and failed attempts with evidence and recommendations.",
+    {
+      root_path: z.string(),
+      intent: z.string().min(1),
+      files: z.array(z.string()).optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({ root_path, intent, files, budget_chars }) =>
+      text(
+        await checkBeforeChange(root_path, intent, {
+          ...(files ? { files } : {}),
+          ...(budget_chars ? { budgetChars: budget_chars } : {}),
+        }),
+      ),
+  );
+
+  const memoryRelation = z.object({
+    kind: z.enum([
+      "belongs_to",
+      "depends_on",
+      "implements",
+      "affects",
+      "decided_by",
+      "motivated_by",
+      "contradicts",
+      "supersedes",
+      "verified_by",
+      "failed_for",
+      "fixed_by",
+      "related_to",
+      "references_code",
+      "references_design",
+      "references_ticket",
+    ]),
+    targetId: z.string(),
+    summary: z.string().optional(),
+  });
+  const memoryDraft = z.object({
+    id: z.string().optional(),
+    namespace: z.string().optional(),
+    type: z.enum([
+      "project",
+      "domain",
+      "glossary-term",
+      "subsystem",
+      "module",
+      "convention",
+      "decision",
+      "constraint",
+      "integration",
+      "known-issue",
+      "fragile-area",
+      "attempt",
+      "outcome",
+      "plan",
+      "debt",
+      "note",
+    ]),
+    title: z.string().min(1),
+    summary: z.string().min(1),
+    body: z.string().optional(),
+    status: z.enum(["proposed", "active", "archived", "rejected"]).optional(),
+    confidence: z.number().min(0).max(1),
+    authority: z.enum(["observed", "inferred", "decided", "verified"]),
+    scope: z.enum(["canonical", "local", "episodic"]).optional(),
+    verifiedAt: z.string().optional(),
+    owner: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    supersedes: z.array(z.string()).optional(),
+    expiresAt: z.string().optional(),
+    reviewAfter: z.string().optional(),
+    relations: z.array(memoryRelation).optional(),
+  });
+
+  server.tool(
+    "propose_memory_update",
+    "Store a reviewable memory delta. It does not promote or write durable project knowledge.",
+    {
+      root_path: z.string(),
+      rationale: z.string().min(1),
+      evidence: z.array(z.string()).optional(),
+      proposed_by: z.string().optional(),
+      items: z.array(memoryDraft).min(1).max(20),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({
+      root_path,
+      rationale,
+      evidence,
+      proposed_by,
+      items,
+      budget_chars,
+    }) =>
+      text(
+        await proposeMemoryUpdate({
+          rootPath: root_path,
+          rationale,
+          items: items as unknown as Parameters<
+            typeof proposeMemoryUpdate
+          >[0]["items"],
+          ...(evidence ? { evidence } : {}),
+          ...(proposed_by ? { proposedBy: proposed_by } : {}),
+          ...(budget_chars ? { budgetChars: budget_chars } : {}),
+        }),
+      ),
+  );
+
+  server.tool(
+    "apply_memory_update",
+    "Apply one reviewed proposal to local or canonical Markdown. Requires explicit confirmed=true and rejects secret-like content.",
+    {
+      root_path: z.string(),
+      proposal_id: z.string(),
+      confirmed: z.boolean(),
+      target: z.enum(["local", "canonical"]).optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({
+      root_path,
+      proposal_id,
+      confirmed,
+      target,
+      budget_chars,
+    }) =>
+      text(
+        await applyMemoryUpdate(root_path, proposal_id, {
+          confirmed,
+          ...(target ? { target } : {}),
+          ...(budget_chars ? { budgetChars: budget_chars } : {}),
+        }),
+      ),
+  );
+
+  server.tool(
+    "record_outcome",
+    "Record an observed or verified task outcome as local episodic memory. Durable decisions still require a separate proposal.",
+    {
+      root_path: z.string(),
+      task: z.string().min(1),
+      result: z.enum(["success", "failure", "partial"]),
+      summary: z.string().min(1),
+      evidence: z.array(z.string()).optional(),
+      related_entity_ids: z.array(z.string()).optional(),
+      files: z.array(z.string()).optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({
+      root_path,
+      task,
+      result,
+      summary,
+      evidence,
+      related_entity_ids,
+      files,
+      budget_chars,
+    }) =>
+      text(
+        await recordProjectOutcome({
+          rootPath: root_path,
+          task,
+          result,
+          summary,
+          ...(evidence ? { evidence } : {}),
+          ...(related_entity_ids
+            ? { relatedEntityIds: related_entity_ids }
+            : {}),
+          ...(files ? { files } : {}),
+          ...(budget_chars ? { budgetChars: budget_chars } : {}),
+        }),
+      ),
   );
 
   return server;

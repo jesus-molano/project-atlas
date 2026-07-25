@@ -13,6 +13,12 @@ import {
   type ProjectMetadata,
 } from "@component-atlas/core";
 import type { DesignFileIndex } from "@component-atlas/design";
+import type {
+  MemoryItem,
+  MemoryProposal,
+  MemoryStatus,
+  MemoryType,
+} from "@component-atlas/memory";
 
 interface ProjectRow {
   id: string;
@@ -26,6 +32,10 @@ interface ProjectRow {
 
 interface JsonRow {
   payload: string;
+}
+
+interface MemoryCountRow {
+  count: number;
 }
 
 function applicationDataRoot(): string {
@@ -117,6 +127,55 @@ export class AtlasStore {
       );
       CREATE INDEX IF NOT EXISTS design_indexes_project
         ON design_indexes(project_id, indexed_at);
+      CREATE TABLE IF NOT EXISTS memory_items (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        namespace TEXT NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        status TEXT NOT NULL,
+        authority TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        scope TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        review_after TEXT,
+        origin TEXT NOT NULL,
+        source_path TEXT,
+        source_hash TEXT,
+        payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS memory_items_project
+        ON memory_items(project_id, status, type, updated_at);
+      CREATE INDEX IF NOT EXISTS memory_items_source
+        ON memory_items(project_id, origin, source_path);
+      CREATE TABLE IF NOT EXISTS memory_relations (
+        project_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (project_id, source_id, kind, target_id)
+      );
+      CREATE INDEX IF NOT EXISTS memory_relations_target
+        ON memory_relations(project_id, target_id, kind);
+      CREATE TABLE IF NOT EXISTS memory_proposals (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS memory_proposals_project
+        ON memory_proposals(project_id, status, created_at);
+      CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+        id UNINDEXED,
+        project_id UNINDEXED,
+        title,
+        summary,
+        body,
+        tags
+      );
     `);
   }
 
@@ -296,6 +355,292 @@ export class AtlasStore {
       )
       .all(projectId) as unknown as JsonRow[];
     return rows.map((row) => JSON.parse(row.payload) as DesignFileIndex);
+  }
+
+  private rebuildMemoryFts(projectId: string): void {
+    this.database
+      .prepare("DELETE FROM memory_fts WHERE project_id = ?")
+      .run(projectId);
+    const items = this.listMemoryItems(projectId);
+    const insert = this.database.prepare(`
+      INSERT INTO memory_fts (id, project_id, title, summary, body, tags)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (const item of items) {
+      insert.run(
+        item.id,
+        projectId,
+        item.title,
+        item.summary,
+        item.body ?? "",
+        item.tags.join(" "),
+      );
+    }
+  }
+
+  private writeMemoryItem(
+    projectId: string,
+    item: MemoryItem,
+    origin: string,
+    sourceHash?: string,
+  ): void {
+    if (item.projectId !== projectId) {
+      throw new Error(
+        `Memory item ${item.id} belongs to a different project scope.`,
+      );
+    }
+    this.database
+      .prepare(`
+        INSERT INTO memory_items (
+          id, project_id, namespace, type, title, summary, status, authority,
+          confidence, scope, updated_at, review_after, origin, source_path,
+          source_hash, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          project_id = excluded.project_id,
+          namespace = excluded.namespace,
+          type = excluded.type,
+          title = excluded.title,
+          summary = excluded.summary,
+          status = excluded.status,
+          authority = excluded.authority,
+          confidence = excluded.confidence,
+          scope = excluded.scope,
+          updated_at = excluded.updated_at,
+          review_after = excluded.review_after,
+          origin = excluded.origin,
+          source_path = excluded.source_path,
+          source_hash = excluded.source_hash,
+          payload = excluded.payload
+      `)
+      .run(
+        item.id,
+        projectId,
+        item.namespace,
+        item.type,
+        item.title,
+        item.summary,
+        item.status,
+        item.authority,
+        item.confidence,
+        item.scope,
+        item.updatedAt,
+        item.reviewAfter ?? null,
+        origin,
+        item.bodyPath ?? null,
+        sourceHash ?? null,
+        JSON.stringify(item),
+      );
+    this.database
+      .prepare("DELETE FROM memory_relations WHERE project_id = ? AND source_id = ?")
+      .run(projectId, item.id);
+    const relationStatement = this.database.prepare(`
+      INSERT INTO memory_relations (
+        project_id, source_id, kind, target_id, payload
+      ) VALUES (?, ?, ?, ?, ?)
+    `);
+    for (const relation of item.relations) {
+      relationStatement.run(
+        projectId,
+        item.id,
+        relation.kind,
+        relation.targetId,
+        JSON.stringify(relation),
+      );
+    }
+  }
+
+  replaceMarkdownMemory(
+    projectId: string,
+    items: Array<{ item: MemoryItem; sourceHash: string }>,
+  ): void {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const stale = this.database
+        .prepare(
+          "SELECT id FROM memory_items WHERE project_id = ? AND origin = 'markdown'",
+        )
+        .all(projectId) as unknown as Array<{ id: string }>;
+      for (const row of stale) {
+        this.database
+          .prepare(
+            "DELETE FROM memory_relations WHERE project_id = ? AND source_id = ?",
+          )
+          .run(projectId, row.id);
+      }
+      this.database
+        .prepare(
+          "DELETE FROM memory_items WHERE project_id = ? AND origin = 'markdown'",
+        )
+        .run(projectId);
+      for (const entry of items) {
+        this.writeMemoryItem(
+          projectId,
+          entry.item,
+          "markdown",
+          entry.sourceHash,
+        );
+      }
+      this.rebuildMemoryFts(projectId);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  saveMemoryItem(
+    projectId: string,
+    item: MemoryItem,
+    origin = "confirmed",
+  ): void {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.writeMemoryItem(projectId, item, origin);
+      this.rebuildMemoryFts(projectId);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  loadMemoryItem(projectId: string, id: string): MemoryItem | undefined {
+    const row = this.database
+      .prepare(
+        "SELECT payload FROM memory_items WHERE project_id = ? AND id = ?",
+      )
+      .get(projectId, id) as JsonRow | undefined;
+    return row ? (JSON.parse(row.payload) as MemoryItem) : undefined;
+  }
+
+  listMemoryItems(projectId: string): MemoryItem[] {
+    const rows = this.database
+      .prepare(
+        "SELECT payload FROM memory_items WHERE project_id = ? ORDER BY updated_at DESC, id",
+      )
+      .all(projectId) as unknown as JsonRow[];
+    return rows.map((row) => JSON.parse(row.payload) as MemoryItem);
+  }
+
+  searchMemoryCandidates(
+    projectId: string,
+    query: string,
+    limit = 100,
+  ): MemoryItem[] {
+    const terms = query
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .match(/[A-Za-z0-9]{2,}/g)
+      ?.slice(0, 12);
+    if (!terms || terms.length === 0) {
+      return this.listMemoryItems(projectId).slice(0, limit);
+    }
+    const match = terms.map((term) => `"${term.replaceAll('"', '""')}"*`).join(" OR ");
+    try {
+      const rows = this.database
+        .prepare(`
+          SELECT items.payload
+          FROM memory_fts
+          JOIN memory_items AS items
+            ON items.project_id = memory_fts.project_id
+           AND items.id = memory_fts.id
+          WHERE memory_fts MATCH ? AND items.project_id = ?
+          ORDER BY bm25(memory_fts)
+          LIMIT ?
+        `)
+        .all(match, projectId, limit) as unknown as JsonRow[];
+      return rows.map((row) => JSON.parse(row.payload) as MemoryItem);
+    } catch {
+      return this.listMemoryItems(projectId).slice(0, limit);
+    }
+  }
+
+  memoryCounts(projectId: string): {
+    total: number;
+    active: number;
+    proposed: number;
+    superseded: number;
+    byType: Partial<Record<MemoryType, number>>;
+    byStatus: Partial<Record<MemoryStatus, number>>;
+  } {
+    const totalRow = this.database
+      .prepare("SELECT COUNT(*) AS count FROM memory_items WHERE project_id = ?")
+      .get(projectId) as unknown as MemoryCountRow;
+    const grouped = this.database
+      .prepare(
+        "SELECT type, status, COUNT(*) AS count FROM memory_items WHERE project_id = ? GROUP BY type, status",
+      )
+      .all(projectId) as unknown as Array<{
+        type: MemoryType;
+        status: MemoryStatus;
+        count: number;
+      }>;
+    const byType: Partial<Record<MemoryType, number>> = {};
+    const byStatus: Partial<Record<MemoryStatus, number>> = {};
+    for (const row of grouped) {
+      byType[row.type] = (byType[row.type] ?? 0) + row.count;
+      byStatus[row.status] = (byStatus[row.status] ?? 0) + row.count;
+    }
+    return {
+      total: totalRow.count,
+      active: byStatus.active ?? 0,
+      proposed: byStatus.proposed ?? 0,
+      superseded: byStatus.superseded ?? 0,
+      byType,
+      byStatus,
+    };
+  }
+
+  saveMemoryProposal(proposal: MemoryProposal): void {
+    this.database
+      .prepare(`
+        INSERT INTO memory_proposals (
+          id, project_id, status, created_at, payload
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status = excluded.status,
+          payload = excluded.payload
+      `)
+      .run(
+        proposal.id,
+        proposal.projectId,
+        proposal.status,
+        proposal.createdAt,
+        JSON.stringify(proposal),
+      );
+  }
+
+  loadMemoryProposal(
+    projectId: string,
+    proposalId: string,
+  ): MemoryProposal | undefined {
+    const row = this.database
+      .prepare(
+        "SELECT payload FROM memory_proposals WHERE project_id = ? AND id = ?",
+      )
+      .get(projectId, proposalId) as JsonRow | undefined;
+    return row ? (JSON.parse(row.payload) as MemoryProposal) : undefined;
+  }
+
+  listMemoryProposals(
+    projectId: string,
+    status?: MemoryProposal["status"],
+  ): MemoryProposal[] {
+    const rows = (
+      status
+        ? this.database
+            .prepare(
+              "SELECT payload FROM memory_proposals WHERE project_id = ? AND status = ? ORDER BY created_at DESC",
+            )
+            .all(projectId, status)
+        : this.database
+            .prepare(
+              "SELECT payload FROM memory_proposals WHERE project_id = ? ORDER BY created_at DESC",
+            )
+            .all(projectId)
+    ) as unknown as JsonRow[];
+    return rows.map((row) => JSON.parse(row.payload) as MemoryProposal);
   }
 
   close(): void {

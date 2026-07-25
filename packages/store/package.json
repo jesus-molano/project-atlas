@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@component-atlas/core": "workspace:*",
-    "@component-atlas/design": "workspace:*"
+    "@component-atlas/design": "workspace:*",
+    "@component-atlas/memory": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

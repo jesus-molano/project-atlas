@@ -23,16 +23,26 @@ import {
   type DecisionKind,
   type Framework,
 } from "@component-atlas/core";
+import type { MemoryStatus, MemoryType } from "@component-atlas/memory";
 import { startMcpServer } from "@component-atlas/mcp";
 import {
   findTaskDesignCandidates,
+  getProjectMemoryItem,
+  getTaskContext,
   graphSummary,
+  indexProjectMemory,
   inspectFigmaDesignNode,
   listFigmaDesignIndexes,
   loadProjectGraph,
   mapFigmaDesign,
+  applyMemoryUpdate,
+  checkBeforeChange,
+  orientProject,
+  proposeMemoryUpdate,
   recordDecision,
+  recordProjectOutcome,
   scanProject,
+  searchProjectMemory,
   type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
 import { Command } from "commander";
@@ -64,6 +74,10 @@ function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+function printBudgetedJson(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value)}\n`);
+}
+
 function printComponent(component: ReturnType<typeof findComponent>): void {
   if (!component) return;
   printJson(component);
@@ -75,6 +89,16 @@ function parseLimit(value: string, maximum: number): number {
     throw new Error(`Limit must be a positive integer, received "${value}".`);
   }
   return Math.min(parsed, maximum);
+}
+
+function parseBudget(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 800) {
+    throw new Error(
+      `Budget must be an integer of at least 800 characters, received "${value}".`,
+    );
+  }
+  return Math.min(parsed, 12_000);
 }
 
 async function configureGlobalIgnore(): Promise<string> {
@@ -318,6 +342,226 @@ export function createProgram(): Command {
             selectedComponentIds: options.select ?? [],
             rejectedComponentIds: options.reject ?? [],
             ...(options.author ? { author: options.author } : {}),
+          }),
+        );
+      },
+    );
+
+  const memory = program
+    .command("memory")
+    .description(
+      "Index and query scoped Project Atlas memory with hard response budgets.",
+    );
+
+  memory
+    .command("index")
+    .argument("[path]", "repository root", ".")
+    .description("Rebuild the SQLite memory index from project Markdown.")
+    .action(async (rootPath: string) => {
+      printJson(await indexProjectMemory(rootPath));
+    });
+
+  memory
+    .command("orient")
+    .argument("[path]", "repository root", ".")
+    .option("--budget <chars>", "hard response budget in characters", "3600")
+    .option("--refresh", "refresh Markdown memory before orientation")
+    .description("Return a small Project Atlas map and expandable handles.")
+    .action(
+      async (
+        rootPath: string,
+        options: { budget: string; refresh?: boolean },
+      ) => {
+        printBudgetedJson(
+          await orientProject(rootPath, {
+            budgetChars: parseBudget(options.budget),
+            ...(options.refresh ? { refreshMemory: true } : {}),
+          }),
+        );
+      },
+    );
+
+  memory
+    .command("search")
+    .argument("<path>", "repository root")
+    .argument("<query>", "memory intent, area, decision, or term")
+    .option("-l, --limit <number>", "maximum results", "5")
+    .option("--cursor <cursor>", "opaque cursor from a previous response")
+    .option("--type <types...>", "memory types to include")
+    .option("--status <statuses...>", "memory statuses to include")
+    .option("--include-inactive", "include superseded and archived memory")
+    .option("--budget <chars>", "hard response budget in characters", "3600")
+    .description("Search scoped memory and return compact expandable results.")
+    .action(
+      async (
+        rootPath: string,
+        query: string,
+        options: {
+          limit: string;
+          cursor?: string;
+          type?: string[];
+          status?: string[];
+          includeInactive?: boolean;
+          budget: string;
+        },
+      ) => {
+        printBudgetedJson(
+          await searchProjectMemory(rootPath, query, {
+            limit: parseLimit(options.limit, 10),
+            budgetChars: parseBudget(options.budget),
+            ...(options.cursor ? { cursor: options.cursor } : {}),
+            ...(options.type
+              ? {
+                  types: options.type as MemoryType[],
+                }
+              : {}),
+            ...(options.status
+              ? {
+                  statuses: options.status as MemoryStatus[],
+                }
+              : {}),
+            ...(options.includeInactive ? { includeInactive: true } : {}),
+          }),
+        );
+      },
+    );
+
+  memory
+    .command("show")
+    .argument("<path>", "repository root")
+    .argument("<id>", "confirmed memory item ID")
+    .option("--budget <chars>", "hard response budget in characters", "5000")
+    .description("Expand one confirmed memory item.")
+    .action(async (rootPath: string, id: string, options: { budget: string }) => {
+      printBudgetedJson(
+        await getProjectMemoryItem(rootPath, id, {
+          budgetChars: parseBudget(options.budget),
+        }),
+      );
+    });
+
+  memory
+    .command("task")
+    .argument("<path>", "repository root")
+    .argument("<task>", "task or implementation intent")
+    .option("--figma-file <file>", "cached Figma URL or file key")
+    .option("--budget <chars>", "shared hard response budget", "4200")
+    .option("--refresh", "refresh Markdown memory before retrieval")
+    .description("Combine memory, code, and optional design in one compact bundle.")
+    .action(
+      async (
+        rootPath: string,
+        task: string,
+        options: { figmaFile?: string; budget: string; refresh?: boolean },
+      ) => {
+        printBudgetedJson(
+          await getTaskContext(rootPath, task, {
+            budgetChars: parseBudget(options.budget),
+            ...(options.figmaFile ? { figmaFile: options.figmaFile } : {}),
+            ...(options.refresh ? { refreshMemory: true } : {}),
+          }),
+        );
+      },
+    );
+
+  memory
+    .command("check")
+    .argument("<path>", "repository root")
+    .argument("<intent>", "planned change")
+    .option("--file <files...>", "files likely to change")
+    .option("--budget <chars>", "hard response budget in characters", "3600")
+    .description("Warn before contradicting decisions or repeating failed attempts.")
+    .action(
+      async (
+        rootPath: string,
+        intent: string,
+        options: { file?: string[]; budget: string },
+      ) => {
+        printBudgetedJson(
+          await checkBeforeChange(rootPath, intent, {
+            budgetChars: parseBudget(options.budget),
+            ...(options.file ? { files: options.file } : {}),
+          }),
+        );
+      },
+    );
+
+  memory
+    .command("propose")
+    .argument("<path>", "repository root")
+    .requiredOption("--input <json>", "proposal JSON file")
+    .option("--budget <chars>", "hard response budget in characters", "3600")
+    .description("Store a reviewable memory proposal without promoting it.")
+    .action(
+      async (
+        rootPath: string,
+        options: { input: string; budget: string },
+      ) => {
+        const proposal = JSON.parse(
+          await readFile(path.resolve(options.input), "utf8"),
+        ) as Omit<
+          Parameters<typeof proposeMemoryUpdate>[0],
+          "rootPath" | "budgetChars"
+        >;
+        printBudgetedJson(
+          await proposeMemoryUpdate({
+            rootPath,
+            ...proposal,
+            budgetChars: parseBudget(options.budget),
+          }),
+        );
+      },
+    );
+
+  memory
+    .command("apply")
+    .argument("<path>", "repository root")
+    .argument("<proposal>", "reviewed proposal ID")
+    .requiredOption("--confirm", "explicitly approve the durable write")
+    .option("--target <target>", "local or canonical", "local")
+    .option("--budget <chars>", "hard response budget in characters", "3600")
+    .description("Apply a reviewed proposal to Markdown and SQLite.")
+    .action(
+      async (
+        rootPath: string,
+        proposal: string,
+        options: { confirm: boolean; target: string; budget: string },
+      ) => {
+        if (!["local", "canonical"].includes(options.target)) {
+          throw new Error('Memory target must be "local" or "canonical".');
+        }
+        printBudgetedJson(
+          await applyMemoryUpdate(rootPath, proposal, {
+            confirmed: options.confirm,
+            target: options.target as "local" | "canonical",
+            budgetChars: parseBudget(options.budget),
+          }),
+        );
+      },
+    );
+
+  memory
+    .command("outcome")
+    .argument("<path>", "repository root")
+    .requiredOption("--input <json>", "outcome JSON file")
+    .option("--budget <chars>", "hard response budget in characters", "3600")
+    .description("Record an auditable local task outcome.")
+    .action(
+      async (
+        rootPath: string,
+        options: { input: string; budget: string },
+      ) => {
+        const outcome = JSON.parse(
+          await readFile(path.resolve(options.input), "utf8"),
+        ) as Omit<
+          Parameters<typeof recordProjectOutcome>[0],
+          "rootPath" | "budgetChars"
+        >;
+        printBudgetedJson(
+          await recordProjectOutcome({
+            rootPath,
+            ...outcome,
+            budgetChars: parseBudget(options.budget),
           }),
         );
       },

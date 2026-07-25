@@ -63,6 +63,11 @@ Task matching is explainable rather than authoritative. It scores:
 - optional Code Connect evidence;
 - nearest component names from the local Atlas graph.
 
+Ready for dev contributes a small boost and can break an otherwise close tie.
+It is never an eligibility filter. A file with no Dev Mode statuses follows the
+same ranking path using names, hierarchy, annotations, links, contained
+components/variants, device context, and Atlas signals.
+
 Results include reasons and confidence. A high score is still a proposal, not
 permission to fetch deep context. The decision gate asks for confirmation or a
 choice with evidence. A direct node link already supplies that decision.
@@ -139,10 +144,11 @@ MCP equivalents are `map_figma_file`, `list_figma_indexes`,
 ## Validation boundary
 
 Fixtures validate REST and MCP XML normalization, incremental cache behavior,
-Ready for dev, mobile/desktop ranking, Code Connect evidence, variable modes,
-and confirmed-node handoff. The remaining environment validation is to map one
-real team file and run five real tasks. That requires a file link or active
-selection plus read permission; it does not require Atlas to receive a token.
+Ready for dev as an optional boost, ranking with zero Ready nodes,
+mobile/desktop ranking, Code Connect evidence, variable modes, and
+confirmed-node handoff. The remaining environment validation is to map one real
+team file and run five real tasks. That requires a file link or active selection
+plus read permission; it does not require Atlas to receive a token.
 
 ## Figma references
 

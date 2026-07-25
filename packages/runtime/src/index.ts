@@ -545,3 +545,6 @@ export async function inspectFigmaDesignNode(
   const index = await loadFigmaDesignIndex(rootPath, figmaFile);
   return inspectDesignNode(index, selector);
 }
+
+export * from "./memory.js";
+export * from "./view-models.js";

@@ -1,0 +1,13 @@
+<canvas id="0:10" name="Personal shop">
+  <section id="60:0" name="Checkout experiments">
+    <frame id="60:1" name="Checkout / Promo code" x="0" y="0" width="1200" height="720">
+      <instance id="60:11" name="Coupon text input" />
+      <instance id="60:12" name="Apply coupon button" />
+    </frame>
+    <frame id="60:2" name="Checkout mobile / Promo code" x="1240" y="0" width="390" height="844">
+      <instance id="60:21" name="Coupon text input" />
+      <instance id="60:22" name="Apply coupon button" />
+    </frame>
+    <frame id="60:3" name="Order confirmation" x="0" y="780" width="1200" height="720" />
+  </section>
+</canvas>

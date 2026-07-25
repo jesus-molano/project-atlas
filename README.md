@@ -18,10 +18,16 @@ The repository contains a working context-engine release:
 - compact reuse-context bundle through CLI and MCP
 - lightweight cached Figma Design Index with explainable task matching
 - optional Ready for dev, Code Connect, library, and variable-catalog signals
+- typed Project Memory from canonical/local Markdown with SQLite FTS5 indexing
+- hard-capped project orientation, memory search, task context, and change gates
+- proposal-first durable memory writes and auditable task outcomes
+- strict per-project isolation and preventive secret-like content rejection
 - decision/uncertainty findings with evidence and recommendations
 - explicit reuse/extend/compose/extract/create decision records
 - read-only relationship map
+- portable `frontend-task` orchestration skill
 - reusable `reuse-first` workflow module
+- `frontend-codex-kit` installer for Codex and Claude Code
 
 Component previews and the Lab have intentionally been removed. Atlas does not
 try to reproduce an application's runtime or styling pipeline.
@@ -33,6 +39,8 @@ pnpm install
 pnpm build
 pnpm atlas scan /path/to/project
 pnpm atlas context /path/to/project "confirmation dialog for destructive action"
+pnpm atlas memory index /path/to/project
+pnpm atlas memory task /path/to/project "add a study filter to search"
 pnpm atlas figma find /path/to/project "add coupon validation to checkout"
 pnpm atlas open /path/to/project
 ```
@@ -52,7 +60,14 @@ repository under the operating system's local application-data directory.
 Running `component-atlas setup` keeps local artifacts globally ignored by Git.
 
 See [docs/architecture.md](docs/architecture.md) for the data model,
+[docs/project-memory.md](docs/project-memory.md) for durable project knowledge,
+[docs/token-budgets.md](docs/token-budgets.md) for compact-query guarantees,
+[docs/validation.md](docs/validation.md) for the local/external validation line,
 [docs/design-index.md](docs/design-index.md) for the two Figma routes,
 [docs/workflow.md](docs/workflow.md) for the intended agent workflow, and
-[docs/frontend-task-integration.md](docs/frontend-task-integration.md) for the
-future portable skill boundary.
+[frontend-codex-kit/README.md](frontend-codex-kit/README.md) for installation
+and the first run on another computer.
+
+The complete Project Atlas GUI is a required final phase, not part of this
+engine checkpoint. Its scope and backend gates are documented in
+[docs/gui-roadmap.md](docs/gui-roadmap.md); no preview Lab is being rebuilt.

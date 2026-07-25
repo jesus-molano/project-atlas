@@ -1,14 +1,35 @@
 # Setup
 
-## Build
+## Portable installation
 
-Requirements: Node 24+ and pnpm.
+Requirements: Git, Node 24+, pnpm 11, and at least one supported agent client.
 
-The workspace resolves Nuxt 4.5.0, TypeScript 7.0.2, and Vite 8.1.5.
+On Windows, the supported path is the safe installer:
 
 ```powershell
-cd "C:\Users\jessu\dev\component-atlas"
-pnpm install
+cd "C:\path\to\component-atlas"
+.\frontend-codex-kit\install.ps1 -Agent codex
+```
+
+Use `-Agent claude` or `-Agent both` as needed. Run with `-DryRun` first to
+inspect every filesystem, build, Git-ignore, and MCP action. The installer:
+
+- installs dependencies and builds CLI/MCP packages;
+- globally ignores `.component-atlas/` project artifacts;
+- links `frontend-task` and `reuse-first` to the selected client skill folders;
+- registers the local stdio MCP without credentials;
+- preserves existing unrelated skills and existing `component-atlas` MCP
+  entries instead of overwriting them.
+
+See [../frontend-codex-kit/README.md](../frontend-codex-kit/README.md) for the
+complete new-computer guide and
+[../frontend-codex-kit/TOMORROW.md](../frontend-codex-kit/TOMORROW.md) for the
+first real-work checklist.
+
+## Manual build
+
+```powershell
+pnpm install --frozen-lockfile
 pnpm build
 node packages/cli/dist/index.js setup
 ```
@@ -16,30 +37,38 @@ node packages/cli/dist/index.js setup
 Use `node packages/cli/dist/index.js` in place of `component-atlas` unless the
 CLI package has been linked or installed globally.
 
-## Connect Codex
+## Manual Codex connection
 
 ```powershell
-codex mcp add component-atlas -- node "C:\Users\jessu\dev\component-atlas\packages\mcp\dist\index.js"
-codex mcp list
+codex mcp add component-atlas -- node "C:\path\to\component-atlas\packages\mcp\dist\index.js"
+codex mcp get component-atlas
 ```
 
-For the workflow module:
+Link both skills:
 
 ```powershell
 New-Item -ItemType Directory -Force "$HOME\.agents\skills"
 New-Item -ItemType Junction `
+  -Path "$HOME\.agents\skills\frontend-task" `
+  -Target "C:\path\to\component-atlas\skills\frontend-task"
+New-Item -ItemType Junction `
   -Path "$HOME\.agents\skills\reuse-first" `
-  -Target "C:\Users\jessu\dev\component-atlas\skills\reuse-first"
+  -Target "C:\path\to\component-atlas\skills\reuse-first"
 ```
 
-## Connect Claude Code
+Codex uses `~/.agents/skills` for personal skills. It detects skill file changes
+automatically; restart once if the top-level folder did not exist when the
+client started.
+
+## Manual Claude Code connection
 
 ```powershell
-claude mcp add component-atlas -- node "C:\Users\jessu\dev\component-atlas\packages\mcp\dist\index.js"
-claude mcp list
+claude mcp add --scope user component-atlas -- node "C:\path\to\component-atlas\packages\mcp\dist\index.js"
+claude mcp get component-atlas
 ```
 
-Use `skills/reuse-first/SKILL.md` as a Claude command or project instruction.
+Link the same skill sources into `~/.claude/skills`. Invoke
+`/frontend-task` or `/reuse-first` in Claude Code.
 
 ## MCP tools
 
@@ -55,16 +84,35 @@ Use `skills/reuse-first/SKILL.md` as a Claude command or project instruction.
 - `list_figma_indexes`
 - `find_design_candidates`
 - `inspect_design_node`
+- `orient_project`
+- `search_project_memory`
+- `get_memory_item`
+- `get_task_context`
+- `check_before_change`
+- `propose_memory_update`
+- `apply_memory_update`
+- `record_outcome`
 
 All tools take an absolute `root_path`. Read operations use the existing local
-graph and scan only when none exists. Query tools return compact JSON both as
-MCP text content and native `structuredContent`. Set `raw: true` only when
-diagnosing the index itself; normal agent workflows should keep the compact
-default.
+graph and scan only when none exists. Query tools return compact native
+`structuredContent` plus a minimal text status; they do not duplicate the full
+result. Project queries include hard budget metrics. Set `raw: true` only when
+diagnosing the older component index itself.
 
 Figma tools accept metadata supplied by the calling agent; Atlas does not store
-Figma credentials. See `docs/design-index.md` for MCP XML, REST JSON, optional
-enrichment, and variable permission behavior.
+Figma credentials. Ready for dev, Code Connect, global Variables, Jira, and
+Confluence are optional enrichments, not prerequisites.
+
+Project Memory can be indexed and queried without any external connector:
+
+```powershell
+node packages/cli/dist/index.js memory index "C:\path\to\project"
+node packages/cli/dist/index.js memory task "C:\path\to\project" `
+  "add study filter to search" --budget 3600
+```
+
+See [project-memory.md](project-memory.md) before deciding whether canonical
+Markdown may be committed by the team.
 
 ## Optional relationship map
 
@@ -73,7 +121,7 @@ node packages/cli/dist/index.js open "C:\path\to\project"
 ```
 
 The read-only map binds to `127.0.0.1:4173`. It does not execute or preview
-project components.
+project components. There is no Lab server.
 
 ## Validate development changes
 
@@ -82,3 +130,9 @@ pnpm test
 pnpm typecheck
 pnpm build
 ```
+
+Official client references:
+
+- [Codex skills](https://learn.chatgpt.com/docs/build-skills)
+- [Claude Code skills](https://code.claude.com/docs/en/skills)
+- [Claude Code MCP](https://docs.anthropic.com/en/docs/claude-code/mcp)
