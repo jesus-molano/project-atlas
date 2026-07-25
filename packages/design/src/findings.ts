@@ -35,6 +35,12 @@ function findingId(code: DesignFinding["code"], nodeIds: string[] = []): string 
   return `${code}:${nodeIds.slice().sort().join(",") || "file"}`;
 }
 
+function devStatusEvidence(node: DesignIndexNode): string {
+  return node.devStatusAvailability === "source-unavailable"
+    ? "status unavailable from source"
+    : node.devStatus;
+}
+
 export function decisionGate(findings: DesignFinding[]): DesignDecisionGate {
   const questions = findings
     .filter(
@@ -67,7 +73,15 @@ function duplicateFindings(index: DesignFileIndex): DesignFinding[] {
     groups.set(key, group);
   }
   return [...groups.values()]
-    .filter((group) => group.length > 1)
+    .filter((group) => {
+      if (group.length < 2) return false;
+      const viewportWidths = new Set(
+        group
+          .map((node) => node.width)
+          .filter((width): width is number => width !== undefined),
+      );
+      return viewportWidths.size <= 1;
+    })
     .slice(0, 5)
     .map((group) => {
       const nodeIds = group.map((node) => node.id);
@@ -77,10 +91,69 @@ function duplicateFindings(index: DesignFileIndex): DesignFinding[] {
         code: "duplicate-design-pattern",
         title: `Possible duplicate design pattern: ${group[0]?.name ?? "unnamed"}`,
         evidence: group.map(
-          (node) => `${node.path.join(" / ")} (${node.id}, ${node.devStatus})`,
+          (node) =>
+            `${node.path.join(" / ")} (${node.id}, ${devStatusEvidence(node)})`,
         ),
         recommendation:
           "Compare responsibilities and states before treating these frames as separate implementations; mark true device/state variants explicitly.",
+        nodeIds,
+      };
+    });
+}
+
+function namingFindings(index: DesignFileIndex): DesignFinding[] {
+  const suspicious = index.nodes.filter((node) => {
+    const normalizedName = normalized(node.name);
+    return (
+      /\b[A-Z]{2,}[a-záéíóúñü]/u.test(node.name) ||
+      /\b(?:atuenticacion|autenticacionn|registrarr|huellla)\b/.test(
+        normalizedName,
+      )
+    );
+  });
+  return suspicious.slice(0, 5).map((node) => ({
+    id: findingId("naming-inconsistency", [node.id]),
+    level: "warning",
+    code: "naming-inconsistency",
+    title: `Design naming may be inconsistent: ${node.name}`,
+    evidence: [`${node.path.join(" / ")} (${node.id})`],
+    recommendation:
+      "Confirm the intended label with design/product and normalize naming at the source; do not silently rename UI copy during implementation.",
+    nodeIds: [node.id],
+  }));
+}
+
+function responsiveCoverageFindings(index: DesignFileIndex): DesignFinding[] {
+  const groups = new Map<string, DesignIndexNode[]>();
+  for (const node of index.nodes) {
+    if (node.type !== "FRAME" || node.width === undefined) continue;
+    const key = `${node.pageId}:${node.parentId ?? "page"}:${canonicalVariantName(node.name)}`;
+    const group = groups.get(key) ?? [];
+    group.push(node);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .filter((group) => {
+      const widths = [...new Set(group.map((node) => node.width!))];
+      return widths.length > 1 && Math.min(...widths) >= 768;
+    })
+    .slice(0, 5)
+    .map((group) => {
+      const widths = [...new Set(group.map((node) => node.width!))].sort(
+        (left, right) => left - right,
+      );
+      const nodeIds = group.map((node) => node.id);
+      return {
+        id: findingId("responsive-coverage-gap", nodeIds),
+        level: "warning",
+        code: "responsive-coverage-gap",
+        title: `Small-breakpoint behavior is not evidenced for ${canonicalVariantName(group[0]?.name ?? "design family")}`,
+        evidence: [
+          `Indexed related frames expose widths ${widths.join(", ")}px.`,
+          "No related frame below 768px was present in the sparse metadata.",
+        ],
+        recommendation:
+          "Treat these as viewport variants of one family. Confirm mobile/tablet behavior or an explicit out-of-scope decision; do not invent smaller breakpoints.",
         nodeIds,
       };
     });
@@ -99,7 +172,13 @@ function inconsistentVariantFindings(index: DesignFileIndex): DesignFinding[] {
   return [...groups.values()]
     .filter((group) => {
       if (group.length < 2) return false;
-      return new Set(group.map((node) => node.devStatus)).size > 1;
+      const observable = group.filter(
+        (node) => node.devStatusAvailability === "available",
+      );
+      return (
+        observable.length > 1 &&
+        new Set(observable.map((node) => node.devStatus)).size > 1
+      );
     })
     .slice(0, 5)
     .map((group) => {
@@ -110,7 +189,7 @@ function inconsistentVariantFindings(index: DesignFileIndex): DesignFinding[] {
         code: "inconsistent-variants",
         title: `Related variants have inconsistent dev status: ${canonicalVariantName(group[0]?.name ?? "")}`,
         evidence: group.map(
-          (node) => `${node.name}: ${node.devStatus} (${node.id})`,
+          (node) => `${node.name}: ${devStatusEvidence(node)} (${node.id})`,
         ),
         recommendation:
           "Confirm which device/state variants belong to the same delivery and align their Ready for dev or Completed status.",
@@ -154,6 +233,8 @@ export function designIndexFindings(index: DesignFileIndex): DesignFinding[] {
     ...duplicateFindings(index),
     ...inconsistentVariantFindings(index),
     ...readyWithoutStatesFindings(index),
+    ...namingFindings(index),
+    ...responsiveCoverageFindings(index),
   ];
   if (index.variables.availability !== "global") {
     findings.push({
@@ -167,6 +248,23 @@ export function designIndexFindings(index: DesignFileIndex): DesignFinding[] {
       ],
       recommendation:
         "Continue with the lightweight map and retrieve exact variables with get_variable_defs only after a node is confirmed.",
+    });
+  }
+  if (index.devStatus.availability !== "available") {
+    findings.push({
+      id: findingId("dev-status-unavailable"),
+      level: "warning",
+      code: "dev-status-unavailable",
+      title:
+        index.devStatus.availability === "partial"
+          ? "Ready for Dev status is only partially observable"
+          : "Ready for Dev status is unavailable from this source",
+      evidence: [
+        index.devStatus.note ??
+          "The indexed connector did not expose Figma Dev Mode status metadata.",
+      ],
+      recommendation:
+        "Keep ranking by semantic structure and Atlas evidence, but verify the selected node through a source that exposes devStatus or by direct Figma selection. Do not interpret unavailable as absent.",
     });
   }
   return findings;

@@ -15,6 +15,13 @@ project_context:
     - Relevant decision, convention, failed attempt, or none
   findings:
     - decision-required, warning, or resolved with evidence
+capabilities:
+  repository: required | not-applicable
+  atlas: recommended | optional | unavailable | not-applicable
+  jira: required | recommended | optional | unavailable | not-applicable
+  confluence: required | recommended | optional | unavailable | not-applicable
+  figma: required | recommended | optional | unavailable | not-applicable
+  github: required | recommended | optional | unavailable | not-applicable
 sources:
   conversation: Present or absent
   jira: Issue key/link or absent/unavailable

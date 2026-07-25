@@ -1,31 +1,40 @@
 # `frontend-task` integration
 
-`skills/frontend-task` is the portable task orchestrator. Component Atlas
+`skills/frontend-task` is the portable task orchestrator. Project Atlas
 remains its local-code and cached-design context engine.
+This flow composes installed capabilities; Project Atlas itself is not packaged
+as a Codex plugin in this phase.
 
 ## Adaptive sequence
 
 1. Detect whichever sources are actually available. Repository and conversation
    form the baseline; Jira, Confluence, Figma, screenshots, and pasted
    requirements are optional.
-2. Build the minimal brief from
+2. Classify relevant sources as required, recommended, optional, unavailable,
+   or not applicable. Report the cheap precheck before deep retrieval.
+3. Build the minimal brief from
    `skills/frontend-task/references/brief-contract.md`.
-3. Ask only questions that can change behavior, ownership, accessibility,
+4. Ask only questions that can change behavior, ownership, accessibility,
    architecture, design target, or component strategy. Every question includes
    evidence and a recommendation.
-4. Reduce the brief to one implementation intent.
-5. Call `scan_repository` and one budgeted `get_task_context`. This composes the
+5. Use the native `request_user_input` selector when available for a material
+   missing source (one question by default, three maximum). Otherwise ask one
+   brief chat question. Do not build a separate form.
+6. Reduce the brief to one implementation intent.
+7. Call `scan_repository` and one budgeted `get_task_context`. This composes the
    most relevant memory, code, and cached-design signals under a shared cap.
-6. If a concrete Figma node is confirmed, use it directly. If only a file/page
+8. If a concrete Figma node is confirmed, use it directly. If only a file/page
    exists, map sparse metadata and call `find_design_candidates`.
-7. Treat Ready for dev as a ranking boost, never a filter or prerequisite.
-8. Stop for `decision-required`, surface `warning` with its recommendation, and
+9. Treat Ready for dev as a ranking boost, never a filter or prerequisite.
+   Treat `source-unavailable` as a connector limitation, not a missing state.
+10. Stop for `decision-required`, surface `warning` with its recommendation, and
    retain `resolved` findings without interrupting the user.
-9. Retrieve deep Figma context, screenshot, and exact variables only after node
-   confirmation.
-10. Run `check_before_change`, record the component decision, implement,
+11. After node confirmation, narrow a large frame to the smallest relevant
+   subtree before deep context. Retrieve screenshot and exact variables for the
+   same target; ask for a manual selection if it cannot be isolated.
+12. Run `check_before_change`, record the component decision, implement,
     validate, and rescan.
-11. Record the observed/verified outcome. Propose any durable memory delta;
+13. Record the observed/verified outcome. Propose any durable memory delta;
     apply it only after explicit confirmation.
 
 Focused Atlas queries remain compact. The retrieval ladder is orientation,

@@ -161,6 +161,7 @@ async function openViewer(
     env: {
       ...process.env,
       ATLAS_PROJECT_ROOT: graph.project.rootPath,
+      ATLAS_CLI_ENTRY: currentFile,
       NITRO_HOST: "127.0.0.1",
       NITRO_PORT: options.port,
     },
@@ -178,13 +179,13 @@ async function openViewer(
   });
   await waitForUrl(url);
   if (options.browser) await open(url);
-  process.stdout.write(`Component Atlas map is running at ${url}\n`);
+  process.stdout.write(`Project Atlas GUI is running at ${url}\n`);
 }
 
 export function createProgram(): Command {
   const program = new Command()
-    .name("component-atlas")
-    .description("Reuse-first component intelligence for coding agents.")
+    .name("project-atlas")
+    .description("Local project evidence and memory for coding agents.")
     .version("0.1.0")
     .showSuggestionAfterError();
 
@@ -446,17 +447,24 @@ export function createProgram(): Command {
     .argument("<task>", "task or implementation intent")
     .option("--figma-file <file>", "cached Figma URL or file key")
     .option("--budget <chars>", "shared hard response budget", "4200")
+    .option("--limit <count>", "maximum candidates per source", "3")
     .option("--refresh", "refresh Markdown memory before retrieval")
     .description("Combine memory, code, and optional design in one compact bundle.")
     .action(
       async (
         rootPath: string,
         task: string,
-        options: { figmaFile?: string; budget: string; refresh?: boolean },
+        options: {
+          figmaFile?: string;
+          budget: string;
+          limit: string;
+          refresh?: boolean;
+        },
       ) => {
         printBudgetedJson(
           await getTaskContext(rootPath, task, {
             budgetChars: parseBudget(options.budget),
+            topK: parseLimit(options.limit, 10),
             ...(options.figmaFile ? { figmaFile: options.figmaFile } : {}),
             ...(options.refresh ? { refreshMemory: true } : {}),
           }),
@@ -588,6 +596,8 @@ export function createProgram(): Command {
     .option("--file-version <version>", "Figma file version")
     .option("--last-modified <date>", "Figma lastModified value")
     .option("--scope-node <id>", "page or node covered by this metadata")
+    .option("--scope-page-id <id>", "parent page ID for scoped metadata")
+    .option("--scope-page-name <name>", "parent page name for scoped metadata")
     .option(
       "--enrichment <file>",
       "optional JSON with status, resources, libraries, Code Connect, or variables",
@@ -605,6 +615,8 @@ export function createProgram(): Command {
           fileVersion?: string;
           lastModified?: string;
           scopeNode?: string;
+          scopePageId?: string;
+          scopePageName?: string;
           enrichment?: string;
           force?: boolean;
         },
@@ -634,6 +646,12 @@ export function createProgram(): Command {
               ? { lastModified: options.lastModified }
               : {}),
             ...(options.scopeNode ? { scopeNodeId: options.scopeNode } : {}),
+            ...(options.scopePageId
+              ? { scopePageId: options.scopePageId }
+              : {}),
+            ...(options.scopePageName
+              ? { scopePageName: options.scopePageName }
+              : {}),
             ...(enrichment ? { enrichment } : {}),
             ...(options.force ? { force: true } : {}),
           }),
@@ -692,7 +710,7 @@ export function createProgram(): Command {
     .argument("[path]", "repository root", ".")
     .option("-p, --port <port>", "local viewer port", "4173")
     .option("--no-browser", "do not open the default browser")
-    .description("Refresh the graph and launch the read-only relationship map.")
+    .description("Refresh Code Atlas and launch the complete local Project Atlas GUI.")
     .action(
       async (
         rootPath: string,

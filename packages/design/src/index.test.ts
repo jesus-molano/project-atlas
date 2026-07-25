@@ -6,6 +6,7 @@ import {
   inspectDesignNode,
   isDesignSnapshotCurrent,
   mergeDesignIndexes,
+  normalizeDesignIndex,
   parseFigmaReference,
   rankDesignCandidates,
   type DesignIndexEnrichment,
@@ -42,6 +43,12 @@ describe("Figma Design Index", () => {
       readyForDev: 1,
       variableCollections: 1,
       variables: 2,
+    });
+    expect(index.devStatus).toEqual({ availability: "available" });
+    expect(index.pages.find((page) => page.id === "0:1")).toMatchObject({
+      devStatus: "ready-for-dev",
+      devStatusAvailability: "available",
+      devStatusDescription: "Checkout delivery page",
     });
     expect(index.variables).toMatchObject({
       availability: "global",
@@ -123,8 +130,13 @@ describe("Figma Design Index", () => {
     const inspection = inspectDesignNode(index, "10:1");
     expect(inspection.deepContextRequest).toMatchObject({
       confirmedNodeId: "10:1",
+      strategy: "confirmed-subtree",
       requiredTools: ["get_design_context", "get_screenshot"],
       recommendedTools: ["get_variable_defs"],
+      budgetPolicy: {
+        preserveTargetFirst: true,
+        onUnisolatedTarget: "ask-for-selection",
+      },
     });
     expect(inspection.node.componentNames).toContain("Text input / Default");
 
@@ -173,6 +185,9 @@ describe("Figma Design Index", () => {
     const merged = mergeDesignIndexes(checkout, account);
     expect(merged.pages.map((page) => page.name)).toContain("Account");
     expect(isDesignSnapshotCurrent(merged, account)).toBe(true);
+    expect(mergeDesignIndexes(merged, account).nodes).toHaveLength(
+      merged.nodes.length,
+    );
 
     const newVersion = buildFigmaDesignIndex({
       figmaUrl: "https://www.figma.com/design/StorefrontKey/Storefront",
@@ -202,6 +217,20 @@ describe("Figma Design Index", () => {
 
     expect(index.stats.readyForDev).toBe(0);
     expect(index.nodes.every((node) => node.devStatus === "none")).toBe(true);
+    expect(index.devStatus).toMatchObject({
+      availability: "source-unavailable",
+    });
+    expect(
+      index.nodes.every(
+        (node) => node.devStatusAvailability === "source-unavailable",
+      ),
+    ).toBe(true);
+    expect(designIndexSummary(index).findings).toContainEqual(
+      expect.objectContaining({
+        code: "dev-status-unavailable",
+        level: "warning",
+      }),
+    );
 
     const desktop = rankDesignCandidates(
       index,
@@ -214,6 +243,7 @@ describe("Figma Design Index", () => {
         id: "60:1",
         name: "Checkout / Promo code",
         status: "none",
+        statusAvailability: "source-unavailable",
       },
     });
     expect(desktop.candidates[0]?.reasons.join(" ")).not.toContain(
@@ -228,10 +258,115 @@ describe("Figma Design Index", () => {
     expect(mobile.candidates[0]?.node).toMatchObject({
       id: "60:2",
       status: "none",
+      statusAvailability: "source-unavailable",
     });
     expect(mobile.candidates[0]?.reasons).toContain(
       "matches requested mobile variant",
     );
+  });
+
+  it("preserves observable status when a later scoped source cannot expose it", async () => {
+    const xml = await readFile(fixture("account-page.xml"), "utf8");
+    const observable = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/StorefrontKey/Storefront",
+      metadata: xml,
+      format: "figma-mcp-xml",
+      version: "v42",
+      scopeNodeId: "0:3",
+      scopePageId: "0:3",
+      scopePageName: "Account",
+    });
+    const withoutStatus = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/StorefrontKey/Storefront",
+      metadata: xml.replace(' dev-status="READY_FOR_DEV"', ""),
+      format: "figma-mcp-xml",
+      version: "v42",
+      scopeNodeId: "0:3",
+      scopePageId: "0:3",
+      scopePageName: "Account",
+    });
+    const merged = mergeDesignIndexes(observable, withoutStatus);
+
+    expect(merged.nodes.find((node) => node.id === "40:2")).toMatchObject({
+      devStatus: "ready-for-dev",
+      devStatusAvailability: "available",
+    });
+    expect(merged.devStatus.availability).toBe("partial");
+    expect(merged.nodes[0]?.pageName).toBe("Account");
+  });
+
+  it("does not persist transient local asset URLs", async () => {
+    const metadata = await readFile(fixture("personal-no-dev-mode.xml"), "utf8");
+    const index = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/PersonalShop/Personal-shop",
+      metadata,
+      format: "figma-mcp-xml",
+      enrichment: {
+        devResources: [
+          {
+            node_id: "60:1",
+            name: "Transient image",
+            url: "http://localhost:3845/assets/example.svg",
+          },
+          {
+            node_id: "60:1",
+            name: "Durable reference",
+            url: "https://example.test/design/reference",
+          },
+        ],
+      },
+    });
+
+    expect(index.nodes.find((node) => node.id === "60:1")?.resources).toEqual([
+      expect.objectContaining({ name: "Durable reference" }),
+    ]);
+  });
+
+  it("groups viewport and storyboard evidence without inventing small breakpoints", () => {
+    const metadata = `
+      <canvas id="1:1" name="Security">
+        <section id="2:1" name="Fingerprint flow">
+          <frame id="3:1" name="Fingerprint registered desktop" width="1600" height="1024">
+            <frame id="4:1" name="Security card" width="720" height="640" />
+          </frame>
+          <frame id="3:2" name="Fingerprint registered" width="1200" height="1024" />
+          <frame id="3:3" name="REgister fingerprint capture" width="1200" height="1024" />
+          <frame id="3:4" name="Fingerprint error" width="1200" height="1024" />
+        </section>
+      </canvas>
+    `;
+    const index = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/SecurityFixture/Security",
+      metadata,
+      format: "figma-mcp-xml",
+      enrichment: { devStatusAvailability: "source-unavailable" },
+    });
+    const summary = designIndexSummary(index);
+    const sectionInspection = inspectDesignNode(index, "2:1");
+
+    expect(summary.families).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "viewport",
+          viewportWidths: [1200, 1600],
+        }),
+        expect.objectContaining({
+          kind: "flow",
+          observedStates: expect.arrayContaining(["capture", "error"]),
+        }),
+      ]),
+    );
+    expect(summary.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "responsive-coverage-gap" }),
+        expect.objectContaining({ code: "naming-inconsistency" }),
+      ]),
+    );
+    expect(sectionInspection.deepContextRequest).toMatchObject({
+      candidateSubtreeIds: expect.arrayContaining(["3:1", "3:2"]),
+      requiredTools: ["get_metadata", "get_design_context", "get_screenshot"],
+      budgetPolicy: { onUnisolatedTarget: "ask-for-selection" },
+    });
   });
 
   it("extracts file and node IDs from direct Figma links", () => {
@@ -242,6 +377,32 @@ describe("Figma Design Index", () => {
     ).toMatchObject({
       fileKey: "StorefrontKey",
       nodeId: "10:1",
+    });
+  });
+
+  it("upgrades older cached indexes without treating unknown XML status as absent", async () => {
+    const current = await checkoutIndex();
+    const legacy = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
+    legacy.schemaVersion = 1;
+    delete legacy.devStatus;
+    for (const source of legacy.sources as Array<Record<string, unknown>>) {
+      delete source.devStatusAvailability;
+    }
+    for (const node of legacy.nodes as Array<Record<string, unknown>>) {
+      delete node.devStatusAvailability;
+    }
+    for (const page of legacy.pages as Array<Record<string, unknown>>) {
+      delete page.devStatus;
+      delete page.devStatusAvailability;
+    }
+
+    const upgraded = normalizeDesignIndex(
+      legacy as unknown as Parameters<typeof normalizeDesignIndex>[0],
+    );
+    expect(upgraded.schemaVersion).toBe(2);
+    expect(upgraded.devStatus.availability).toBe("available");
+    expect(upgraded.nodes.find((node) => node.id === "10:1")).toMatchObject({
+      devStatusAvailability: "available",
     });
   });
 });

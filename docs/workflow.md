@@ -1,13 +1,13 @@
 # Reuse-first workflow
 
-Component Atlas sits between requirement discovery and implementation.
+Project Atlas sits between requirement discovery and implementation.
 
 ```mermaid
 flowchart TD
   T[Jira, Confluence, Figma, screenshots, or pasted requirements]
   Q[Clarify behavior and missing states]
   I[State implementation intent]
-  S[Refresh Component Atlas]
+  S[Refresh Project Atlas]
   C[Get compact Project Atlas task context]
   G[Check decisions, risks, and failed attempts]
   E[Inspect candidate source and impact]
@@ -74,15 +74,23 @@ Optional Figma context:
 component-atlas figma map "C:\path\to\repo" "<figma-url>" `
   --metadata ".\figma-metadata.xml" `
   --format figma-mcp-xml `
-  --scope-node "12:34"
+  --scope-node "12:34" `
+  --scope-page-id "1:2" `
+  --scope-page-name "Checkout"
 component-atlas figma find "C:\path\to\repo" "add coupon validation to checkout"
 component-atlas figma inspect "C:\path\to\repo" "<figma-file>" "12:34"
 ```
 
 Ready for dev is a boost when present, not a condition for these commands.
+`source-unavailable` means the connector could not expose the field, not that
+the node has no Figma state.
 Semantic file/page/frame names, hierarchy, annotations, components, variants,
 device context, and Atlas evidence remain active when every node has status
 `none`.
+
+For a large confirmed frame, use the inspection handoff to narrow sparse child
+metadata to the smallest relevant subtree before deep context. If it cannot be
+isolated, select the subtree manually rather than accepting target truncation.
 
 Record a decision:
 

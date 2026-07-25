@@ -17,6 +17,9 @@ inspect every filesystem, build, Git-ignore, and MCP action. The installer:
 - installs dependencies and builds CLI/MCP packages;
 - globally ignores `.component-atlas/` project artifacts;
 - links `frontend-task` and `reuse-first` to the selected client skill folders;
+- optionally adds an idempotent managed routing block to
+  `~/.codex/AGENTS.md` with `-InstallAgentsInstructions`, preserving all other
+  content;
 - registers the local stdio MCP without credentials;
 - preserves existing unrelated skills and existing `component-atlas` MCP
   entries instead of overwriting them.
@@ -59,6 +62,19 @@ New-Item -ItemType Junction `
 Codex uses `~/.agents/skills` for personal skills. It detects skill file changes
 automatically; restart once if the top-level folder did not exist when the
 client started.
+
+Optional global routing instruction:
+
+```powershell
+.\frontend-codex-kit\install.ps1 `
+  -Agent codex `
+  -InstallAgentsInstructions
+```
+
+The managed marker block says to use `frontend-task` for frontend work and
+Atlas only when connected and useful. It never instructs Codex to install or
+initialize plugins automatically. A new task or instruction reload may be
+needed after changing `~/.codex/AGENTS.md`.
 
 ## Manual Claude Code connection
 
@@ -114,14 +130,15 @@ node packages/cli/dist/index.js memory task "C:\path\to\project" `
 See [project-memory.md](project-memory.md) before deciding whether canonical
 Markdown may be committed by the team.
 
-## Optional relationship map
+## Project Atlas GUI
 
 ```powershell
 node packages/cli/dist/index.js open "C:\path\to\project"
 ```
 
-The read-only map binds to `127.0.0.1:4173`. It does not execute or preview
-project components. There is no Lab server.
+The local GUI binds to `127.0.0.1:4173`. It covers Code Atlas, Design Atlas,
+Project Memory, decisions and risks, bounded Task Context, proposal review,
+integration health, and settings. Browsing local indexes uses no agent tokens.
 
 ## Validate development changes
 

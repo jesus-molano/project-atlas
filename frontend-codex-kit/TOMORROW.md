@@ -2,7 +2,7 @@
 
 ## Ten-minute setup
 
-- [ ] Clone or pull `component-atlas` to a stable private path.
+- [ ] Clone or pull `project-atlas` to a stable local path.
 - [ ] Check `node --version` is 24+ and `pnpm --version` is 11+.
 - [ ] Run `.\frontend-codex-kit\install.ps1 -Agent codex` (or `both`).
 - [ ] Restart Codex/Claude once if the global skills folders were newly created.
@@ -23,11 +23,17 @@
 - [ ] A supplied Figma file/page produces few candidates before deep retrieval.
 - [ ] Ready for dev boosts a result when present but its absence does not filter
       candidates.
+- [ ] `source-unavailable` triggers direct/status-capable verification, not a
+      conclusion that the node has no Ready for dev state.
+- [ ] A large screen is narrowed to the relevant child subtree before deep
+      context, and target truncation is reported rather than hidden.
 - [ ] The final implementation records a reuse decision and runs repository
       validation.
 - [ ] Task context reports its hard budget and does not dump every source.
 - [ ] `check_before_change` surfaces only evidence-backed conflicts/warnings.
 - [ ] A durable memory lesson is proposed, not silently applied.
+- [ ] `atlas open <repo>` exposes all nine GUI sections and Task Context shows
+      the budget used before copying a package.
 
 ## Validation pending with real work data
 
@@ -54,9 +60,11 @@ Do not paste credentials into prompts, fixtures, profiles, or this repository.
 If corporate policy blocks a connector, record that source as unavailable and
 continue with repository plus conversation.
 
-## Final phase still pending
+## GUI check with real work data
 
-- [ ] After engine validation, review the backend gates in
-      [../docs/gui-roadmap.md](../docs/gui-roadmap.md).
-- [ ] Build and validate the complete Project Atlas GUI; do not mistake the
-      narrow read-only relationship map for that deliverable.
+- [ ] Confirm Code Atlas relationships and impact against one known component.
+- [ ] Confirm Design Atlas provenance/status against the approved Figma file.
+- [ ] Generate one Task Context package and compare its candidates with the
+      team's expected implementation area.
+- [ ] Review one synthetic memory proposal before allowing real project
+      knowledge to be written.

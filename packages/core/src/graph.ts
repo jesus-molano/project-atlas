@@ -159,6 +159,12 @@ function includesTerm(component: ComponentNode, term: string): string[] {
   if (component.renderedNames.some((name) => name.toLowerCase().includes(term))) {
     hits.push("rendered component");
   }
+  if (component.imports.some((name) => name.toLowerCase().includes(term))) {
+    hits.push("import");
+  }
+  if (component.testPaths.some((testPath) => testPath.toLowerCase().includes(term))) {
+    hits.push("test");
+  }
   return hits;
 }
 
@@ -167,10 +173,48 @@ export function searchComponents(
   query: string,
   limit = 10,
 ): ComponentSearchResult[] {
-  const terms = tokenize(query);
+  const queryStopwords = new Set([
+    "and",
+    "de",
+    "del",
+    "el",
+    "en",
+    "for",
+    "la",
+    "las",
+    "los",
+    "of",
+    "para",
+    "por",
+    "the",
+    "to",
+    "una",
+  ]);
+  const conceptGroups = [
+    ["dialog", "modal", "sheet", "confirm", "confirmation"],
+    ["delete", "remove", "destroy", "eliminar", "borrar"],
+    ["fingerprint", "biometric", "biometrics", "finger", "huella"],
+    ["authentication", "security", "twofactor", "2fa"],
+    ["input", "field", "textbox", "campo"],
+    ["button", "action", "cta", "boton"],
+  ];
+  const directTerms = tokenize(query).filter(
+    (term) => !queryStopwords.has(term),
+  );
+  const terms = [
+    ...new Set(
+      directTerms.flatMap((term) => {
+        const group = conceptGroups.find((candidate) =>
+          candidate.includes(term),
+        );
+        return group ?? [term];
+      }),
+    ),
+  ];
   if (terms.length === 0) return [];
 
   return graph.components
+    .filter((component) => (component.kind ?? "component") === "component")
     .map((component) => {
       const reasons = terms.flatMap((term) => includesTerm(component, term));
       const nameTokens = tokenize(`${component.name} ${component.effectiveName}`);
@@ -181,6 +225,7 @@ export function searchComponents(
         matchedNameTerms.length * 4 +
         reasons.filter((reason) => reason === "name").length * 3 +
         reasons.filter((reason) => reason === "runtime name").length * 2 +
+        reasons.filter((reason) => reason === "import").length * 2 +
         reasons.length;
       let score = matchScore;
       if (component.visibility === "public") score += 1.5;

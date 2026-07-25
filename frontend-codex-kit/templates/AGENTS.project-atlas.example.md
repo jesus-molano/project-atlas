@@ -19,6 +19,8 @@ Keep this file as a map, not a manual.
 
 ## Non-negotiable rules
 
+- Use `frontend-task` for frontend work when available; missing optional
+  connectors or Atlas never block repository-first progress.
 - Search existing components and request compact Project Atlas task context
   before creating shared UI.
 - Check impact before changing a public component API.

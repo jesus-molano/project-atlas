@@ -37,6 +37,7 @@ export interface ComponentEvent {
 export interface ComponentNode {
   id: string;
   framework: Framework;
+  kind?: "component" | "route" | "layout";
   name: string;
   effectiveName: string;
   sourcePath: string;

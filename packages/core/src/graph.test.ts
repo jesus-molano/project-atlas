@@ -75,6 +75,12 @@ describe("component graph", () => {
       "MonthlySalaryDialog",
     );
     expect(
+      searchComponents(
+        { ...graph, components: [modal] },
+        "confirmation sheet",
+      )[0]?.component.name,
+    ).toBe("UiModal");
+    expect(
       graph.edges.some(
         (edge) =>
           edge.kind === "renders" &&

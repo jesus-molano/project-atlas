@@ -310,6 +310,8 @@ export function createMcpServer(): McpServer {
       version: z.string().optional(),
       last_modified: z.string().optional(),
       scope_node_id: z.string().optional(),
+      scope_page_id: z.string().optional(),
+      scope_page_name: z.string().optional(),
       enrichment: z
         .object({
           libraries: z
@@ -318,6 +320,9 @@ export function createMcpServer(): McpServer {
           codeConnect: z.record(z.unknown()).optional(),
           devResources: z.array(z.unknown()).optional(),
           devStatusByNode: z.record(z.unknown()).optional(),
+          devStatusAvailability: z
+            .enum(["available", "source-unavailable"])
+            .optional(),
           variableCatalog: z.unknown().optional(),
         })
         .optional(),
@@ -332,6 +337,8 @@ export function createMcpServer(): McpServer {
       version,
       last_modified,
       scope_node_id,
+      scope_page_id,
+      scope_page_name,
       enrichment,
       force,
     }) =>
@@ -345,6 +352,8 @@ export function createMcpServer(): McpServer {
           ...(version ? { version } : {}),
           ...(last_modified ? { lastModified: last_modified } : {}),
           ...(scope_node_id ? { scopeNodeId: scope_node_id } : {}),
+          ...(scope_page_id ? { scopePageId: scope_page_id } : {}),
+          ...(scope_page_name ? { scopePageName: scope_page_name } : {}),
           ...(enrichment
             ? {
                 enrichment:
@@ -505,6 +514,7 @@ export function createMcpServer(): McpServer {
       task: z.string().min(1),
       figma_file: z.string().optional(),
       budget_chars: z.number().int().min(800).max(12000).optional(),
+      top_k: z.number().int().min(1).max(10).optional(),
       refresh_memory: z.boolean().optional(),
     },
     async ({
@@ -512,12 +522,14 @@ export function createMcpServer(): McpServer {
       task,
       figma_file,
       budget_chars,
+      top_k,
       refresh_memory,
     }) =>
       text(
         await getTaskContext(root_path, task, {
           ...(figma_file ? { figmaFile: figma_file } : {}),
           ...(budget_chars ? { budgetChars: budget_chars } : {}),
+          ...(top_k ? { topK: top_k } : {}),
           ...(refresh_memory ? { refreshMemory: true } : {}),
         }),
       ),

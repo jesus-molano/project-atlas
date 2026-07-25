@@ -31,7 +31,14 @@ interface TemplateFacts {
   slots: string[];
 }
 
-const SOURCE_PATTERNS = ["app/components/**/*.vue", "components/**/*.vue"];
+const SOURCE_PATTERNS = [
+  "app/components/**/*.vue",
+  "components/**/*.vue",
+  "app/pages/**/*.vue",
+  "pages/**/*.vue",
+  "app/layouts/**/*.vue",
+  "layouts/**/*.vue",
+];
 const TEST_PATTERNS = [
   "test/**/*.{test,spec}.{ts,tsx,js,jsx}",
   "tests/**/*.{test,spec}.{ts,tsx,js,jsx}",
@@ -339,6 +346,9 @@ function classify(relativePath: string): {
   visibility: ComponentVisibility;
   feature?: string;
 } {
+  if (/(^|\/)(?:pages|layouts)\//i.test(slash(relativePath))) {
+    return { visibility: "private" };
+  }
   const parts = componentRoot(relativePath).map((part) => part.toLowerCase());
   const first = parts[0];
   if (first && ["ui", "shared", "common"].includes(first)) {
@@ -423,16 +433,22 @@ export class VueAdapter implements FrameworkAdapter {
         const name = pascalCase(path.basename(sourcePath, ".vue"));
         const effectiveName = effectiveNuxtName(relativePath) || name;
         const classification = classify(relativePath);
+        const kind = /(^|\/)pages\//i.test(relativePath)
+          ? ("route" as const)
+          : /(^|\/)layouts\//i.test(relativePath)
+            ? ("layout" as const)
+            : ("component" as const);
         const componentTests = testsFor(relativePath, name, testPaths);
         return {
           id: componentId("vue", relativePath, name),
           framework: "vue",
+          kind,
           name,
           effectiveName,
           sourcePath,
           relativePath,
           ...classification,
-          exported: true,
+          exported: kind === "component",
           location: { line: 1, column: 1 },
           props: scriptFacts.props,
           events: scriptFacts.events,

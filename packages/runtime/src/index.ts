@@ -7,8 +7,6 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import fg from "fast-glob";
-import { scanReactProject } from "@component-atlas/adapter-react";
-import { scanVueProject } from "@component-atlas/adapter-vue";
 import {
   GRAPH_SCHEMA_VERSION,
   buildGraphEdges,
@@ -238,8 +236,12 @@ export async function scanProject(
   const framework = options.framework ?? (await detectFramework(rootPath));
   const components =
     framework === "vue"
-      ? await scanVueProject({ rootPath })
-      : await scanReactProject({ rootPath });
+      ? await import("@component-atlas/adapter-vue").then(({ scanVueProject }) =>
+          scanVueProject({ rootPath }),
+        )
+      : await import("@component-atlas/adapter-react").then(
+          ({ scanReactProject }) => scanReactProject({ rootPath }),
+        );
   const tokens = await scanDesignTokens(rootPath);
   const metadata = {
     id: projectId(rootPath),

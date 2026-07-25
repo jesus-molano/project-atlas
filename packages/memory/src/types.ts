@@ -147,6 +147,8 @@ export interface MemoryProposal {
   findings: MemoryFinding[];
   appliedAt?: string;
   appliedItemIds?: string[];
+  rejectedAt?: string;
+  rejectionReason?: string;
 }
 
 export interface MemorySearchOptions {

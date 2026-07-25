@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { buildGraphEdges } from "@component-atlas/core";
 import { scanVueProject } from "./index.js";
 
 const fixture = path.resolve(
@@ -16,8 +17,9 @@ describe("VueAdapter", () => {
       (item) => item.effectiveName === "FeatureConfirmDialog",
     );
     const hint = components.find((item) => item.name === "InlineHint");
+    const route = components.find((item) => item.kind === "route");
 
-    expect(components).toHaveLength(4);
+    expect(components).toHaveLength(5);
     expect(modal?.props).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "title", required: true }),
@@ -37,5 +39,20 @@ describe("VueAdapter", () => {
     expect(modal?.testPaths).toHaveLength(1);
     expect(confirm?.renderedNames).toContain("UiBaseModal");
     expect(hint?.visibility).toBe("private");
+    expect(route).toMatchObject({
+      name: "Dialogs",
+      exported: false,
+      visibility: "private",
+      renderedNames: ["ConfirmDialog"],
+    });
+    const confirmNode = components.find((item) => item.name === "ConfirmDialog");
+    expect(
+      buildGraphEdges(components).some(
+        (edge) =>
+          edge.kind === "renders" &&
+          edge.source === route?.id &&
+          edge.target === confirmNode?.id,
+      ),
+    ).toBe(true);
   });
 });

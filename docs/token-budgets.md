@@ -43,6 +43,6 @@ The serialized response is tested never to exceed `budgetChars`.
 source before trimming secondary results. Findings/questions outrank candidate
 detail. Long evidence strings are shortened before the hard cap can be crossed.
 
-The future GUI may browse large local indexes without token cost. Its Context
-Inspector must show selected sources, estimated characters/tokens, hard cap,
-and truncation before a package can be copied or sent to an agent.
+The GUI browses large local indexes without token cost. Its Task Context
+Inspector shows selected sources, estimated characters/tokens, hard cap, and
+truncation before a package can be copied for an agent.

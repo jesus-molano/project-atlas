@@ -1,8 +1,15 @@
-export const DESIGN_INDEX_SCHEMA_VERSION = 1 as const;
+export const DESIGN_INDEX_SCHEMA_VERSION = 2 as const;
 
 export type DesignMetadataFormat = "auto" | "figma-mcp-xml" | "figma-rest";
 export type DesignMetadataSource = Exclude<DesignMetadataFormat, "auto">;
 export type DesignDevStatus = "ready-for-dev" | "completed" | "none";
+export type DesignDevStatusAvailability =
+  | "available"
+  | "source-unavailable";
+export type DesignDevStatusCoverage =
+  | "available"
+  | "partial"
+  | "source-unavailable";
 export type DesignCandidateConfidence = "high" | "medium" | "low";
 export type DesignFindingLevel =
   | "decision-required"
@@ -23,6 +30,9 @@ export interface DesignFinding {
     | "suspicious-component-api"
     | "source-contradiction"
     | "global-variables-unavailable"
+    | "dev-status-unavailable"
+    | "naming-inconsistency"
+    | "responsive-coverage-gap"
     | "low-impact-default";
   title: string;
   evidence: string[];
@@ -131,6 +141,7 @@ export interface DesignIndexNode {
   width?: number;
   height?: number;
   devStatus: DesignDevStatus;
+  devStatusAvailability: DesignDevStatusAvailability;
   devStatusDescription?: string;
   annotations: DesignAnnotation[];
   resources: DesignResourceLink[];
@@ -144,6 +155,9 @@ export interface DesignIndexPage {
   id: string;
   name: string;
   nodeIds: string[];
+  devStatus: DesignDevStatus;
+  devStatusAvailability: DesignDevStatusAvailability;
+  devStatusDescription?: string;
   readyForDev: number;
   completed: number;
 }
@@ -153,6 +167,7 @@ export interface DesignSourceSnapshot {
   scopeNodeId?: string;
   hash: string;
   indexedAt: string;
+  devStatusAvailability: DesignDevStatusAvailability;
 }
 
 export interface DesignFileIndex {
@@ -167,6 +182,10 @@ export interface DesignFileIndex {
   };
   indexedAt: string;
   sources: DesignSourceSnapshot[];
+  devStatus: {
+    availability: DesignDevStatusCoverage;
+    note?: string;
+  };
   pages: DesignIndexPage[];
   nodes: DesignIndexNode[];
   components: DesignComponentSummary[];
@@ -191,6 +210,7 @@ export interface DesignIndexEnrichment {
   codeConnect?: Record<string, unknown>;
   devResources?: unknown[];
   devStatusByNode?: Record<string, unknown>;
+  devStatusAvailability?: DesignDevStatusAvailability;
   variableCatalog?: unknown;
 }
 
@@ -202,6 +222,8 @@ export interface BuildFigmaDesignIndexInput {
   version?: string;
   lastModified?: string;
   scopeNodeId?: string;
+  scopePageId?: string;
+  scopePageName?: string;
   indexedAt?: string;
   enrichment?: DesignIndexEnrichment;
 }
@@ -212,6 +234,7 @@ export interface DesignIndexSummary {
   indexedAt: string;
   sources: number;
   stats: DesignFileIndex["stats"];
+  devStatus: DesignFileIndex["devStatus"];
   variables: {
     availability: DesignVariableCatalog["availability"];
     collections: Array<{
@@ -227,6 +250,8 @@ export interface DesignIndexSummary {
   pages: Array<{
     id: string;
     name: string;
+    status: DesignDevStatus;
+    statusAvailability: DesignDevStatusAvailability;
     readyForDev: number;
     completed: number;
     mainNodes: Array<{
@@ -234,8 +259,18 @@ export interface DesignIndexSummary {
       name: string;
       type: string;
       status: DesignDevStatus;
+      statusAvailability: DesignDevStatusAvailability;
       url: string;
     }>;
+  }>;
+  families: Array<{
+    id: string;
+    name: string;
+    kind: "viewport" | "flow";
+    nodeIds: string[];
+    viewportWidths: number[];
+    observedStates: string[];
+    missingCommonStates: string[];
   }>;
   nextActions: string[];
 }
@@ -252,6 +287,9 @@ export interface DesignCandidate {
     page: string;
     path: string;
     status: DesignDevStatus;
+    statusAvailability: DesignDevStatusAvailability;
+    pageStatus: DesignDevStatus;
+    pageStatusAvailability: DesignDevStatusAvailability;
   };
   reasons: string[];
   matchedTaskTerms: string[];
@@ -260,6 +298,7 @@ export interface DesignCandidate {
     name: string;
     url: string;
     status: DesignDevStatus;
+    statusAvailability: DesignDevStatusAvailability;
   }>;
 }
 
@@ -283,12 +322,14 @@ export interface DesignNodeInspection {
     name: string;
     type: string;
     status: DesignDevStatus;
+    statusAvailability: DesignDevStatusAvailability;
     url: string;
   }>;
   relatedVariants: Array<{
     id: string;
     name: string;
     status: DesignDevStatus;
+    statusAvailability: DesignDevStatusAvailability;
     url: string;
   }>;
   findings: DesignFinding[];
@@ -296,8 +337,16 @@ export interface DesignNodeInspection {
   deepContextRequest: {
     confirmedNodeId: string;
     figmaUrl: string;
-    requiredTools: ["get_design_context", "get_screenshot"];
+    strategy: "confirmed-subtree";
+    orientationNodeId: string;
+    candidateSubtreeIds: string[];
+    requiredTools: string[];
     recommendedTools: string[];
+    budgetPolicy: {
+      preserveTargetFirst: true;
+      omitFirst: string[];
+      onUnisolatedTarget: "ask-for-selection";
+    };
     instruction: string;
   };
 }

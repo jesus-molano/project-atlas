@@ -11,6 +11,10 @@
         "id": "0:1",
         "name": "Checkout",
         "type": "CANVAS",
+        "devStatus": {
+          "type": "READY_FOR_DEV",
+          "description": "Checkout delivery page"
+        },
         "children": [
           {
             "id": "10:1",

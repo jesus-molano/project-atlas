@@ -6,13 +6,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyMemoryUpdate,
   checkBeforeChange,
+  combineMemoryProposals,
   getProjectMemoryItem,
   getTaskContext,
   indexProjectMemory,
+  listFigmaDesignIndexes,
   mapFigmaDesign,
   orientProject,
   proposeMemoryUpdate,
+  recordDecision,
   recordProjectOutcome,
+  rejectMemoryUpdate,
+  reviseMemoryProposal,
   scanProject,
   searchProjectMemory,
 } from "./index.js";
@@ -109,6 +114,14 @@ describe.sequential("Project Atlas runtime", () => {
       metadata,
       format: "figma-mcp-xml",
     });
+    await mapFigmaDesign({
+      rootPath,
+      figmaUrl: "https://www.figma.com/design/PersonalShop/Personal-shop",
+      metadata,
+      format: "figma-mcp-xml",
+      force: true,
+    });
+    expect((await listFigmaDesignIndexes(rootPath))[0]?.stats.nodes).toBe(8);
 
     const context = await getTaskContext(
       rootPath,
@@ -126,7 +139,17 @@ describe.sequential("Project Atlas runtime", () => {
       available: true,
       candidates: expect.any(Array),
     });
+    expect(context.gate.overall.status).not.toBe("clear");
     expect(context.metrics.estimatedTokens).toBeLessThanOrEqual(700);
+
+    const narrow = await getTaskContext(
+      rootPath,
+      "add study filter to search on mobile",
+      { figmaFile: "PersonalShop", budgetChars: 2_800, topK: 1 },
+    );
+    expect(narrow.memory.length).toBeLessThanOrEqual(1);
+    expect(narrow.code.length).toBeLessThanOrEqual(1);
+    expect(narrow.design.candidates.length).toBeLessThanOrEqual(1);
 
     const withoutDesign = await getTaskContext(
       emptyRoot,
@@ -138,6 +161,26 @@ describe.sequential("Project Atlas runtime", () => {
       candidates: [],
     });
     expect(JSON.stringify(withoutDesign).length).toBeLessThanOrEqual(1_400);
+  });
+
+  it("surfaces recorded reuse decisions in project orientation", async () => {
+    const decision = await recordDecision({
+      rootPath,
+      intent: "extend the existing confirmation behavior",
+      decision: "compose",
+      selectedComponentIds: [],
+      rationale: "Keep responsibilities explicit and reuse the existing flow.",
+    });
+    const map = await orientProject(rootPath, { budgetChars: 3_600 });
+
+    expect(map.projectMemory.currentDecisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: decision.id,
+          type: "reuse-decision",
+        }),
+      ]),
+    );
   });
 
   it("raises conflicts, stale knowledge, and failed attempts before change", async () => {
@@ -175,7 +218,7 @@ describe.sequential("Project Atlas runtime", () => {
     const map = await orientProject(rootPath, { budgetChars: 1_600 });
     expect(JSON.stringify(map).length).toBeLessThanOrEqual(1_600);
     expect(map).toMatchObject({
-      codeAtlas: { components: 4 },
+      codeAtlas: { components: 5 },
       projectMemory: { counts: { total: 5 } },
     });
   });
@@ -288,5 +331,88 @@ describe.sequential("Project Atlas runtime", () => {
         }),
       ]),
     );
+  });
+
+  it("supports auditable revise, combine, and reject inbox actions", async () => {
+    await indexProjectMemory(rootPath);
+    const first = await proposeMemoryUpdate({
+      rootPath,
+      rationale: "Capture the first bounded convention.",
+      items: [
+        {
+          type: "convention",
+          title: "Keep filter values canonical",
+          summary: "Normalize filter values before component props receive them.",
+          confidence: 0.8,
+          authority: "inferred",
+        },
+      ],
+    });
+    const second = await proposeMemoryUpdate({
+      rootPath,
+      rationale: "Capture related verification evidence.",
+      evidence: ["Fixture route test passed"],
+      items: [
+        {
+          type: "outcome",
+          title: "Filter route remained stable",
+          summary: "The verified route round trip preserved the selected filter.",
+          confidence: 0.9,
+          authority: "verified",
+        },
+      ],
+    });
+
+    const revised = await reviseMemoryProposal({
+      rootPath,
+      proposalId: first.proposal.id,
+      rationale: "Capture the reviewed bounded convention.",
+      evidence: ["Fixture review completed"],
+      items: [
+        {
+          type: "convention",
+          title: "Keep filter values canonical",
+          summary: "Normalize filter values at the route boundary.",
+          confidence: 0.9,
+          authority: "verified",
+        },
+      ],
+      budgetChars: 1_800,
+    });
+    expect(revised.proposal).toMatchObject({
+      status: "pending",
+      rationale: "Capture the reviewed bounded convention.",
+    });
+    expect(JSON.stringify(revised).length).toBeLessThanOrEqual(1_800);
+
+    const combined = await combineMemoryProposals({
+      rootPath,
+      targetProposalId: first.proposal.id,
+      sourceProposalId: second.proposal.id,
+      confirmed: true,
+      budgetChars: 1_800,
+    });
+    expect(combined).toMatchObject({
+      status: "combined",
+      itemCount: 2,
+    });
+    expect(JSON.stringify(combined).length).toBeLessThanOrEqual(1_800);
+
+    await expect(
+      rejectMemoryUpdate(rootPath, first.proposal.id, {
+        confirmed: false,
+        reason: "The team has not adopted this as a durable convention.",
+      }),
+    ).rejects.toThrow(/confirmed=true/);
+    const rejected = await rejectMemoryUpdate(rootPath, first.proposal.id, {
+      confirmed: true,
+      reason: "The team has not adopted this as a durable convention.",
+      budgetChars: 1_200,
+    });
+    expect(rejected).toMatchObject({ status: "rejected" });
+    expect(JSON.stringify(rejected).length).toBeLessThanOrEqual(1_200);
+
+    const orientation = await orientProject(rootPath, { budgetChars: 3_600 });
+    expect(orientation.projectMemory.pendingProposals).toEqual([]);
   });
 });

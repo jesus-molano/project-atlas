@@ -7,6 +7,8 @@ param(
   [string]$InstallMode = "link",
   [string]$CodexSkillsRoot = (Join-Path $HOME ".agents\skills"),
   [string]$ClaudeSkillsRoot = (Join-Path $HOME ".claude\skills"),
+  [switch]$InstallAgentsInstructions,
+  [string]$CodexAgentsPath = (Join-Path $HOME ".codex\AGENTS.md"),
   [switch]$SkipDependencies,
   [switch]$SkipBuild,
   [switch]$SkipMcp,
@@ -96,12 +98,12 @@ function Ensure-Mcp(
     if ($Client -eq "codex") {
       Invoke-Native $ClientExecutable @(
         "mcp", "add", "component-atlas", "--", $NodeExecutable, $McpEntry
-      ) "register Component Atlas MCP for Codex"
+      ) "register Project Atlas MCP for Codex"
     } else {
       Invoke-Native $ClientExecutable @(
         "mcp", "add", "--scope", "user", "component-atlas", "--",
         $NodeExecutable, $McpEntry
-      ) "register Component Atlas MCP for Claude Code"
+      ) "register Project Atlas MCP for Claude Code"
     }
     return
   }
@@ -116,12 +118,12 @@ function Ensure-Mcp(
   if ($Client -eq "codex") {
     Invoke-Native $ClientExecutable @(
       "mcp", "add", "component-atlas", "--", $NodeExecutable, $McpEntry
-    ) "register Component Atlas MCP for Codex"
+    ) "register Project Atlas MCP for Codex"
   } else {
     Invoke-Native $ClientExecutable @(
       "mcp", "add", "--scope", "user", "component-atlas", "--",
       $NodeExecutable, $McpEntry
-    ) "register Component Atlas MCP for Claude Code"
+    ) "register Project Atlas MCP for Claude Code"
   }
 }
 
@@ -131,6 +133,8 @@ $frontendTask = Join-Path $AtlasRoot "skills\frontend-task"
 $reuseFirst = Join-Path $AtlasRoot "skills\reuse-first"
 $mcpEntry = Join-Path $AtlasRoot "packages\mcp\dist\index.js"
 $cliEntry = Join-Path $AtlasRoot "packages\cli\dist\index.js"
+$agentsInstaller = Join-Path $AtlasRoot "frontend-codex-kit\install-agents-instructions.ps1"
+$agentsBlock = Join-Path $AtlasRoot "frontend-codex-kit\templates\AGENTS.frontend-task.block.md"
 
 foreach ($requiredPath in @($packageJson, $frontendTask, $reuseFirst)) {
   if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -176,6 +180,12 @@ Invoke-Native $node @($cliEntry, "setup") "globally ignore .component-atlas arti
 if ($Agent -in @("codex", "both")) {
   Install-Skill $frontendTask $CodexSkillsRoot
   Install-Skill $reuseFirst $CodexSkillsRoot
+  if ($InstallAgentsInstructions) {
+    & $agentsInstaller `
+      -TargetPath $CodexAgentsPath `
+      -BlockPath $agentsBlock `
+      -DryRun:$DryRun
+  }
 }
 if ($Agent -in @("claude", "both")) {
   Install-Skill $frontendTask $ClaudeSkillsRoot

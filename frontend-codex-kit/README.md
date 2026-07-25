@@ -1,6 +1,6 @@
 # Frontend Codex Kit
 
-Portable setup for the Component Atlas context engine and the `frontend-task`
+Portable setup for the Project Atlas context engine and the `frontend-task`
 workflow. It installs local skills and a local stdio MCP server; it does not
 copy, request, or configure corporate credentials.
 
@@ -9,15 +9,15 @@ copy, request, or configure corporate credentials.
 - `frontend-task`: prepares a minimal brief from whatever sources exist,
   applies the evidence-backed uncertainty gate, and orchestrates implementation.
 - `reuse-first`: enforces Atlas discovery before creating or extending UI.
-- Component Atlas MCP: compact component, graph, similarity, impact, decision,
+- Project Atlas MCP: compact code, design, graph, similarity, impact, decision,
   Figma Design Index, and Project Memory queries.
 - Project Memory: project-scoped Markdown knowledge, local episodic outcomes,
   preventive change gates, and proposal-first durable writes.
 - `.component-atlas/` in the global Git ignore file. The SQLite database remains
   in local application data outside product repositories.
 
-The Figma Lab and component previews do not exist. The only optional browser
-surface is the read-only relationship map.
+The optional browser surface is the complete local Project Atlas GUI over the
+same indexes used by CLI and MCP.
 
 ## Requirements on a new Windows computer
 
@@ -35,7 +35,7 @@ clients only when available.
 
 ## Install
 
-Clone this repository to a stable private path, then run:
+Clone this repository to a stable local path, then run:
 
 ```powershell
 Set-Location "C:\path\to\component-atlas"
@@ -51,6 +51,9 @@ Useful variants:
 # Codex only
 .\frontend-codex-kit\install.ps1 -Agent codex
 
+# Also add/update the small managed frontend-task block in ~/.codex/AGENTS.md
+.\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions
+
 # Install skills now but configure MCP manually later
 .\frontend-codex-kit\install.ps1 -Agent both -SkipMcp
 
@@ -60,6 +63,11 @@ Useful variants:
 
 `-CodexSkillsRoot` and `-ClaudeSkillsRoot` can override the personal folders for
 managed or isolated environments; use only paths approved by the organization.
+`-CodexAgentsPath` can point the opt-in managed block at an isolated test
+profile. The installer preserves all text outside its explicit marker pair,
+refuses malformed/duplicate markers, and does not add the block unless
+`-InstallAgentsInstructions` is supplied. Start a new Codex task or reload
+instructions after changing `AGENTS.md`.
 
 The installer is idempotent for its own links and preserves an existing MCP
 entry named `component-atlas`. It refuses to overwrite a different skill
@@ -98,8 +106,10 @@ In Claude Code:
 /frontend-task Prepara esta tarea: añadir cupón al checkout.
 ```
 
-The agent should identify available sources, create a brief, query Atlas, and
-only ask a question if a material decision is unresolved.
+The agent should first report a compact source/capability precheck, create a
+brief, query Atlas only when useful, and ask only if a material source or
+decision is unresolved. In a mode with the native question selector it uses
+that control; otherwise it falls back to one brief chat question.
 
 After a verified task, the agent may record a local episodic outcome. A durable
 decision/convention is only proposed; applying it requires your explicit
@@ -115,9 +125,10 @@ Choose storage according to company policy:
   by Git;
 - local application-data SQLite: reconstructed index, safe to rebuild.
 
-Do not turn `AGENTS.md` into an encyclopedia. Copy and adapt
-`templates/AGENTS.project-atlas.example.md` as a short map that links to deeper
-repository docs and memory.
+Do not turn `AGENTS.md` into an encyclopedia. For global routing, opt into the
+small managed block with `-InstallAgentsInstructions`. For repository-specific
+instructions, copy and adapt `templates/AGENTS.project-atlas.example.md` as a
+short map that links to deeper repository docs and memory.
 
 ## Add Figma when it exists
 
@@ -126,8 +137,11 @@ Direct route:
 1. Supply a concrete Figma node URL or select the frame in the supported Figma
    client.
 2. Tell the agent it is the confirmed target.
-3. The agent requests deep context, screenshot, and selection variables only
-   for that node.
+3. If it is a large screen, the agent narrows sparse child metadata to the
+   smallest task-relevant subtree.
+4. The agent requests deep context, screenshot, and selection variables only
+   for that subtree. If it cannot be isolated, select it manually rather than
+   accepting truncated target evidence.
 
 General route:
 
@@ -139,6 +153,8 @@ General route:
 Ready for dev improves ranking but is never required. A personal file without
 Dev Mode is ranked by semantic names, hierarchy, annotations, links,
 components, variants, device context, and Atlas matches.
+`source-unavailable` means the connector did not expose dev status; it is never
+proof that a Figma node has no Ready for dev state.
 
 Manual fixture smoke:
 
@@ -181,9 +197,11 @@ the missing validation honestly.
   node. Do not request write scopes.
 - Code Connect is optional evidence; absence is not proof that no code component
   exists.
+- Localhost asset URLs from a Figma session are transient and are not persisted
+  as durable Project Atlas references.
 - Atlas never stores Figma, Jira, or Confluence credentials.
 
-## Optional read-only relationship map
+## Optional local GUI
 
 Build the full workspace once and open it:
 
@@ -192,16 +210,10 @@ pnpm build
 node "$atlas\packages\cli\dist\index.js" open $repo
 ```
 
-It binds to `http://127.0.0.1:4173` and shows component relationships only. It
-does not run previews or the removed Lab.
-
-## Complete GUI status
-
-The read-only relationship map is not the final Project Atlas GUI. A complete
-human surface for Code, Design, Memory, decisions/risks, task context, proposal
-inbox, integrations/health, and settings is the last product phase after the
-engine gates and real-data validation. See
-[../docs/gui-roadmap.md](../docs/gui-roadmap.md).
+It binds to `http://127.0.0.1:4173` and exposes Overview, Code Atlas, Design
+Atlas, Project Memory, Decisions & Risks, Task Context, Memory Inbox,
+Integrations & Health, and Settings. Navigation remains local and token-free;
+only explicit Task Context generation produces a bounded agent package.
 
 ## Tomorrow checklist
 

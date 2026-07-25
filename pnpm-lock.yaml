@@ -29,6 +29,15 @@ importers:
       '@component-atlas/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@component-atlas/design':
+        specifier: workspace:*
+        version: link:../../packages/design
+      '@component-atlas/memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
+      '@component-atlas/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@component-atlas/store':
         specifier: workspace:*
         version: link:../../packages/store

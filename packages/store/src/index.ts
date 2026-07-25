@@ -12,7 +12,10 @@ import {
   type GraphEdge,
   type ProjectMetadata,
 } from "@component-atlas/core";
-import type { DesignFileIndex } from "@component-atlas/design";
+import {
+  normalizeDesignIndex,
+  type DesignFileIndex,
+} from "@component-atlas/design";
 import type {
   MemoryItem,
   MemoryProposal,
@@ -345,7 +348,9 @@ export class AtlasStore {
         "SELECT payload FROM design_indexes WHERE project_id = ? AND file_key = ?",
       )
       .get(projectId, fileKey) as JsonRow | undefined;
-    return row ? (JSON.parse(row.payload) as DesignFileIndex) : undefined;
+    return row
+      ? normalizeDesignIndex(JSON.parse(row.payload) as DesignFileIndex)
+      : undefined;
   }
 
   listDesignIndexes(projectId: string): DesignFileIndex[] {
@@ -354,7 +359,9 @@ export class AtlasStore {
         "SELECT payload FROM design_indexes WHERE project_id = ? ORDER BY indexed_at DESC",
       )
       .all(projectId) as unknown as JsonRow[];
-    return rows.map((row) => JSON.parse(row.payload) as DesignFileIndex);
+    return rows.map((row) =>
+      normalizeDesignIndex(JSON.parse(row.payload) as DesignFileIndex),
+    );
   }
 
   private rebuildMemoryFts(projectId: string): void {

@@ -19,7 +19,7 @@ flowchart LR
   A[.component-atlas catalog and decisions]
   C[CLI context query]
   M[MCP context query]
-  W[Read-only relationship map]
+  W[Complete local Project Atlas GUI]
   T[frontend-task orchestrator]
   K[reuse-first workflow module]
 
@@ -59,10 +59,12 @@ flowchart LR
 - `store`: SQLite persistence using Node's built-in `node:sqlite`.
 - `runtime`: framework detection, indexing orchestration, task-context
   composition, decision gates, proposal/application policy, and provider-neutral
-  view models for the final GUI.
+  GUI view models.
 - `cli`: human and script interface.
 - `mcp`: Codex/Claude tools over stdio.
-- `viewer`: optional local Nuxt relationship map. It only reads the graph.
+- `viewer`: complete local Nuxt control plane over the same runtime and indexes.
+  Browsing is read-only; refresh and memory-review actions call explicit runtime
+  policies.
 
 ## Agent context contract
 
@@ -90,7 +92,7 @@ not duplicate a full JSON result into the text channel.
 ## Design context contract
 
 The Design Index is optional. It stores sparse node identity, hierarchy,
-dimensions, dev status, annotations, component/variant summaries, resource
+dimensions, dev-status value and source availability, annotations, component/variant summaries, resource
 links, optional Code Connect evidence, and a cheap global variable catalog. It
 never stores screenshots or generated implementation code.
 
@@ -98,8 +100,12 @@ never stores screenshots or generated implementation code.
 descriptions/status, annotations, contained components, optional Code Connect,
 and the nearest Atlas component names. Ready for dev is a boost, never a
 filter. It returns a few ranked candidates with reasons and confidence.
-`inspect_design_node` accepts a confirmed node and returns the handoff for deep
-Figma tools; Atlas does not call or proxy them.
+`inspect_design_node` accepts a confirmed node and returns a staged handoff for
+deep Figma tools. Large frames are orientation scopes: the caller first narrows
+to the smallest relevant child subtree and only then requests deep context.
+The contract protects target evidence from shell/navigation truncation and
+requires a manual selection when isolation is impossible. Atlas does not call
+or proxy the Figma tools.
 
 Findings use three levels:
 
@@ -112,7 +118,8 @@ Findings use three levels:
 
 ## Graph model
 
-A component node records source/runtime names, scope, props, emits, slots,
+A code node records source/runtime names, kind (component, route, or layout),
+scope, props, emits, slots,
 models, rendered components, imports, tests, source location, class tokens, and
 a content hash.
 
@@ -124,6 +131,10 @@ Edge types:
 
 Similarity is deterministic: name 30%, props 25%, rendered children 20%, style
 tokens 15%, and API shape 10%.
+
+Route and layout SFCs participate in render edges so an actual page consumer is
+visible in impact traversal, but they are excluded from reusable-component
+candidate ranking.
 
 ## Storage
 
@@ -159,31 +170,28 @@ project-memory/             # optional canonical team knowledge
 └── *.md                    # frontmatter + Markdown + wikilinks
 ```
 
-Older local databases or directories may still contain saved preview scenarios.
-Atlas no longer reads, writes, or exposes them; they are left untouched so the
-product change does not silently delete user material.
-
 See [project-memory.md](project-memory.md) for the memory schema and
 [token-budgets.md](token-budgets.md) for response guarantees.
 
 ## Human control plane
 
-The complete Project Atlas GUI is the final product phase. The core already
-exports provider-neutral view-model contracts so a future local API can serve
-the same data used by CLI and MCP without copying persistence or business
-logic. Navigating that GUI will never invoke an LLM; only an explicit
-reviewed export creates a hard-capped agent package.
+The complete Project Atlas GUI is a local observation and control plane over
+the same runtime, SQLite indexes, and Markdown used by CLI and MCP. Stable
+view-model contracts in `packages/runtime/src/view-models.ts` prevent a second
+persistence or business-logic layer. Navigation never invokes an LLM; only an
+explicit reviewed Task Context action creates a hard-capped agent package.
 
-The current viewer is only an optional read-only Code Atlas relationship map.
-It is not the final GUI and does not render components. See
-[gui-roadmap.md](gui-roadmap.md) for scope and implementation gates.
+Its sections are Overview, Code Atlas, Design Atlas, Project Memory,
+Decisions & Risks, Task Context, Memory Inbox, Integrations & Health, and
+Settings. Semantic memory writes pass through the proposal gate; derived local
+indexes can be refreshed directly.
 
 ## Migration from Component Atlas
 
 Project Atlas is additive. Existing component graphs, component decision
-records, Design Index rows, and the read-only map keep their contracts. Opening
+records, Design Index rows, and the GUI keep their contracts. Opening
 an older per-project database creates the memory/FTS/proposal tables with
-`CREATE TABLE IF NOT EXISTS`; it does not delete preview-era rows or user files.
+`CREATE TABLE IF NOT EXISTS` without deleting user files.
 
 New flows should prefer `get_task_context`, but `get_reuse_context` and focused
 Code Atlas tools remain compatible. Existing component decisions stay

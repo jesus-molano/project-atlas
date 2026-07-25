@@ -1,4 +1,4 @@
-# Component Atlas tool map
+# Project Atlas code-tool map
 
 | Purpose | MCP tool | CLI |
 | --- | --- | --- |

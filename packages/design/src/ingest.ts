@@ -6,6 +6,7 @@ import {
   type DesignCodeConnection,
   type DesignComponentSummary,
   type DesignDevStatus,
+  type DesignDevStatusAvailability,
   type DesignFileIndex,
   type DesignIndexEnrichment,
   type DesignIndexNode,
@@ -57,6 +58,17 @@ function numberValue(value: unknown): number | undefined {
 
 function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function persistentResourceUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return !["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(
+      url.hostname,
+    );
+  } catch {
+    return false;
+  }
 }
 
 function values(value: unknown): unknown[] {
@@ -213,24 +225,63 @@ function statusFrom(value: unknown): {
   return { status, ...(description ? { description } : {}) };
 }
 
+function statusAttribute(node: RawDesignNode): unknown {
+  return (
+    node.attributes.devStatus ??
+    node.attributes["dev-status"] ??
+    node.attributes.dev_status
+  );
+}
+
+function metadataExposesDevStatus(nodes: RawDesignNode[]): boolean {
+  return nodes.some(
+    (node) =>
+      statusAttribute(node) !== undefined ||
+      metadataExposesDevStatus(node.children),
+  );
+}
+
+function devStatusAvailability(
+  source: DesignMetadataSource,
+  roots: RawDesignNode[],
+  enrichment: DesignIndexEnrichment | undefined,
+): DesignDevStatusAvailability {
+  if (enrichment?.devStatusAvailability) {
+    return enrichment.devStatusAvailability;
+  }
+  if (enrichment?.devStatusByNode) return "available";
+  if (source === "figma-rest") return "available";
+  return metadataExposesDevStatus(roots)
+    ? "available"
+    : "source-unavailable";
+}
+
 function nodeStatus(
   node: RawDesignNode,
   enrichment: DesignIndexEnrichment | undefined,
-): { status: DesignDevStatus; description?: string } {
+  availability: DesignDevStatusAvailability,
+): {
+  status: DesignDevStatus;
+  availability: DesignDevStatusAvailability;
+  description?: string;
+} {
   const override = record(enrichment?.devStatusByNode)?.[node.id];
-  if (override) return statusFrom(override);
-  return statusFrom(
-    node.attributes.devStatus ??
-      node.attributes["dev-status"] ??
-      node.attributes.dev_status,
-  );
+  const parsed =
+    override !== undefined
+      ? statusFrom(override)
+      : statusFrom(statusAttribute(node));
+  return { ...parsed, availability };
 }
 
 function annotationFrom(value: unknown): DesignAnnotation | undefined {
   const item = record(value);
   if (!item) return undefined;
   const label = text(item.label) ?? text(item.name);
-  const url = text(item.url);
+  const candidateUrl = text(item.url);
+  const url =
+    candidateUrl && persistentResourceUrl(candidateUrl)
+      ? candidateUrl
+      : undefined;
   const propertyText = array(item.properties)
     .map((property) => {
       const entry = record(property);
@@ -268,7 +319,7 @@ function resourcesByNode(
     const item = record(value);
     const nodeId = text(item?.node_id) ?? text(item?.nodeId);
     const url = text(item?.url);
-    if (!nodeId || !url) continue;
+    if (!nodeId || !url || !persistentResourceUrl(url)) continue;
     const links = result.get(nodeId) ?? [];
     links.push({
       name: text(item?.name) ?? text(item?.title) ?? "Related resource",
@@ -573,15 +624,23 @@ function flattenNodes(
   roots: RawDesignNode[],
   fileUrl: string,
   scopeNodeId: string | undefined,
+  scopePage:
+    | {
+        id: string;
+        name: string;
+      }
+    | undefined,
   enrichment: DesignIndexEnrichment | undefined,
   componentLookup: Map<string, string>,
-): DesignIndexNode[] {
+  statusAvailability: DesignDevStatusAvailability,
+): { nodes: DesignIndexNode[]; pages: DesignFileIndex["pages"] } {
   const nodes: DesignIndexNode[] = [];
+  const pages: DesignFileIndex["pages"] = [];
   const resources = resourcesByNode(enrichment);
   const codeConnections = normalizeCodeConnections(enrichment);
-  const unknownPage = {
+  const unknownPage = scopePage ?? {
     id: `page:${scopeNodeId ?? "unknown"}`,
-    name: "Unknown page",
+    name: "Page unavailable from scoped metadata",
   };
   const walk = (
     raw: RawDesignNode,
@@ -593,7 +652,21 @@ function flattenNodes(
     const isPage = PAGE_NODE_TYPES.has(raw.type);
     const activePage = isPage ? { id: raw.id, name: raw.name } : page;
     const basePath = isPage ? [raw.name] : currentPath;
-    const status = nodeStatus(raw, enrichment);
+    const status = nodeStatus(raw, enrichment, statusAvailability);
+    if (isPage) {
+      pages.push({
+        id: raw.id,
+        name: raw.name,
+        nodeIds: [],
+        devStatus: status.status,
+        devStatusAvailability: status.availability,
+        ...(status.description
+          ? { devStatusDescription: status.description }
+          : {}),
+        readyForDev: 0,
+        completed: 0,
+      });
+    }
     const keep =
       !isPage &&
       (INDEXED_NODE_TYPES.has(raw.type) || status.status !== "none");
@@ -613,6 +686,7 @@ function flattenNodes(
         path: nodePath,
         ...bounds(raw),
         devStatus: status.status,
+        devStatusAvailability: status.availability,
         ...(status.description
           ? { devStatusDescription: status.description }
           : {}),
@@ -634,7 +708,7 @@ function flattenNodes(
     return indexedNode?.id;
   };
   for (const root of roots) walk(root, unknownPage, undefined, []);
-  return nodes;
+  return { nodes, pages };
 }
 
 function sourceHash(serialized: string): string {
@@ -642,13 +716,26 @@ function sourceHash(serialized: string): string {
 }
 
 export function finalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
-  const pages = [...new Map(index.nodes.map((node) => [node.pageId, node.pageName]))]
+  const pageMetadata = new Map(
+    index.pages.map((page) => [page.id, page] as const),
+  );
+  const pageNames = new Map(index.pages.map((page) => [page.id, page.name]));
+  for (const node of index.nodes) pageNames.set(node.pageId, node.pageName);
+  const pages = [...pageNames]
     .map(([id, name]) => {
       const pageNodes = index.nodes.filter((node) => node.pageId === id);
+      const metadata = pageMetadata.get(id);
       return {
         id,
         name,
         nodeIds: pageNodes.map((node) => node.id),
+        devStatus: metadata?.devStatus ?? "none",
+        devStatusAvailability:
+          metadata?.devStatusAvailability ??
+          (pageNodes[0]?.devStatusAvailability ?? "source-unavailable"),
+        ...(metadata?.devStatusDescription
+          ? { devStatusDescription: metadata.devStatusDescription }
+          : {}),
         readyForDev: pageNodes.filter(
           (node) => node.devStatus === "ready-for-dev",
         ).length,
@@ -658,12 +745,42 @@ export function finalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name));
+  const availableSources = index.sources.filter(
+    (source) => source.devStatusAvailability === "available",
+  ).length;
+  const retainedObservableStatus =
+    index.nodes.some(
+      (node) => node.devStatusAvailability === "available",
+    ) ||
+    pages.some((page) => page.devStatusAvailability === "available");
+  const coverage =
+    availableSources === 0 && retainedObservableStatus
+      ? "partial"
+      : availableSources === 0
+      ? "source-unavailable"
+      : availableSources === index.sources.length
+        ? "available"
+        : "partial";
   return {
     ...index,
     indexedAt: index.sources
       .map((source) => source.indexedAt)
       .sort()
       .at(-1) ?? index.indexedAt,
+    devStatus: {
+      availability: coverage,
+      ...(coverage === "source-unavailable"
+        ? {
+            note:
+              "Dev status is not available through the indexed source. This does not mean the Figma nodes have no Ready for Dev status.",
+          }
+        : coverage === "partial"
+          ? {
+              note:
+                "Dev status is available for only part of the indexed metadata. Unknown nodes must not be treated as having no status.",
+            }
+          : {}),
+    },
     pages,
     stats: {
       pages: pages.length,
@@ -686,6 +803,46 @@ export function finalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
   };
 }
 
+export function normalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
+  const sources = index.sources.map((source) => ({
+    ...source,
+    devStatusAvailability:
+      source.devStatusAvailability ??
+      (source.kind === "figma-rest"
+        ? "available"
+        : index.nodes.some((node) => node.devStatus !== "none")
+          ? "available"
+          : "source-unavailable"),
+  }));
+  const fallbackAvailability =
+    sources.some((source) => source.devStatusAvailability === "available")
+      ? "available"
+      : "source-unavailable";
+  const nodes = index.nodes.map((node) => ({
+    ...node,
+    devStatusAvailability:
+      node.devStatusAvailability ??
+      (node.devStatus !== "none" ? "available" : fallbackAvailability),
+  }));
+  const pages = index.pages.map((page) => ({
+    ...page,
+    devStatus: page.devStatus ?? "none",
+    devStatusAvailability:
+      page.devStatusAvailability ??
+      (page.devStatus && page.devStatus !== "none"
+        ? "available"
+        : fallbackAvailability),
+  }));
+  return finalizeDesignIndex({
+    ...index,
+    schemaVersion: DESIGN_INDEX_SCHEMA_VERSION,
+    sources,
+    nodes,
+    pages,
+    devStatus: index.devStatus ?? { availability: fallbackAvailability },
+  });
+}
+
 export function buildFigmaDesignIndex(
   input: BuildFigmaDesignIndexInput,
 ): DesignFileIndex {
@@ -700,12 +857,21 @@ export function buildFigmaDesignIndex(
       component.name,
     ]),
   );
-  const nodes = flattenNodes(
+  const statusAvailability = devStatusAvailability(
+    parsed.kind,
+    parsed.roots,
+    input.enrichment,
+  );
+  const flattened = flattenNodes(
     parsed.roots,
     reference.fileUrl,
     input.scopeNodeId ?? reference.nodeId,
+    input.scopePageId && input.scopePageName
+      ? { id: input.scopePageId, name: input.scopePageName }
+      : undefined,
     input.enrichment,
     componentLookup,
+    statusAvailability,
   );
   const restName = text(parsed.rest?.name);
   const restVersion = text(parsed.rest?.version);
@@ -731,10 +897,14 @@ export function buildFigmaDesignIndex(
         ...(scopeNodeId ? { scopeNodeId } : {}),
         hash: sourceHash(parsed.serialized),
         indexedAt,
+        devStatusAvailability: statusAvailability,
       },
     ],
-    pages: [],
-    nodes,
+    devStatus: {
+      availability: statusAvailability,
+    },
+    pages: flattened.pages,
+    nodes: flattened.nodes,
     components: restComponents,
     componentSets,
     libraries: normalizeLibraries(input.enrichment),
@@ -760,6 +930,54 @@ function mergeById<T>(
   key: (item: T) => string,
 ): T[] {
   return [...new Map([...left, ...right].map((item) => [key(item), item])).values()];
+}
+
+function mergeDesignNodes(
+  existing: DesignIndexNode[],
+  incoming: DesignIndexNode[],
+): DesignIndexNode[] {
+  const existingById = new Map(existing.map((node) => [node.id, node]));
+  return mergeById(existing, incoming, (node) => node.id).map((node) => {
+    const previous = existingById.get(node.id);
+    if (
+      previous?.devStatusAvailability === "available" &&
+      node.devStatusAvailability === "source-unavailable"
+    ) {
+      return {
+        ...node,
+        devStatus: previous.devStatus,
+        devStatusAvailability: previous.devStatusAvailability,
+        ...(previous.devStatusDescription
+          ? { devStatusDescription: previous.devStatusDescription }
+          : {}),
+      };
+    }
+    return node;
+  });
+}
+
+function mergeDesignPages(
+  existing: DesignFileIndex["pages"],
+  incoming: DesignFileIndex["pages"],
+): DesignFileIndex["pages"] {
+  const existingById = new Map(existing.map((page) => [page.id, page]));
+  return mergeById(existing, incoming, (page) => page.id).map((page) => {
+    const previous = existingById.get(page.id);
+    if (
+      previous?.devStatusAvailability === "available" &&
+      page.devStatusAvailability === "source-unavailable"
+    ) {
+      return {
+        ...page,
+        devStatus: previous.devStatus,
+        devStatusAvailability: previous.devStatusAvailability,
+        ...(previous.devStatusDescription
+          ? { devStatusDescription: previous.devStatusDescription }
+          : {}),
+      };
+    }
+    return page;
+  });
 }
 
 export function mergeDesignIndexes(
@@ -791,7 +1009,8 @@ export function mergeDesignIndexes(
       incoming.sources,
       (source) => `${source.kind}:${source.scopeNodeId ?? "file"}`,
     ),
-    nodes: mergeById(existing.nodes, incoming.nodes, (node) => node.id),
+    pages: mergeDesignPages(existing.pages, incoming.pages),
+    nodes: mergeDesignNodes(existing.nodes, incoming.nodes),
     components: mergeById(
       existing.components,
       incoming.components,

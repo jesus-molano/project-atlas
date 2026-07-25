@@ -1,8 +1,8 @@
 # Figma Design Index
 
 The Design Index gives agents orientation without placing an entire Figma file
-in the conversation. It is a read-only, local cache beside the component graph;
-it is not a preview runtime or a Figma replacement.
+in the conversation. It is a read-only, sparse local cache beside the code
+graph and does not replace Figma.
 
 ## Two routes
 
@@ -11,9 +11,16 @@ Direct route:
 1. The user provides or selects one concrete frame or component.
 2. If the node is cached, call `inspect_design_node`; otherwise the calling
    agent can use the confirmed Figma link directly.
-3. Retrieve `get_design_context` and `get_screenshot` only for that node.
-4. Retrieve exact selection variables with `get_variable_defs`.
-5. Combine the result with Atlas component context before implementation.
+3. If it is a large screen/frame, use its sparse child metadata to identify the
+   smallest task-relevant subtree. The outer frame is orientation, not the
+   default deep-context target.
+4. Retrieve `get_design_context`, `get_screenshot`, and exact selection
+   variables only for that subtree.
+5. Reserve the response budget for the target. Shell, navigation, repeated
+   assets, and peripheral siblings are omitted first. If the target cannot be
+   isolated, ask for a manual selection instead of silently accepting a
+   truncated response.
+6. Combine the result with Atlas component context before implementation.
 
 General route:
 
@@ -37,6 +44,7 @@ never requests or stores the access token.
 - a Figma URL or file key;
 - Figma MCP `get_metadata` XML or REST file JSON;
 - optional file version, modification date, and scope node;
+- optional parent page ID/name for section or frame-only snapshots;
 - optional enrichment for dev status/resources, libraries, Code Connect, and
   global Variables.
 
@@ -49,7 +57,28 @@ The stored node model is deliberately sparse: ID, URL, name, type, page,
 breadcrumbs, dimensions, Ready for dev/Completed state, change description,
 annotations, resource links, component and variant names, and optional code
 connections. Screenshots, generated code, style dumps, and full vector trees
-are excluded.
+are excluded. Session-local asset URLs such as `localhost` resources are also
+excluded because they cannot be resolved durably; Atlas keeps the file/node ID
+and resolves relevant assets on demand.
+
+## Ready for Dev provenance
+
+Dev status is stored independently for pages, sections, frames, flows, and
+components whenever the source exposes it. REST metadata is status-capable;
+MCP sparse XML is treated as status-capable only when it contains the field or
+the caller supplies a status enrichment. Reindexing an unchanged file does not
+replace an observed status with an unknown value from a weaker source.
+
+Atlas distinguishes:
+
+- `available`: this source can establish Ready for Dev, Completed, or no state;
+- `partial`: some cached scopes have observable status and others do not;
+- `source-unavailable`: the connector did not expose the field.
+
+`source-unavailable` never means that the node has no Figma status. Queries and
+the GUI state this limitation explicitly and recommend a status-capable source
+or direct verification. A page-level Ready for Dev signal also contributes a
+smaller ranking boost to its child candidates.
 
 ## Ranking and confirmation
 
@@ -67,6 +96,13 @@ Ready for dev contributes a small boost and can break an otherwise close tie.
 It is never an eligibility filter. A file with no Dev Mode statuses follows the
 same ranking path using names, hierarchy, annotations, links, contained
 components/variants, device context, and Atlas signals.
+
+Related frame dimensions are grouped as viewport families. Multiple wide
+frames do not prove mobile/tablet coverage; Atlas warns when no small
+breakpoint is evidenced and never invents it. Sibling storyboard frames can be
+summarized as a flow family with observed and not-evidenced states, rather than
+being reported as duplicate components. Suspicious naming is surfaced for
+source confirmation without silently changing product copy.
 
 Results include reasons and confidence. A high score is still a proposal, not
 permission to fetch deep context. The decision gate asks for confirmation or a
@@ -120,7 +156,10 @@ variables.
 Code Connect mappings improve Figma-to-code evidence through component name and
 source path, but remain optional. Libraries and file dev resources are also
 optional enrichments. A missing integration lowers confidence; it does not
-block repository analysis or cause Atlas to invent a relationship.
+block repository analysis or cause Atlas to invent a relationship. Without
+Code Connect, Atlas still crosses semantic task terms with component names,
+paths, rendered children, imports/composables, tests, and graph consumers, and
+reports the resulting confidence.
 
 ## CLI
 
@@ -131,6 +170,7 @@ component-atlas figma map <root> <figma-url> `
   [--file-version <version>] `
   [--last-modified <timestamp>] `
   [--scope-node <id>] `
+  [--scope-page-id <id> --scope-page-name <name>] `
   [--enrichment <json-file>]
 
 component-atlas figma list <root>

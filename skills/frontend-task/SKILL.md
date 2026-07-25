@@ -11,19 +11,29 @@ and conversation are the baseline; every external source is optional.
 
 ## Prepare the task
 
-1. Read repository instructions and determine the target package, framework,
+1. Run the cheap source/capability precheck in
+   `references/source-precheck.md`. Detect the repository, task text, explicit
+   source links/IDs, and callable capabilities before asking anything.
+2. Classify repository, Figma, Jira, Confluence, Atlas, and GitHub for this task
+   as `required`, `recommended`, `optional`, `unavailable`, or
+   `not-applicable`, with one short reason. Atlas is always optional.
+3. Show a compact detected/missing/skip summary. When a material source choice
+   remains and `request_user_input` is available, use its native selector with
+   one question by default (maximum three). Otherwise ask one brief chat
+   question. Never create a separate form or ask about every source.
+4. Read repository instructions and determine the target package, framework,
    validation commands, and likely ownership boundary.
-2. Inventory only sources actually present:
+5. Inventory only sources actually present:
    - conversation, pasted text, local files, screenshots, and repository;
    - Jira or Confluence when a link or connected source is available;
    - Figma when a node, selection, page, file, screenshot, or cached Design
      Index exists.
-3. Never require a fixed Jira-to-Confluence-to-Figma chain. Do not block because
+6. Never require a fixed Jira-to-Confluence-to-Figma chain. Do not block because
    a connector, credential, Dev Mode, Ready for dev, or global Variables access
    is absent.
-4. Build the brief defined in `references/brief-contract.md`. Keep unknowns
+7. Build the brief defined in `references/brief-contract.md`. Keep unknowns
    explicit; do not fill them with invented product behavior.
-5. Classify risk:
+8. Classify risk:
    - low: localized visual or copy change with an established pattern;
    - medium: new states, responsive behavior, component API change, or several
      consumers;
@@ -48,6 +58,9 @@ question containing:
 
 Do not run a generic requirements interview. Low risk should normally require no
 question; medium and high risk justify more investigation, not more ceremony.
+Do not ask for a source that is irrelevant or safely discoverable. A missing
+optional plugin never blocks the task; a missing required capability is
+reported with the option to connect/provide evidence or stop.
 
 ## Find the code path before creating UI
 
@@ -81,16 +94,28 @@ exact MCP/CLI routes or fallbacks are needed.
 Use either route; neither depends on Ready for dev:
 
 - Direct: a user-confirmed node URL or active selection is authoritative enough
-  to inspect that node. Retrieve deep design context, screenshot, and exact
-  selection variables only for it.
+  to inspect it. If it is a large screen, treat it as orientation: inspect
+  sparse children, select the smallest task-relevant subtree, then retrieve
+  deep context, screenshot, and exact variables only for that subtree. Omit
+  shell, navigation, repeated assets, and peripheral siblings before target
+  evidence. If the subtree cannot be isolated, ask for a manual selection
+  instead of silently accepting truncated context.
 - General: map sparse file/page metadata, call `find_design_candidates`, show a
   few candidates with reasons and confidence, and confirm one before deep
   retrieval.
 
 Treat Ready for dev as a useful ranking boost and confidence signal, never as a
-filter. Without it, rank semantic names, hierarchy, annotations, linked
+filter. Distinguish an observed absence from `source-unavailable`: a connector
+that does not expose the field is not evidence that the Figma node lacks the
+status. Without observable status, rank semantic names, hierarchy, annotations, linked
 resources, components, variants, device context, and Atlas matches. A personal
 Figma file without Dev Mode remains a valid source.
+
+Treat related wide frames as viewport variants, not proof of mobile/tablet
+coverage. Treat storyboard states as a flow family, not automatic duplicates.
+Surface missing breakpoint/state evidence and suspicious design naming without
+inventing behavior or silently rewriting copy. Never persist session-local
+asset URLs; retain file/node identity and resolve relevant assets on demand.
 
 Use global Variables collection/mode summaries only when read access exists.
 Otherwise retrieve `get_variable_defs` for the confirmed node. Code Connect,

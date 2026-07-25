@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@component-atlas/core": "workspace:*",
+    "@component-atlas/design": "workspace:*",
+    "@component-atlas/memory": "workspace:*",
+    "@component-atlas/runtime": "workspace:*",
     "@component-atlas/store": "workspace:*",
     "cytoscape": "^3.33.1",
     "nuxt": "^4.5.0",

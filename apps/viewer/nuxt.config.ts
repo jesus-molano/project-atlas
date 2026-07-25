@@ -4,11 +4,12 @@ export default defineNuxtConfig({
   css: ["~/assets/css/main.css"],
   app: {
     head: {
-      title: "Component Atlas",
+      title: "Project Atlas",
       meta: [
         {
           name: "description",
-          content: "A local reuse map for the components in your codebase.",
+          content:
+            "A local evidence and decision workspace for code, design, and project memory.",
         },
       ],
     },

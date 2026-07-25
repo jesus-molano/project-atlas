@@ -32,15 +32,23 @@ sources reduce evidence; they do not invalidate the workflow.
 ## Figma routing rules
 
 - A direct node URL or active user selection skips candidate ranking.
+- For a large confirmed frame, use sparse child metadata to locate the smallest
+  relevant subtree before requesting deep context. If that cannot be isolated,
+  request a manual selection; never hide target truncation.
 - A file/page without a confirmed target uses sparse metadata first; never
   request deep context for every node.
 - Ready for dev adds evidence but is not an eligibility condition.
+- `source-unavailable` means the connector did not expose dev status; it never
+  means the node has no Ready for dev state.
 - With no Ready for dev nodes, rank names, path, annotations, links,
   components/variants, device context, and Atlas signals normally.
 - When several candidates remain close, ask the user to choose using node names,
   links, evidence, and a recommendation.
 - When no node matches, offer proceeding without Figma or accepting a direct
   link. Do not fabricate a match.
+- Do not retain `localhost` asset URLs from a Figma session as durable evidence.
+- Group related viewport/storyboard nodes before reporting duplication, and do
+  not infer small breakpoints that are absent from metadata.
 
 ## Source conflict precedence
 

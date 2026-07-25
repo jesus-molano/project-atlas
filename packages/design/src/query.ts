@@ -38,6 +38,28 @@ for (const group of CONCEPT_GROUPS) {
   for (const term of group) conceptByTerm.set(term, terms);
 }
 
+const STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "de",
+  "del",
+  "el",
+  "en",
+  "for",
+  "la",
+  "las",
+  "los",
+  "of",
+  "para",
+  "por",
+  "the",
+  "to",
+  "un",
+  "una",
+  "y",
+]);
+
 function normalized(value: string): string {
   return value
     .normalize("NFD")
@@ -46,9 +68,11 @@ function normalized(value: string): string {
 }
 
 function normalizedTokens(value: string): string[] {
-  return tokenize(normalized(value)).map((token) =>
-    token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token,
-  );
+  return tokenize(normalized(value))
+    .filter((token) => !STOPWORDS.has(token))
+    .map((token) =>
+      token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token,
+    );
 }
 
 function expanded(tokens: Iterable<string>): Set<string> {
@@ -124,6 +148,7 @@ function relatedVariants(
       name: node.name,
       url: node.url,
       status: node.devStatus,
+      statusAvailability: node.devStatusAvailability,
     }));
 }
 
@@ -136,6 +161,7 @@ interface ScoredNode {
 }
 
 function scoreNode(
+  index: DesignFileIndex,
   node: DesignIndexNode,
   taskTokens: Set<string>,
   taskConcepts: Set<string>,
@@ -270,6 +296,14 @@ function scoreNode(
     score += 0.25;
     reasons.push("Completed reference");
   }
+  const page = index.pages.find((item) => item.id === node.pageId);
+  if (
+    node.devStatus !== "ready-for-dev" &&
+    page?.devStatus === "ready-for-dev"
+  ) {
+    score += 1;
+    reasons.push("Parent page is Ready for dev");
+  }
   if (node.componentNames.length > 0) {
     reasons.push(
       `contains: ${node.componentNames.slice(0, 4).join(", ")}`,
@@ -390,7 +424,7 @@ export function rankDesignCandidates(
   const codeSignals = (options.codeSignals ?? []).filter(Boolean);
   const scored = index.nodes
     .filter((node) => node.type !== "INSTANCE")
-    .map((node) => scoreNode(node, taskTokens, taskConcepts, codeSignals))
+    .map((node) => scoreNode(index, node, taskTokens, taskConcepts, codeSignals))
     .filter((item): item is ScoredNode => Boolean(item))
     .sort(
       (left, right) =>
@@ -410,6 +444,13 @@ export function rankDesignCandidates(
       page: item.node.pageName,
       path: item.node.path.join(" / "),
       status: item.node.devStatus,
+      statusAvailability: item.node.devStatusAvailability,
+      pageStatus:
+        index.pages.find((page) => page.id === item.node.pageId)?.devStatus ??
+        "none",
+      pageStatusAvailability:
+        index.pages.find((page) => page.id === item.node.pageId)
+          ?.devStatusAvailability ?? "source-unavailable",
     },
     reasons: item.reasons,
     matchedTaskTerms: item.matchedTaskTerms,
@@ -448,8 +489,92 @@ function mainNodes(index: DesignFileIndex, pageId: string) {
       name: node.name,
       type: node.type,
       status: node.devStatus,
+      statusAvailability: node.devStatusAvailability,
       url: node.url,
     }));
+}
+
+const FLOW_STATES = [
+  ["entry", /password|contrase(?:n|ñ)a|start|inicio/i],
+  ["selection", /select|selection|finger|dedo/i],
+  ["capture", /capture|scan|captura|registr/i],
+  ["success", /success|registered|complete|correct|exito|registrad/i],
+  ["error", /error|invalid|failed|fallo/i],
+] as const;
+
+function observedFlowStates(nodes: DesignIndexNode[]): string[] {
+  const evidence = nodes
+    .map((node) =>
+      [
+        node.name,
+        node.devStatusDescription ?? "",
+        ...node.annotations.map((annotation) => annotation.text),
+      ].join(" "),
+    )
+    .join(" ");
+  return FLOW_STATES.filter(([, pattern]) => pattern.test(evidence)).map(
+    ([state]) => state,
+  );
+}
+
+function designFamilies(index: DesignFileIndex): DesignIndexSummary["families"] {
+  const byId = new Map(index.nodes.map((node) => [node.id, node]));
+  const viewportGroups = new Map<string, DesignIndexNode[]>();
+  for (const node of index.nodes) {
+    if (node.type !== "FRAME" || node.width === undefined) continue;
+    const key = `${node.pageId}:${node.parentId ?? "page"}:${canonicalVariantName(node.name)}`;
+    const group = viewportGroups.get(key) ?? [];
+    group.push(node);
+    viewportGroups.set(key, group);
+  }
+  const viewportFamilies = [...viewportGroups.entries()]
+    .filter(
+      ([, nodes]) =>
+        new Set(nodes.map((node) => node.width)).size > 1,
+    )
+    .map(([id, nodes]) => ({
+      id: `viewport:${id}`,
+      name: canonicalVariantName(nodes[0]?.name ?? "viewport family"),
+      kind: "viewport" as const,
+      nodeIds: nodes.map((node) => node.id),
+      viewportWidths: [...new Set(nodes.map((node) => node.width!))].sort(
+        (left, right) => left - right,
+      ),
+      observedStates: observedFlowStates(nodes),
+      missingCommonStates: [] as string[],
+    }));
+  const flowGroups = new Map<string, DesignIndexNode[]>();
+  for (const node of index.nodes) {
+    if (node.type !== "FRAME" || !node.parentId) continue;
+    const group = flowGroups.get(node.parentId) ?? [];
+    group.push(node);
+    flowGroups.set(node.parentId, group);
+  }
+  const flowFamilies = [...flowGroups.entries()]
+    .map(([parentId, nodes]) => ({
+      parentId,
+      nodes,
+      states: observedFlowStates(nodes),
+    }))
+    .filter(({ nodes, states }) => nodes.length > 1 && states.length >= 2)
+    .map(({ parentId, nodes, states }) => ({
+      id: `flow:${parentId}`,
+      name:
+        byId.get(parentId)?.name ??
+        `${nodes[0]?.pageName ?? "Design"} flow`,
+      kind: "flow" as const,
+      nodeIds: nodes.map((node) => node.id),
+      viewportWidths: [...new Set(
+        nodes
+          .map((node) => node.width)
+          .filter((width): width is number => width !== undefined),
+      )].sort((left, right) => left - right),
+      observedStates: states,
+      missingCommonStates: FLOW_STATES.map(([state]) => state).filter(
+        (state) => !states.includes(state),
+      ),
+    }));
+  return [...viewportFamilies, ...flowFamilies].slice(0, 12);
 }
 
 export function designIndexSummary(
@@ -463,6 +588,7 @@ export function designIndexSummary(
     indexedAt: index.indexedAt,
     sources: index.sources.length,
     stats: index.stats,
+    devStatus: index.devStatus,
     variables: {
       availability: index.variables.availability,
       collections: index.variables.collections.slice(0, 20).map((collection) => ({
@@ -484,11 +610,14 @@ export function designIndexSummary(
       return {
         id: page.id,
         name: page.name,
+        status: page.devStatus,
+        statusAvailability: page.devStatusAvailability,
         readyForDev: page.readyForDev,
         completed: page.completed,
         mainNodes: pageNodes,
       };
     }),
+    families: designFamilies(index),
     nextActions: [
       "Use find_design_candidates with a concrete task before loading any deep Figma context.",
       "Confirm one node, then use inspect_design_node to obtain the exact Figma retrieval plan.",
@@ -499,6 +628,11 @@ export function designIndexSummary(
         : [
             "Global variables are unavailable; retrieve exact node variables with get_variable_defs after confirmation.",
           ]),
+      ...(index.devStatus.availability === "source-unavailable"
+        ? [
+            "Ready for Dev status is unavailable through this metadata source. Use a REST or enriched source, or confirm the selected node in Figma; do not infer that no status exists.",
+          ]
+        : []),
     ],
   };
 }
@@ -567,6 +701,14 @@ export function inspectDesignNode(
   );
   const recommendedTools = ["get_variable_defs"];
   if (node.codeConnections.length === 0) recommendedTools.push("get_code_connect_map");
+  const candidateSubtreeIds = node.childIds
+    .map((childId) => byId.get(childId))
+    .filter(
+      (child): child is DesignIndexNode =>
+        Boolean(child) && child?.type !== "INSTANCE",
+    )
+    .slice(0, 8)
+    .map((child) => child.id);
   return {
     file: index.file,
     node,
@@ -579,6 +721,7 @@ export function inspectDesignNode(
         name: child.name,
         type: child.type,
         status: child.devStatus,
+        statusAvailability: child.devStatusAvailability,
         url: child.url,
       })),
     relatedVariants: relatedVariants(index, node),
@@ -587,10 +730,28 @@ export function inspectDesignNode(
     deepContextRequest: {
       confirmedNodeId: node.id,
       figmaUrl: node.url,
-      requiredTools: ["get_design_context", "get_screenshot"],
+      strategy: "confirmed-subtree",
+      orientationNodeId: node.id,
+      candidateSubtreeIds,
+      requiredTools:
+        candidateSubtreeIds.length > 0
+          ? ["get_metadata", "get_design_context", "get_screenshot"]
+          : ["get_design_context", "get_screenshot"],
       recommendedTools,
+      budgetPolicy: {
+        preserveTargetFirst: true,
+        omitFirst: [
+          "application shell",
+          "navigation",
+          "repeated assets",
+          "peripheral siblings",
+        ],
+        onUnisolatedTarget: "ask-for-selection",
+      },
       instruction:
-        "The node is confirmed. Retrieve deep context and a visual reference only for this node; request exact variables for this selection and adapt the result to the repository rather than treating generated code as production code.",
+        candidateSubtreeIds.length > 0
+          ? "Use this node only for orientation. Inspect its sparse child metadata, identify the smallest subtree that implements the task, and request deep context, screenshot, and exact variables only for that subtree. Preserve the target budget by omitting shell, navigation, repeated assets, and peripheral siblings first. If the relevant subtree cannot be isolated, ask for a manual Figma selection instead of silently returning truncated target context."
+          : "The smallest indexed target is confirmed. Retrieve deep context, screenshot, and exact variables only for this node. If the target response itself is truncated, report that limitation and ask for a smaller manual selection rather than treating incomplete context as sufficient.",
     },
   };
 }

@@ -6,9 +6,10 @@
       "request": "Añade estado vacío con reintento a la lista de gastos.",
       "sources": ["conversation", "repository"],
       "expected": {
-        "atlas": "required-when-available",
+        "atlas": "optional-use-if-valuable",
         "figma": "skip",
         "readyForDevRequired": false,
+        "questionMode": "none",
         "gate": "continue-unless-behavior-is-ambiguous"
       }
     },
@@ -22,6 +23,7 @@
         "figma": "map-rank-confirm",
         "topNode": "60:2",
         "readyForDevRequired": false,
+        "questionMode": "native-selector-when-available",
         "gate": "confirm-design-target"
       }
     },
@@ -33,6 +35,7 @@
         "atlas": "compact-context",
         "figma": "inspect-confirmed-node",
         "readyForDevRequired": false,
+        "questionMode": "none",
         "gate": "skip-candidate-selection"
       }
     },
@@ -44,6 +47,7 @@
         "atlas": "compact-context",
         "figma": "skip",
         "readyForDevRequired": false,
+        "questionMode": "none-if-ticket-readable",
         "gate": "ask-only-impact-decisions"
       }
     },
@@ -55,7 +59,78 @@
         "atlas": "compact-context",
         "figma": "inspect-confirmed-node",
         "readyForDevRequired": false,
+        "questionMode": "native-selector-when-available",
         "gate": "decision-required-with-evidence-and-recommendation"
+      }
+    },
+    {
+      "id": "all-explicit-sources",
+      "request": "Implementa el ticket UI-142 usando la especificación y el frame enlazados.",
+      "sources": ["conversation", "repository", "jira", "confluence", "figma-node-url"],
+      "capabilities": ["atlassian-rovo", "figma", "github", "project-atlas"],
+      "expected": {
+        "followOnlyExplicitRelations": true,
+        "atlas": "optional-use-if-valuable",
+        "questionMode": "none",
+        "gate": "continue-unless-sources-conflict"
+      }
+    },
+    {
+      "id": "required-figma-capability-unavailable",
+      "request": "Reproduce exactamente el diseño del frame indicado.",
+      "sources": ["conversation", "repository", "figma-node-url"],
+      "capabilities": ["project-atlas"],
+      "expected": {
+        "figmaClassification": "unavailable",
+        "questionMode": "native-selector-or-one-chat-question",
+        "options": ["add-link-or-selection", "stop-preparation"],
+        "gate": "do-not-invent-design"
+      }
+    },
+    {
+      "id": "atlas-unavailable",
+      "request": "Añade un aviso accesible usando los patrones existentes.",
+      "sources": ["conversation", "repository"],
+      "capabilities": [],
+      "expected": {
+        "atlas": "optional-unavailable",
+        "questionMode": "none",
+        "gate": "continue-with-repository-search"
+      }
+    },
+    {
+      "id": "non-visual-change",
+      "request": "Corrige el tipo del payload emitido por el formulario.",
+      "sources": ["conversation", "repository"],
+      "capabilities": ["figma", "project-atlas"],
+      "expected": {
+        "figmaClassification": "not-applicable",
+        "accessFigma": false,
+        "questionMode": "none",
+        "gate": "continue"
+      }
+    },
+    {
+      "id": "plan-mode-native-selector",
+      "request": "Prepara este cambio visual; puedo aportar el ticket o el diseño.",
+      "sources": ["conversation", "repository"],
+      "capabilities": ["request_user_input", "atlassian-rovo", "figma"],
+      "expected": {
+        "questionMode": "native-selector",
+        "maxQuestions": 3,
+        "defaultOption": "use-detected-sources"
+      }
+    },
+    {
+      "id": "default-mode-question-fallback",
+      "request": "Implementa el diseño exacto, pero todavía no he enviado el frame.",
+      "sources": ["conversation", "repository"],
+      "capabilities": [],
+      "expected": {
+        "figmaClassification": "required",
+        "questionMode": "one-chat-question",
+        "customUi": false,
+        "gate": "wait-for-material-source"
       }
     }
   ]

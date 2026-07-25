@@ -255,7 +255,7 @@ export async function orientProject(
       graph.project.id,
       "pending",
     );
-    const decisions = active
+    const memoryDecisions = active
       .filter((item) =>
         ["decision", "constraint", "convention"].includes(item.type),
       )
@@ -266,6 +266,17 @@ export async function orientProject(
         title: item.title,
         summary: item.summary,
       }));
+    const reuseDecisions = store
+      .listDecisions(graph.project.id)
+      .slice(0, 5)
+      .map((decision) => ({
+        id: decision.id,
+        type: "reuse-decision",
+        title: `${decision.decision}: ${decision.intent}`,
+        summary: decision.rationale,
+        createdAt: decision.createdAt,
+      }));
+    const decisions = [...reuseDecisions, ...memoryDecisions].slice(0, 5);
     const payload = {
       schemaVersion: 1,
       project: {
@@ -470,7 +481,7 @@ export async function checkBeforeChange(
     const ranked = rankMemoryItems(candidates, query, {
       includeInactive: true,
     });
-    const findings =
+    const memoryFindings =
       ranked.length === 0
         ? [
             {
@@ -484,7 +495,47 @@ export async function checkBeforeChange(
             },
           ]
         : findingsForMemory(ranked);
-    const gate = memoryGate(findings);
+    const indexes = store.listDesignIndexes(graph.project.id);
+    const designResult =
+      indexes.length === 1
+        ? rankDesignCandidates(indexes[0]!, intent, {
+            limit: 3,
+            codeSignals: searchComponentContext(graph, intent, 3).map(
+              (candidate) => candidate.component.name,
+            ),
+          })
+        : undefined;
+    const designFindings = designResult?.findings ?? [];
+    const memoryDecisionGate = memoryGate(memoryFindings);
+    const designDecisionGate = designResult?.gate ?? {
+      status: "clear" as const,
+      questions: [],
+    };
+    const gate = {
+      status:
+        memoryDecisionGate.status === "blocked" ||
+        designDecisionGate.status === "blocked"
+          ? ("blocked" as const)
+          : memoryDecisionGate.status === "review" ||
+              designDecisionGate.status === "review"
+            ? ("review" as const)
+            : ("clear" as const),
+      questions: [
+        ...memoryDecisionGate.questions,
+        ...designDecisionGate.questions,
+      ],
+      sources: {
+        memory: memoryDecisionGate.status,
+        design: designDecisionGate.status,
+      },
+    };
+    const findings = [
+      ...memoryFindings,
+      ...designFindings.map((finding) => ({
+        ...finding,
+        source: "design" as const,
+      })),
+    ];
     return fitBudgetedResponse(
       {
         schemaVersion: 1,
@@ -522,6 +573,7 @@ export async function getTaskContext(
     figmaFile?: string;
     budgetChars?: number;
     refreshMemory?: boolean;
+    topK?: number;
   } = {},
 ) {
   const graph = await loadProjectGraph(rootPath);
@@ -529,13 +581,14 @@ export async function getTaskContext(
   else await ensureMemoryIndexed(rootPath, graph);
   const store = memoryStore(graph);
   try {
+    const topK = boundedLimit(options.topK, 3);
     const memoryCandidates = store.searchMemoryCandidates(
       graph.project.id,
       task,
       100,
     );
-    const rankedMemory = rankMemoryItems(memoryCandidates, task).slice(0, 5);
-    const reuse = buildReuseContext(graph, task, 3);
+    const rankedMemory = rankMemoryItems(memoryCandidates, task).slice(0, topK);
+    const reuse = buildReuseContext(graph, task, topK);
     const indexes = store.listDesignIndexes(graph.project.id);
     const selectedIndex = options.figmaFile
       ? indexes.find(
@@ -548,7 +601,7 @@ export async function getTaskContext(
         : undefined;
     const design = selectedIndex
       ? rankDesignCandidates(selectedIndex, task, {
-          limit: 3,
+          limit: topK,
           codeSignals: reuse.candidates.map(
             (candidate) => candidate.component.name,
           ),
@@ -571,6 +624,15 @@ export async function getTaskContext(
       memory: memoryGate(memoryFindings),
       design: design ? decisionGate(designFindings) : { status: "clear", questions: [] },
     };
+    const overallGate = {
+      status:
+        gate.memory.status === "blocked" || gate.design.status === "blocked"
+          ? ("blocked" as const)
+          : gate.memory.status === "review" || gate.design.status === "review"
+            ? ("review" as const)
+            : ("clear" as const),
+      questions: [...gate.memory.questions, ...gate.design.questions],
+    };
     const payload = {
       schemaVersion: 1,
       task: task.trim(),
@@ -579,7 +641,7 @@ export async function getTaskContext(
         framework: graph.project.framework,
         scannedAt: graph.project.scannedAt,
       },
-      memory: rankedMemory.slice(0, 3).map(({ item, score, reasons }) => ({
+      memory: rankedMemory.slice(0, topK).map(({ item, score, reasons }) => ({
         id: item.id,
         type: item.type,
         title: item.title,
@@ -589,7 +651,7 @@ export async function getTaskContext(
         score,
         reasons: reasons.slice(0, 2),
       })),
-      code: reuse.candidates.slice(0, 3).map((candidate) => ({
+      code: reuse.candidates.slice(0, topK).map((candidate) => ({
         id: candidate.component.id,
         name: candidate.component.name,
         path: candidate.component.path,
@@ -610,17 +672,20 @@ export async function getTaskContext(
             }
           : {}),
         candidates:
-          design?.candidates.slice(0, 3).map((candidate) => ({
+          design?.candidates.slice(0, topK).map((candidate) => ({
             id: candidate.node.id,
             name: candidate.node.name,
             url: candidate.node.url,
             status: candidate.node.status,
+            statusAvailability: candidate.node.statusAvailability,
+            pageStatus: candidate.node.pageStatus,
+            pageStatusAvailability: candidate.node.pageStatusAvailability,
             confidence: candidate.confidence,
             reasons: candidate.reasons.slice(0, 3),
           })) ?? [],
       },
       findings: findings.slice(0, 8),
-      gate,
+      gate: { ...gate, overall: overallGate },
       nextSteps: [
         "Expand only the memory or component IDs needed for the decision.",
         "Run check_before_change on the chosen files before editing.",
@@ -876,7 +941,11 @@ export async function applyMemoryUpdate(
         draft,
         graph,
         appliedAt,
-        target === "canonical" ? "canonical" : draft.scope ?? "local",
+        target === "canonical"
+          ? "canonical"
+          : draft.scope === "episodic"
+            ? "episodic"
+            : "local",
       );
       for (const supersededId of item.supersedes) {
         const previous = store.loadMemoryItem(graph.project.id, supersededId);
@@ -919,6 +988,228 @@ export async function applyMemoryUpdate(
         budgetChars: options.budgetChars,
         totalMatches: applied.length,
         expandableIds: applied.map((item) => item.id),
+      },
+    );
+  } finally {
+    store.close();
+  }
+}
+
+export async function rejectMemoryUpdate(
+  rootPath: string,
+  proposalIdValue: string,
+  options: {
+    confirmed: boolean;
+    reason: string;
+    budgetChars?: number;
+  },
+) {
+  if (!options.confirmed) {
+    throw new Error(
+      "Rejecting a memory proposal requires confirmed=true after reviewing it.",
+    );
+  }
+  const reason = options.reason.trim();
+  if (!reason) {
+    throw new Error("Rejecting a memory proposal requires a reason.");
+  }
+  assertMemoryContentSafe({ reason });
+  const graph = await loadProjectGraph(rootPath);
+  const store = memoryStore(graph);
+  try {
+    const proposal = store.loadMemoryProposal(
+      graph.project.id,
+      proposalIdValue,
+    );
+    if (!proposal) {
+      throw new Error(`Memory proposal "${proposalIdValue}" was not found.`);
+    }
+    if (proposal.status !== "pending") {
+      throw new Error(
+        `Memory proposal "${proposalIdValue}" is already ${proposal.status}.`,
+      );
+    }
+    const rejectedAt = new Date().toISOString();
+    const updated: MemoryProposal = {
+      ...proposal,
+      status: "rejected",
+      findings: [
+        ...proposal.findings,
+        {
+          id: `proposal-rejected:${proposal.id}`,
+          level: "resolved",
+          code: "low-impact-default",
+          title: "Memory proposal rejected after review",
+          evidence: [reason],
+          recommendation:
+            "Keep the rejection rationale with the proposal for auditability.",
+        },
+      ],
+      rejectedAt,
+      rejectionReason: reason,
+    };
+    store.saveMemoryProposal(updated);
+    return fitBudgetedResponse(
+      {
+        schemaVersion: 1,
+        proposalId: updated.id,
+        status: updated.status,
+        reason,
+        rejectedAt,
+      },
+      {
+        budgetChars: options.budgetChars,
+        totalMatches: 1,
+        expandableIds: [updated.id],
+      },
+    );
+  } finally {
+    store.close();
+  }
+}
+
+export async function reviseMemoryProposal(input: {
+  rootPath: string;
+  proposalId: string;
+  rationale: string;
+  evidence?: string[];
+  items: MemoryItemDraft[];
+  budgetChars?: number;
+}) {
+  const rationale = input.rationale.trim();
+  if (!rationale || input.items.length === 0) {
+    throw new Error("A memory proposal needs a rationale and at least one item.");
+  }
+  assertMemoryContentSafe({
+    rationale,
+    evidence: input.evidence,
+    items: input.items,
+  });
+  const graph = await loadProjectGraph(input.rootPath);
+  await ensureMemoryIndexed(input.rootPath, graph);
+  const store = memoryStore(graph);
+  try {
+    const proposal = store.loadMemoryProposal(graph.project.id, input.proposalId);
+    if (!proposal) {
+      throw new Error(`Memory proposal "${input.proposalId}" was not found.`);
+    }
+    if (proposal.status !== "pending") {
+      throw new Error(
+        `Memory proposal "${input.proposalId}" is already ${proposal.status}.`,
+      );
+    }
+    const findings = proposalFindings(
+      input.items,
+      store.listMemoryItems(graph.project.id),
+    );
+    const updated: MemoryProposal = {
+      ...proposal,
+      rationale,
+      evidence: (input.evidence ?? []).slice(0, 10),
+      items: input.items,
+      findings,
+    };
+    store.saveMemoryProposal(updated);
+    return fitBudgetedResponse(
+      {
+        schemaVersion: 1,
+        proposal: {
+          id: updated.id,
+          status: updated.status,
+          rationale: updated.rationale,
+          items: updated.items,
+        },
+        findings,
+        gate: memoryGate(findings),
+      },
+      {
+        budgetChars: input.budgetChars,
+        totalMatches: updated.items.length,
+        expandableIds: [updated.id],
+        preserveKeys: ["findings", "questions"],
+      },
+    );
+  } finally {
+    store.close();
+  }
+}
+
+export async function combineMemoryProposals(input: {
+  rootPath: string;
+  targetProposalId: string;
+  sourceProposalId: string;
+  confirmed: boolean;
+  budgetChars?: number;
+}) {
+  if (!input.confirmed) {
+    throw new Error(
+      "Combining memory proposals requires confirmed=true after reviewing both.",
+    );
+  }
+  if (input.targetProposalId === input.sourceProposalId) {
+    throw new Error("Choose two different memory proposals to combine.");
+  }
+  const graph = await loadProjectGraph(input.rootPath);
+  await ensureMemoryIndexed(input.rootPath, graph);
+  const store = memoryStore(graph);
+  try {
+    const target = store.loadMemoryProposal(
+      graph.project.id,
+      input.targetProposalId,
+    );
+    const source = store.loadMemoryProposal(
+      graph.project.id,
+      input.sourceProposalId,
+    );
+    if (!target || !source) {
+      throw new Error("One of the memory proposals was not found.");
+    }
+    if (target.status !== "pending" || source.status !== "pending") {
+      throw new Error("Only pending memory proposals can be combined.");
+    }
+    const byIdentity = new Map<string, MemoryItemDraft>();
+    for (const item of [...target.items, ...source.items]) {
+      byIdentity.set(
+        item.id ?? `${item.type}:${item.title.trim().toLowerCase()}`,
+        item,
+      );
+    }
+    const items = [...byIdentity.values()];
+    const findings = proposalFindings(
+      items,
+      store.listMemoryItems(graph.project.id),
+    );
+    const merged: MemoryProposal = {
+      ...target,
+      rationale: `${target.rationale}\n\nCombined with ${source.id}: ${source.rationale}`,
+      evidence: [...new Set([...target.evidence, ...source.evidence])].slice(0, 10),
+      items,
+      findings,
+    };
+    const combinedAt = new Date().toISOString();
+    const retired: MemoryProposal = {
+      ...source,
+      status: "rejected",
+      rejectedAt: combinedAt,
+      rejectionReason: `Combined into ${target.id}.`,
+    };
+    assertMemoryContentSafe(merged);
+    store.saveMemoryProposal(merged);
+    store.saveMemoryProposal(retired);
+    return fitBudgetedResponse(
+      {
+        schemaVersion: 1,
+        targetProposalId: merged.id,
+        sourceProposalId: retired.id,
+        status: "combined",
+        itemCount: items.length,
+        findings,
+      },
+      {
+        budgetChars: input.budgetChars,
+        totalMatches: items.length,
+        expandableIds: [merged.id, retired.id],
+        preserveKeys: ["findings", "questions"],
       },
     );
   } finally {

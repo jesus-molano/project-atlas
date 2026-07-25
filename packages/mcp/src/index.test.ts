@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { createMcpServer } from "./index.js";
 
 describe("Component Atlas MCP surface", () => {
-  it("exposes compact context tools without preview tools", async () => {
+  it("exposes the complete compact Project Atlas tool contract", async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const server = createMcpServer();
     const client = new Client({
@@ -36,11 +36,6 @@ describe("Component Atlas MCP surface", () => {
       expect(names).toContain("propose_memory_update");
       expect(names).toContain("apply_memory_update");
       expect(names).toContain("record_outcome");
-      expect(names).not.toContain("get_component_playground");
-      expect(names).not.toContain("save_component_scenario");
-      expect(
-        names.some((name) => /preview|scenario|playground/i.test(name)),
-      ).toBe(false);
       for (const name of [
         "search_components",
         "get_component",
@@ -78,6 +73,11 @@ describe("Component Atlas MCP surface", () => {
             type: "integer",
             minimum: 800,
             maximum: 12000,
+          },
+          top_k: {
+            type: "integer",
+            minimum: 1,
+            maximum: 10,
           },
         },
       });
