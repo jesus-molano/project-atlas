@@ -1,7 +1,8 @@
 # Validation and external boundary
 
-Validated locally on 2026-07-25 without corporate data:
+Validated locally on 2026-07-26 without corporate data:
 
+- relative documentation links and the five-minute installation command;
 - production build: Nuxt 4.5.0, Vite 8.1.5, Vue 3.5.40;
 - TypeScript build/typecheck for every package and the viewer;
 - 29 tests across 11 files covering Code Atlas, Design Atlas, Project Memory,

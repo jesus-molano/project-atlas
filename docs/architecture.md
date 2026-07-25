@@ -1,8 +1,8 @@
 # Architecture
 
 Project Atlas is a local-first context platform with three indexes and one
-shared access layer. `Component Atlas` remains the repository/package name and
-the Code Atlas implementation; existing installations migrate additively.
+shared access layer. Existing internal package identifiers and databases remain
+compatible while the product surface is Project Atlas.
 
 ```mermaid
 flowchart LR
@@ -186,11 +186,11 @@ Decisions & Risks, Task Context, Memory Inbox, Integrations & Health, and
 Settings. Semantic memory writes pass through the proposal gate; derived local
 indexes can be refreshed directly.
 
-## Migration from Component Atlas
+## Compatibility
 
-Project Atlas is additive. Existing component graphs, component decision
-records, Design Index rows, and the GUI keep their contracts. Opening
-an older per-project database creates the memory/FTS/proposal tables with
+Existing component graphs, component decision records, Design Index rows, and
+the GUI keep their contracts. Opening an older per-project database creates the
+memory/FTS/proposal tables with
 `CREATE TABLE IF NOT EXISTS` without deleting user files.
 
 New flows should prefer `get_task_context`, but `get_reuse_context` and focused

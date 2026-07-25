@@ -720,7 +720,7 @@ export function createProgram(): Command {
 
   program
     .command("mcp")
-    .description("Start the Component Atlas MCP server over stdio.")
+    .description("Start the Project Atlas MCP server over stdio.")
     .action(startMcpServer);
 
   return program;

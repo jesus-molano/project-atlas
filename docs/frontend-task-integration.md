@@ -5,6 +5,14 @@ remains its local-code and cached-design context engine.
 This flow composes installed capabilities; Project Atlas itself is not packaged
 as a Codex plugin in this phase.
 
+The normal user action is:
+
+```text
+/plan $frontend-task Prepara e implementa esta tarea: <description>
+```
+
+No manual scan, memory, context, or Figma command is required first.
+
 ## Adaptive sequence
 
 1. Detect whichever sources are actually available. Repository and conversation
@@ -40,6 +48,10 @@ as a Codex plugin in this phase.
 Focused Atlas queries remain compact. The retrieval ladder is orientation,
 search, then expansion of a confirmed ID. The orchestrator requests `raw` nodes
 only when diagnosing incorrect extraction.
+
+Invoking the skill authorizes this task-scoped orchestration. It does not
+authorize plugin installation, connector login, access to an unconnected
+source, external writes, or confirmation of durable memory.
 
 ## Stable Atlas handoff
 

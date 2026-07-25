@@ -1,23 +1,25 @@
-# Tomorrow: first real run
+# First-run checklist
 
-## Ten-minute setup
+## Installation
 
 - [ ] Clone or pull `project-atlas` to a stable local path.
 - [ ] Check `node --version` is 24+ and `pnpm --version` is 11+.
-- [ ] Run `.\frontend-codex-kit\install.ps1 -Agent codex` (or `both`).
+- [ ] Run
+      `.\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions`.
 - [ ] Confirm the installer reports `[mcp_servers.component-atlas]` in the
       expected `$CODEX_HOME/config.toml` or `~/.codex/config.toml`.
 - [ ] Restart Codex and open a new task so it reloads the shared MCP config.
-- [ ] Restart Claude once if its global skills folder was newly created; use
-      `claude mcp get component-atlas` only for the Claude route.
-- [ ] Open the real frontend repository and run one Atlas scan.
-- [ ] Run `atlas memory index <repo>` and `atlas memory orient <repo>`.
-- [ ] Start with `$frontend-task Prepara esta tarea: <description or ticket>`.
+- [ ] Open the real frontend repository in Codex.
+- [ ] Start with
+      `/plan $frontend-task Prepara e implementa esta tarea: <description>`.
 
 ## First task acceptance check
 
 - [ ] The brief uses only available sources and identifies unavailable optional
       sources without blocking.
+- [ ] The skill performs the Code Atlas scan; no manual bootstrap command was
+      required.
+- [ ] Existing allowed memory is indexed/reused without loading every item.
 - [ ] Atlas proposes existing components before new component creation.
 - [ ] Each candidate includes source/scope and a reason.
 - [ ] Any question contains evidence and a recommended default.
@@ -37,7 +39,22 @@
 - [ ] `atlas open <repo>` exposes all nine GUI sections and Task Context shows
       the budget used before copying a package.
 
-## Validation pending with real work data
+## Optional GUI check
+
+From the Project Atlas clone:
+
+```powershell
+node .\packages\cli\dist\index.js open "C:\path\to\product-repository"
+```
+
+- [ ] [http://127.0.0.1:4173](http://127.0.0.1:4173) opens.
+- [ ] Code Atlas relationships and impact match one known component.
+- [ ] Design Atlas provenance/status matches an approved Figma source, if used.
+- [ ] One Task Context package stays within its displayed hard cap.
+- [ ] One synthetic memory proposal can be reviewed before real knowledge is
+      written.
+
+## Real-data validation
 
 - [ ] Confirm read access to one Figma file or active selection.
 - [ ] Map one real page/file and confirm version or `lastModified` refresh.
@@ -61,12 +78,3 @@
 Do not paste credentials into prompts, fixtures, profiles, or this repository.
 If corporate policy blocks a connector, record that source as unavailable and
 continue with repository plus conversation.
-
-## GUI check with real work data
-
-- [ ] Confirm Code Atlas relationships and impact against one known component.
-- [ ] Confirm Design Atlas provenance/status against the approved Figma file.
-- [ ] Generate one Task Context package and compare its candidates with the
-      team's expected implementation area.
-- [ ] Review one synthetic memory proposal before allowing real project
-      knowledge to be written.

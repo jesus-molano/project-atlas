@@ -5,14 +5,16 @@ Design Atlas, and Project Memory. It reads the same SQLite database and
 Markdown sources used by CLI and MCP. Opening sections, searching, filtering,
 and inspecting evidence never invokes an LLM.
 
-Start it for an indexed repository:
+After installation, start it from the Project Atlas clone for any product
+repository:
 
-```bash
-pnpm atlas open /path/to/project
+```powershell
+node .\packages\cli\dist\index.js open "C:\path\to\product-repository"
 ```
 
-The server binds to `127.0.0.1:4173` by default. Use `--port` when that port is
-already occupied.
+The server binds to `127.0.0.1:4173` by default. The normal `$frontend-task`
+flow creates/refreshes the code index; an empty repository view explains which
+source is not indexed yet. Use `--port` when the default port is occupied.
 
 ## Sections
 

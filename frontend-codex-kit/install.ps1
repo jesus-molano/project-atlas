@@ -337,11 +337,8 @@ if (-not $SkipMcp) {
 Write-Step "Installation complete."
 Write-Host ""
 Write-Host "Next:"
-Write-Host "  1. Open a new Codex task or Claude Code session."
-Write-Host "  2. Scan a real repository with: node `"$cliEntry`" scan `"C:\path\to\repo`""
-Write-Host "  3. Index allowed project memory with: node `"$cliEntry`" memory index `"C:\path\to\repo`""
-Write-Host "  4. Invoke `$frontend-task in Codex or /frontend-task in Claude Code."
-Write-Host "  5. Connect Jira, Confluence, or Figma only if the task actually has them."
-if (-not $SkipMcp -and $Agent -in @("codex", "both")) {
-  Write-Host "  6. Restart Codex and open a new task so it reloads config.toml."
-}
+Write-Host "  1. Restart the agent and open a new task/session."
+Write-Host "  2. Open the product repository in your agent."
+Write-Host "  3. Invoke `$frontend-task in Codex or /frontend-task in Claude Code."
+Write-Host "  4. Describe the task; the skill handles Atlas bootstrap and compact retrieval."
+Write-Host "  5. Connect Jira, Confluence, or Figma only when the task needs them."

@@ -4,6 +4,10 @@ The Design Index gives agents orientation without placing an entire Figma file
 in the conversation. It is a read-only, sparse local cache beside the code
 graph and does not replace Figma.
 
+In normal use, `$frontend-task` chooses the direct or general route when Figma
+is relevant. The user supplies a link/selection or confirms a ranked candidate;
+no Design Atlas CLI bootstrap is required.
+
 ## Two routes
 
 Direct route:
@@ -124,8 +128,8 @@ Findings have three levels:
    user. For example, missing global Variables access falls back to
    `get_variable_defs` for the confirmed node.
 
-This gate is intended to be shared later by `frontend-task`; it is not a visual
-UI and does not turn every uncertainty into a question.
+This gate is shared by `frontend-task`. It does not turn every uncertainty into
+a question.
 
 ## Global Variables and modes
 
@@ -161,7 +165,10 @@ Code Connect, Atlas still crosses semantic task terms with component names,
 paths, rendered children, imports/composables, tests, and graph consumers, and
 reports the resulting confidence.
 
-## CLI
+## Advanced CLI diagnostics
+
+These commands are optional tools for explicit cache bootstrap, diagnostics,
+or automation. They are not required before invoking `$frontend-task`.
 
 ```powershell
 component-atlas figma map <root> <figma-url> `

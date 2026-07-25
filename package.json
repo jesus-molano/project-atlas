@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "typecheck": "pnpm build:packages && pnpm -r typecheck",
     "audit:product": "node scripts/audit-product-surface.mjs",
+    "audit:docs": "node scripts/check-doc-links.mjs",
     "test:kit": "node --test frontend-codex-kit/test-codex-mcp-config.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File frontend-codex-kit/test-installer-mcp.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File frontend-codex-kit/test-agents-instructions.ps1",
     "atlas": "tsx packages/cli/src/index.ts"
   },

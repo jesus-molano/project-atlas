@@ -56,14 +56,21 @@ gate, so decisions and constraints use those existing contracts.
 ## Locations and portability
 
 Teams may version `project-memory/` when policy allows. Personal or sensitive
-episodes belong in `.component-atlas/memory/`, which `component-atlas setup`
-places in the global Git ignore. Both are regular Markdown with frontmatter and
-wikilinks, so the folders remain readable without Atlas.
+episodes belong in `.component-atlas/memory/`, which the installer places in
+the global Git ignore. Both are regular Markdown with frontmatter and wikilinks,
+so the folders remain readable without Atlas.
 
 The SQLite database lives under local application data and is isolated by the
 repository's stable project ID. It can be rebuilt from Markdown and source
-indexes. Moving to another computer means copying/cloning allowed Markdown,
-installing Atlas, scanning the repository, and running `atlas memory index`.
+indexes. On another computer, clone the allowed Markdown and install Atlas.
+The first `$frontend-task` run scans code and indexes existing allowed memory
+when needed. `memory index` remains available for explicit diagnostics or
+automation.
+
+Invoking `$frontend-task` permits it to read relevant indexed memory and record
+an observed local task outcome. It does not authorize applying a durable
+decision, convention, or canonical Markdown change. Those remain proposals
+until explicitly confirmed.
 
 ## Obsidian
 

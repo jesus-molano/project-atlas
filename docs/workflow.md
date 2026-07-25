@@ -1,110 +1,128 @@
-# Reuse-first workflow
+# Project Atlas task workflow
 
-Project Atlas sits between requirement discovery and implementation.
+The recommended interface is `$frontend-task`, not the CLI. Open the product
+repository in Codex and invoke:
 
-```mermaid
-flowchart TD
-  T[Jira, Confluence, Figma, screenshots, or pasted requirements]
-  Q[Clarify behavior and missing states]
-  I[State implementation intent]
-  S[Refresh Project Atlas]
-  C[Get compact Project Atlas task context]
-  G[Check decisions, risks, and failed attempts]
-  E[Inspect candidate source and impact]
-  D{Decision gate}
-  R[Reuse]
-  P[Extend or compose]
-  X[Extract and reuse]
-  N[Create with rejected alternatives]
-  B[Implement and validate]
-  U[Refresh graph and record result]
-
-  T --> Q --> I --> S --> C --> G --> E --> D
-  D --> R --> B
-  D --> P --> B
-  D --> X --> B
-  D --> N --> B
-  B --> U
+```text
+/plan $frontend-task Prepara e implementa esta tarea: <description>
 ```
 
-## Agent gate
+The skill orchestrates available capabilities. Project Atlas supplies compact
+local code, design, impact, and memory evidence when connected and useful.
 
-Invoke `skills/frontend-task` to prepare the complete task. It detects the
-available sources, creates the minimal brief, applies the uncertainty gate, and
-then delegates the component decision to `skills/reuse-first`.
+## First task in a repository
 
-Use `skills/reuse-first` directly whenever already-prepared frontend work may
-create or substantially change a component:
+The skill performs this sequence:
 
-1. Clarify only requirements that can change the component decision.
-2. Refresh the repository index.
-3. Call `get_task_context` with one precise intent and a small shared budget.
-4. Run `check_before_change` for the likely area/files.
-5. Inspect the strongest candidate's source when the compact bundle is not
-   sufficient.
-6. Run dedicated impact analysis before changing a shared API.
-7. Record exactly one `reuse`, `extend`, `compose`, `extract-and-reuse`, or
-   `create` decision.
-8. Implement, validate in the target repository, refresh the graph, record the
-   outcome, and propose any genuinely durable Project Memory delta.
+1. **Precheck.** Detect the repository, task, explicit links, and callable
+   capabilities. Classify each source as required, recommended, optional,
+   unavailable, or not applicable.
+2. **Material question.** Use the native question selector for a missing source
+   or decision that can change the implementation. Do not ask about every
+   possible integration.
+3. **Code index.** Call `scan_repository` for the current checkout. Code Atlas
+   derives components, routes, layouts, imports, composition, consumers,
+   similarity, tests, and impact.
+4. **Memory index.** `get_task_context` indexes allowed Markdown when no memory
+   index exists. An explicit refresh is used when approved memory files changed.
+5. **Design index.** Use cached sparse Figma metadata only when design is
+   relevant. A confirmed node takes the direct route. A file/page is mapped
+   sparsely and ranked before any deep retrieval.
+6. **Bounded context.** Retrieve a few task-relevant memory, code, and optional
+   design candidates under one shared hard cap.
+7. **Decision gate.** Check contradictions, current decisions, fragile areas,
+   failed attempts, and the likely change impact. Ask only for a material
+   unresolved choice.
+8. **Implementation.** Reuse, extend, compose, extract-and-reuse, or create with
+   rejected alternatives recorded.
+9. **Verification.** Run repository-appropriate tests, typecheck, build,
+   accessibility, and responsive checks.
+10. **Closeout.** Rescan after structural code changes, record the observed
+    outcome, and propose any durable lesson. A durable proposal is not applied
+    without confirmation.
 
-## Useful commands
+## Later tasks
+
+Code Atlas refreshes reconstructible repository facts against the current
+checkout. Existing Project Memory and Design Atlas caches are reused by project
+ID. Memory is reindexed when its source files change or an explicit refresh is
+requested. A Figma file is not remapped blindly; its sparse source/version hash
+and cached scopes are reused until new metadata is supplied.
+
+Retrieval remains focused on the current intent. Atlas returns top candidates
+and expandable IDs instead of every indexed record.
+
+## What enters agent context
+
+Normal task context contains only:
+
+- a compact project/source summary;
+- a few current decisions, constraints, or relevant prior outcomes;
+- a few code candidates with evidence and impact;
+- a few design candidates when Figma is relevant;
+- findings, one decision gate, next actions, and size metrics.
+
+It does not contain the complete repository graph, full Figma tree, all memory,
+screenshots, or raw exports. The default GUI/task budget is 3,600 characters;
+all project query tools enforce hard limits, small top-k defaults, and explicit
+expansion.
+
+Human browsing in the GUI does not add anything to agent context. Only an
+explicit Task Context package is meant to be copied or sent.
+
+## Source behavior
+
+- **Repository:** required for implementation and scanned locally.
+- **Atlas:** optional; absence falls back to focused repository search.
+- **Jira/Confluence:** read through Atlassian Rovo only when connected and
+  relevant.
+- **Figma:** read through the available Figma capability. Ready for dev,
+  Variables, and Code Connect improve evidence but are not prerequisites.
+- **GitHub:** used when a remote issue, PR, or history is relevant.
+
+Following one explicit relevant link is allowed. Broad crawling is not.
+Invoking the skill does not authorize plugin installation, connector
+authorization, writes to external systems, or durable memory confirmation.
+
+## Advanced CLI and diagnostics
+
+These commands are for explicit bootstrap, diagnostics, automation, and index
+inspection. They are not prerequisites for `$frontend-task`.
+
+From the Project Atlas clone:
 
 ```powershell
-component-atlas scan "C:\path\to\repo"
-component-atlas context "C:\path\to\repo" "empty state with retry"
-component-atlas memory orient "C:\path\to\repo" --budget 2400
-component-atlas memory task "C:\path\to\repo" "empty state with retry" --budget 3600
-component-atlas memory check "C:\path\to\repo" "change empty state API"
-component-atlas show "C:\path\to\repo" UiEmptyState
-component-atlas similar "C:\path\to\repo" MonthlySalaryDialog
-component-atlas impact "C:\path\to\repo" UiModal
-component-atlas open "C:\path\to\repo"
+$atlas = "C:\path\to\project-atlas"
+$repo = "C:\path\to\product-repository"
+$cli = Join-Path $atlas "packages\cli\dist\index.js"
+
+node $cli scan $repo
+node $cli context $repo "empty state with retry"
+node $cli memory orient $repo --budget 2400
+node $cli memory task $repo "empty state with retry" --budget 3600
+node $cli memory check $repo "change empty state API"
+node $cli show $repo UiEmptyState
+node $cli similar $repo UiModal
+node $cli impact $repo UiModal
+node $cli open $repo
 ```
 
-These queries return compact agent context. Add `--raw` only when debugging an
-incorrect index result, not while deciding whether to reuse a component.
+Add `--raw` only when diagnosing an incorrect index. Normal queries use the
+orient → search → expand ladder.
 
-Project Memory follows an orient → search → expand ladder. Do not search every
-memory item on every turn; `frontend-task` decides whether retrieval adds value.
-
-Optional Figma context:
+Advanced Figma cache diagnostics:
 
 ```powershell
-component-atlas figma map "C:\path\to\repo" "<figma-url>" `
-  --metadata ".\figma-metadata.xml" `
+node $cli figma map $repo "<figma-url>" `
+  --metadata "<sparse-xml-or-json-file>" `
   --format figma-mcp-xml `
-  --scope-node "12:34" `
-  --scope-page-id "1:2" `
-  --scope-page-name "Checkout"
-component-atlas figma find "C:\path\to\repo" "add coupon validation to checkout"
-component-atlas figma inspect "C:\path\to\repo" "<figma-file>" "12:34"
+  --scope-page-id "<page-id>" `
+  --scope-page-name "<page-name>"
+
+node $cli figma find $repo "<task description>"
+node $cli figma inspect $repo "<figma-file>" "<confirmed-node-id>"
 ```
 
-Ready for dev is a boost when present, not a condition for these commands.
-`source-unavailable` means the connector could not expose the field, not that
-the node has no Figma state.
-Semantic file/page/frame names, hierarchy, annotations, components, variants,
-device context, and Atlas evidence remain active when every node has status
-`none`.
-
-For a large confirmed frame, use the inspection handoff to narrow sparse child
-metadata to the smallest relevant subtree before deep context. If it cannot be
-isolated, select the subtree manually rather than accepting target truncation.
-
-Record a decision:
-
-```powershell
-component-atlas decision "C:\path\to\repo" `
-  --intent "confirmation dialog for deleting an account" `
-  --decision extend `
-  --select "react:src/components/ui/ConfirmActionDialog.tsx#ConfirmActionDialog" `
-  --rationale "Existing semantics and focus handling match; add a danger variant."
-```
-
-## Current boundary
-
-Jira, Confluence, screenshots, and pasted text remain task context owned by
-`frontend-task`. Atlas indexes local source code and can cache sparse Figma
-metadata supplied by that agent; it never assumes a connector, credential,
-Ready for dev status, Code Connect mapping, or Variables permission exists.
+For a large confirmed screen, narrow sparse child metadata to the smallest
+task-relevant subtree before deep Figma context. If isolation is impossible,
+request a manual selection rather than accepting a truncated target.
