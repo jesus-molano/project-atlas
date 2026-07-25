@@ -7,7 +7,7 @@ Requirements: Git, Node 24+, pnpm 11, and at least one supported agent client.
 On Windows, the supported path is the safe installer:
 
 ```powershell
-cd "C:\path\to\component-atlas"
+cd "C:\path\to\project-atlas"
 .\frontend-codex-kit\install.ps1 -Agent codex
 ```
 
@@ -20,9 +20,11 @@ inspect every filesystem, build, Git-ignore, and MCP action. The installer:
 - optionally adds an idempotent managed routing block to
   `~/.codex/AGENTS.md` with `-InstallAgentsInstructions`, preserving all other
   content;
-- registers the local stdio MCP without credentials;
-- preserves existing unrelated skills and existing `component-atlas` MCP
-  entries instead of overwriting them.
+- registers the local stdio MCP without credentials or dependence on the
+  packaged Codex executable;
+- preserves existing unrelated skills, TOML sections, and comments;
+- creates a config backup and refuses to overwrite a conflicting
+  `component-atlas` MCP entry without `-ForceMcpConfig`.
 
 See [../frontend-codex-kit/README.md](../frontend-codex-kit/README.md) for the
 complete new-computer guide and
@@ -40,12 +42,21 @@ node packages/cli/dist/index.js setup
 Use `node packages/cli/dist/index.js` in place of `component-atlas` unless the
 CLI package has been linked or installed globally.
 
-## Manual Codex connection
+## Codex MCP registration
 
 ```powershell
-codex mcp add component-atlas -- node "C:\path\to\component-atlas\packages\mcp\dist\index.js"
-codex mcp get component-atlas
+.\frontend-codex-kit\install.ps1 -Agent codex -CodexMcpMode config
 ```
+
+The Windows `auto` mode already selects this route. It writes the standard
+`[mcp_servers.component-atlas]` block to `$CODEX_HOME/config.toml` or
+`~/.codex/config.toml`, using absolute stable Node and MCP entrypoint paths. It
+does not invoke `codex.exe`. Restart Codex and open a new task afterwards.
+
+Run with `-DryRun` to inspect the exact target without writing. If a different
+block already exists, review the reported current and expected paths; only use
+`-ForceMcpConfig` when replacement is intentional. `-SkipMcp` installs the
+remaining kit without registering the server.
 
 Link both skills:
 
@@ -53,10 +64,10 @@ Link both skills:
 New-Item -ItemType Directory -Force "$HOME\.agents\skills"
 New-Item -ItemType Junction `
   -Path "$HOME\.agents\skills\frontend-task" `
-  -Target "C:\path\to\component-atlas\skills\frontend-task"
+  -Target "C:\path\to\project-atlas\skills\frontend-task"
 New-Item -ItemType Junction `
   -Path "$HOME\.agents\skills\reuse-first" `
-  -Target "C:\path\to\component-atlas\skills\reuse-first"
+  -Target "C:\path\to\project-atlas\skills\reuse-first"
 ```
 
 Codex uses `~/.agents/skills` for personal skills. It detects skill file changes
@@ -79,7 +90,7 @@ needed after changing `~/.codex/AGENTS.md`.
 ## Manual Claude Code connection
 
 ```powershell
-claude mcp add --scope user component-atlas -- node "C:\path\to\component-atlas\packages\mcp\dist\index.js"
+claude mcp add --scope user component-atlas -- node "C:\path\to\project-atlas\packages\mcp\dist\index.js"
 claude mcp get component-atlas
 ```
 
@@ -146,6 +157,7 @@ integration health, and settings. Browsing local indexes uses no agent tokens.
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm test:kit
 ```
 
 Official client references:

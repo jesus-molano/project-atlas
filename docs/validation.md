@@ -34,6 +34,9 @@ Validated locally on 2026-07-25 without corporate data:
   idempotency checks;
 - optional managed `AGENTS.md` routing block: preservation, replacement,
   idempotency, dry-run, absent file, and malformed-marker refusal;
+- direct Codex MCP config registration: absent/existing configs, comments and
+  unrelated sections, backups, matching/conflicting blocks, explicit force,
+  Windows paths, alternate `CODEX_HOME`, dry-run, and idempotency;
 - complete nine-section GUI over Vuenime (78 nodes, 230 relations) and a
   temporary full fixture (4 components, 8 Figma nodes, 6 memory items);
 - browser interaction checks for transversal search, design and memory detail,

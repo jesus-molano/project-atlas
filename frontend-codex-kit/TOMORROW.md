@@ -5,9 +5,11 @@
 - [ ] Clone or pull `project-atlas` to a stable local path.
 - [ ] Check `node --version` is 24+ and `pnpm --version` is 11+.
 - [ ] Run `.\frontend-codex-kit\install.ps1 -Agent codex` (or `both`).
-- [ ] Restart Codex/Claude once if the global skills folders were newly created.
-- [ ] Run `codex mcp get component-atlas` and/or
-      `claude mcp get component-atlas`.
+- [ ] Confirm the installer reports `[mcp_servers.component-atlas]` in the
+      expected `$CODEX_HOME/config.toml` or `~/.codex/config.toml`.
+- [ ] Restart Codex and open a new task so it reloads the shared MCP config.
+- [ ] Restart Claude once if its global skills folder was newly created; use
+      `claude mcp get component-atlas` only for the Claude route.
 - [ ] Open the real frontend repository and run one Atlas scan.
 - [ ] Run `atlas memory index <repo>` and `atlas memory orient <repo>`.
 - [ ] Start with `$frontend-task Prepara esta tarea: <description or ticket>`.

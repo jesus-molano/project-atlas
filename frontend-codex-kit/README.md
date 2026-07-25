@@ -38,9 +38,13 @@ clients only when available.
 Clone this repository to a stable local path, then run:
 
 ```powershell
-Set-Location "C:\path\to\component-atlas"
-.\frontend-codex-kit\install.ps1 -Agent both
+Set-Location "C:\path\to\project-atlas"
+.\frontend-codex-kit\install.ps1 -Agent codex
 ```
+
+That single command installs/builds Atlas, links the Codex skills, and registers
+the stdio server directly in Codex's shared `config.toml`. On Windows the
+default `-CodexMcpMode auto` does not invoke the packaged `codex.exe`.
 
 Useful variants:
 
@@ -51,11 +55,17 @@ Useful variants:
 # Codex only
 .\frontend-codex-kit\install.ps1 -Agent codex
 
+# Force direct config registration on any platform
+.\frontend-codex-kit\install.ps1 -Agent codex -CodexMcpMode config
+
+# Explicitly request the Codex CLI route (not recommended for packaged Windows builds)
+.\frontend-codex-kit\install.ps1 -Agent codex -CodexMcpMode cli
+
 # Also add/update the small managed frontend-task block in ~/.codex/AGENTS.md
 .\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions
 
-# Install skills now but configure MCP manually later
-.\frontend-codex-kit\install.ps1 -Agent both -SkipMcp
+# Temporary workaround: install everything except MCP registration
+.\frontend-codex-kit\install.ps1 -Agent codex -SkipMcp
 
 # Copy skills instead of linking them to the clone
 .\frontend-codex-kit\install.ps1 -Agent both -InstallMode copy
@@ -69,9 +79,25 @@ refuses malformed/duplicate markers, and does not add the block unless
 `-InstallAgentsInstructions` is supplied. Start a new Codex task or reload
 instructions after changing `AGENTS.md`.
 
-The installer is idempotent for its own links and preserves an existing MCP
-entry named `component-atlas`. It refuses to overwrite a different skill
-directory. Review or remove stale entries explicitly before rerunning.
+For Codex, configuration lives at `$CODEX_HOME\config.toml` when `CODEX_HOME`
+is defined and otherwise at `~/.codex/config.toml`. The installer manages only:
+
+```toml
+[mcp_servers.component-atlas]
+command = "C:\\absolute\\stable\\path\\to\\node.exe"
+args = ["C:\\absolute\\path\\to\\project-atlas\\packages\\mcp\\dist\\index.js"]
+```
+
+It preserves all unrelated TOML text and comments and creates a
+`config.toml.project-atlas.bak` backup before changing an existing file. If the
+managed section already points elsewhere or contains extra settings, the
+installer stops and reports current versus expected paths. Review that
+difference first; use `-ForceMcpConfig` only when replacing that section is
+intentional. Matching configuration is left byte-identical.
+
+The installer is idempotent for its own links and MCP section. It refuses to
+overwrite a different skill directory. Restart Codex and open a new task after
+installation so the shared configuration is reloaded.
 
 Codex loads global skills from `~/.agents/skills`; Claude Code loads them from
 `~/.claude/skills`. A new top-level skills directory can require restarting the
@@ -80,7 +106,7 @@ client once.
 ## First repository
 
 ```powershell
-$atlas = "C:\path\to\component-atlas"
+$atlas = "C:\path\to\project-atlas"
 $repo = "C:\path\to\product-repository"
 
 node "$atlas\packages\cli\dist\index.js" scan $repo
@@ -232,3 +258,19 @@ idempotent rebuilds, and cross-project isolation.
 
 Still external: one real work repository, one real Figma file/selection with
 approved read access, and five representative work tasks.
+
+## Troubleshooting Codex MCP registration
+
+If PowerShell reports that the packaged `codex.exe` cannot run while standard
+output is redirected, use the normal one-shot command again with direct config
+mode:
+
+```powershell
+.\frontend-codex-kit\install.ps1 -Agent codex -CodexMcpMode config
+```
+
+This path never executes `codex mcp get/add`. It resolves a stable Node
+executable, updates only `[mcp_servers.component-atlas]`, and asks you to
+restart Codex. Use `-DryRun` to see the exact config file, section, command, and
+argument without writing. Use `-SkipMcp` if policy requires configuring the
+server later through Codex Settings → MCP servers.
