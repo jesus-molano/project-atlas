@@ -21,6 +21,7 @@ import {
 import { startMcpServer } from "@component-atlas/mcp";
 import { startPreviewServer } from "@component-atlas/preview";
 import {
+  detectPreviewDependencies,
   detectPreviewStyleEnvironment,
   getComponentPlayground,
   graphSummary,
@@ -144,6 +145,7 @@ async function openViewer(
     viewerOrigin: url,
   });
   const styling = await detectPreviewStyleEnvironment(graph.project.rootPath);
+  const dependencies = await detectPreviewDependencies(graph.project.rootPath);
   const child = spawn(process.execPath, [serverEntry], {
     stdio: "inherit",
     env: {
@@ -151,6 +153,7 @@ async function openViewer(
       ATLAS_PROJECT_ROOT: graph.project.rootPath,
       ATLAS_PREVIEW_ORIGIN: preview.origin,
       ATLAS_PREVIEW_STYLING: JSON.stringify(styling),
+      ATLAS_PREVIEW_DEPENDENCIES: JSON.stringify(dependencies),
       NITRO_HOST: "127.0.0.1",
       NITRO_PORT: options.port,
     },

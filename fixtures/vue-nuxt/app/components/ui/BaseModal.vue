@@ -1,8 +1,10 @@
 <script setup lang="ts">
+type ModalSize = 'sm' | 'md' | 'lg'
+
 interface Props {
   title: string
   open?: boolean
-  size?: 'sm' | 'md' | 'lg'
+  size?: ModalSize
 }
 
 withDefaults(defineProps<Props>(), {

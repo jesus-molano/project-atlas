@@ -24,6 +24,7 @@ import {
   type DecisionKind,
   type Framework,
   type PreviewScenario,
+  type PreviewDependencyEnvironment,
   type PreviewStyleEnvironment,
   type PreviewViewport,
 } from "@component-atlas/core";
@@ -133,6 +134,36 @@ export async function detectPreviewStyleEnvironment(
         : pipeline === "tailwind-v3"
           ? "project-config"
           : "not-applicable",
+  };
+}
+
+export async function detectPreviewDependencies(
+  inputPath: string,
+): Promise<PreviewDependencyEnvironment> {
+  const rootPath = path.resolve(inputPath);
+  const manifest = await packageJson(rootPath);
+  let packageManager: PreviewDependencyEnvironment["packageManager"] = "unknown";
+  if (manifest.packageManager?.startsWith("pnpm")) packageManager = "pnpm";
+  else if (manifest.packageManager?.startsWith("yarn")) packageManager = "yarn";
+  else if (manifest.packageManager?.startsWith("bun")) packageManager = "bun";
+  else if (manifest.packageManager?.startsWith("npm")) packageManager = "npm";
+  else if (await exists(path.join(rootPath, "pnpm-lock.yaml"))) packageManager = "pnpm";
+  else if (
+    (await exists(path.join(rootPath, "bun.lock"))) ||
+    (await exists(path.join(rootPath, "bun.lockb")))
+  ) {
+    packageManager = "bun";
+  } else if (await exists(path.join(rootPath, "yarn.lock"))) packageManager = "yarn";
+  else if (await exists(path.join(rootPath, "package-lock.json"))) packageManager = "npm";
+
+  const installCommand =
+    packageManager === "unknown" ? "npm install" : `${packageManager} install`;
+  return {
+    status: (await exists(path.join(rootPath, "node_modules")))
+      ? "installed"
+      : "missing",
+    packageManager,
+    installCommand,
   };
 }
 
@@ -425,7 +456,14 @@ export async function getComponentPlayground(
   }
   const scenarios = await listPreviewScenarios(inputPath, component.id);
   const styling = await detectPreviewStyleEnvironment(graph.project.rootPath);
-  return buildPlaygroundContract(graph, component, scenarios, styling);
+  const dependencies = await detectPreviewDependencies(graph.project.rootPath);
+  return buildPlaygroundContract(
+    graph,
+    component,
+    scenarios,
+    styling,
+    dependencies,
+  );
 }
 
 export async function savePreviewScenario(

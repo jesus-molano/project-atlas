@@ -46,13 +46,36 @@ function propertyName(node: ts.PropertyName | undefined): string | undefined {
   return undefined;
 }
 
-function typeText(node: ts.TypeNode | undefined, source: ts.SourceFile): string {
-  return node ? node.getText(source) : "unknown";
+function typeText(
+  node: ts.TypeNode | undefined,
+  source: ts.SourceFile,
+  declarations: Map<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration>,
+  seen = new Set<string>(),
+): string {
+  if (!node) return "unknown";
+  if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
+    const name = node.typeName.text;
+    const declaration = declarations.get(name);
+    if (
+      declaration &&
+      ts.isTypeAliasDeclaration(declaration) &&
+      !seen.has(name)
+    ) {
+      return typeText(
+        declaration.type,
+        source,
+        declarations,
+        new Set([...seen, name]),
+      );
+    }
+  }
+  return node.getText(source);
 }
 
 function propsFromMembers(
   members: ts.NodeArray<ts.TypeElement>,
   source: ts.SourceFile,
+  declarations: Map<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration>,
 ): ComponentProp[] {
   return members.flatMap((member) => {
     if (!ts.isPropertySignature(member)) return [];
@@ -61,7 +84,7 @@ function propsFromMembers(
     return [
       {
         name,
-        type: typeText(member.type, source),
+        type: typeText(member.type, source, declarations),
         required: !member.questionToken,
       },
     ];
@@ -161,7 +184,7 @@ function parseScript(script: string, fileName: string): ScriptFacts {
       const macro = node.expression.text;
       if (macro === "defineProps") {
         const members = resolveTypeMembers(node.typeArguments?.[0], source, declarations);
-        if (members) props = propsFromMembers(members, source);
+        if (members) props = propsFromMembers(members, source, declarations);
       } else if (macro === "withDefaults") {
         const inner = node.arguments[0];
         if (
@@ -175,7 +198,7 @@ function parseScript(script: string, fileName: string): ScriptFacts {
             source,
             declarations,
           );
-          if (members) props = propsFromMembers(members, source);
+          if (members) props = propsFromMembers(members, source, declarations);
           const defaults = collectDefaults(node, source);
           props = props.map((prop) => {
             const defaultValue = defaults.get(prop.name);
@@ -183,6 +206,10 @@ function parseScript(script: string, fileName: string): ScriptFacts {
               ? prop
               : { ...prop, required: false, defaultValue };
           });
+          // The nested defineProps call is an implementation detail of
+          // withDefaults. Visiting it again would overwrite the enriched props
+          // above and discard every inferred default.
+          return;
         }
       } else if (macro === "defineEmits") {
         const members = resolveTypeMembers(node.typeArguments?.[0], source, declarations);
@@ -314,7 +341,7 @@ function classify(relativePath: string): {
 } {
   const parts = componentRoot(relativePath).map((part) => part.toLowerCase());
   const first = parts[0];
-  if (first && ["ui", "shared", "common", "layout"].includes(first)) {
+  if (first && ["ui", "shared", "common"].includes(first)) {
     return { visibility: "public" };
   }
   const fileName = parts.at(-1) ?? "";

@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { access } from "node:fs/promises";
+import { access, glob, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import react from "@vitejs/plugin-react";
 import vue from "@vitejs/plugin-vue";
-import { slash, type Framework } from "@component-atlas/core";
+import { pascalCase, slash, type Framework } from "@component-atlas/core";
 import {
   createServer,
   type Alias,
@@ -29,6 +30,12 @@ export interface PreviewServer {
 
 const VIRTUAL_ENTRY = "virtual:component-atlas-preview";
 const RESOLVED_ENTRY = `\0${VIRTUAL_ENTRY}`;
+
+interface VuePreviewContext {
+  components: Array<{ name: string; sourcePath: string }>;
+  autoImports: string[];
+  translations: Record<string, unknown>;
+}
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -66,6 +73,65 @@ async function globalStyles(
   return resolved;
 }
 
+function componentRoot(relativePath: string): string[] {
+  const parts = slash(relativePath).split("/");
+  const index = parts.lastIndexOf("components");
+  return index >= 0 ? parts.slice(index + 1) : parts;
+}
+
+function effectiveNuxtName(relativePath: string): string {
+  const parts = componentRoot(relativePath);
+  const file = parts.pop() ?? "";
+  const base = file.replace(/\.vue$/i, "");
+  if (base.toLowerCase() !== "index") parts.push(base);
+  return pascalCase(parts.join("-"));
+}
+
+async function vuePreviewContext(rootPath: string): Promise<VuePreviewContext> {
+  const components: VuePreviewContext["components"] = [];
+  for await (const relativePath of glob(
+    ["app/components/**/*.vue", "components/**/*.vue"],
+    { cwd: rootPath },
+  )) {
+    components.push({
+      name: effectiveNuxtName(relativePath),
+      sourcePath: slash(path.resolve(rootPath, relativePath)),
+    });
+  }
+
+  const autoImports: string[] = [];
+  for await (const relativePath of glob(
+    [
+      "app/composables/**/*.{ts,js,mjs}",
+      "composables/**/*.{ts,js,mjs}",
+      "app/stores/**/*.{ts,js,mjs}",
+      "stores/**/*.{ts,js,mjs}",
+      "app/utils/**/*.{ts,js,mjs}",
+      "utils/**/*.{ts,js,mjs}",
+    ],
+    { cwd: rootPath },
+  )) {
+    autoImports.push(slash(path.resolve(rootPath, relativePath)));
+  }
+
+  let translations: Record<string, unknown> = {};
+  for (const candidate of [
+    "i18n/locales/en.json",
+    "locales/en.json",
+    "app/locales/en.json",
+  ]) {
+    try {
+      translations = JSON.parse(
+        await readFile(path.join(rootPath, candidate), "utf8"),
+      ) as Record<string, unknown>;
+      break;
+    } catch {
+      // A translation catalog is optional in isolated preview mode.
+    }
+  }
+  return { components, autoImports, translations };
+}
+
 function resolveFrom(rootPath: string, specifier: string): string | undefined {
   const projectRequire = createRequire(path.join(rootPath, "package.json"));
   const localRequire = createRequire(import.meta.url);
@@ -78,6 +144,36 @@ function resolveFrom(rootPath: string, specifier: string): string | undefined {
       return undefined;
     }
   }
+}
+
+async function tailwindPlugins(
+  rootPath: string,
+  styles: string[],
+): Promise<Plugin[]> {
+  let usesTailwind = false;
+  for (const style of styles) {
+    try {
+      if (
+        /@import\s+(?:url\(\s*)?["']tailwindcss["']/.test(
+          await readFile(style, "utf8"),
+        )
+      ) {
+        usesTailwind = true;
+        break;
+      }
+    } catch {
+      // Vite will report an unreadable style entry with its source location.
+    }
+  }
+  if (!usesTailwind) return [];
+  const resolved = resolveFrom(rootPath, "@tailwindcss/vite");
+  if (!resolved) return [];
+  const module = (await import(pathToFileURL(resolved).href)) as {
+    default?: () => Plugin | Plugin[];
+  };
+  const configured = module.default?.();
+  if (!configured) return [];
+  return Array.isArray(configured) ? configured : [configured];
 }
 
 function runtimeAliases(rootPath: string, framework: Framework): Alias[] {
@@ -145,9 +241,21 @@ function html(): string {
         transform: translate(-50%, -50%);
       }
       .atlas-preview-error strong { display: block; margin-bottom: 8px; }
+      .atlas-preview-error p {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .atlas-preview-error details { margin-top: 12px; }
+      .atlas-preview-error summary {
+        color: #ffc1b7;
+        cursor: pointer;
+        font-size: 11px;
+      }
       .atlas-preview-error code {
         display: block;
         max-height: 280px;
+        margin-top: 9px;
         overflow: auto;
         color: #ffb4a8;
         font-size: 12px;
@@ -224,9 +332,12 @@ function reportError(error) {
     errorNode = document.createElement("div");
     errorNode.id = "atlas-preview-runtime-error";
     errorNode.className = "atlas-preview-error";
-    errorNode.innerHTML = '<strong>Specimen could not render</strong><code></code>';
+    errorNode.innerHTML =
+      '<strong>Component could not render</strong><p></p>' +
+      '<details><summary>Technical details</summary><code></code></details>';
     document.body.append(errorNode);
   }
+  errorNode.querySelector("p").textContent = message;
   errorNode.querySelector("code").textContent = details;
   send("error", { message, details });
 }
@@ -319,7 +430,11 @@ try {
 `;
 }
 
-function vueRuntime(styles: string[], viewerOrigin: string): string {
+function vueRuntime(
+  styles: string[],
+  viewerOrigin: string,
+  context: VuePreviewContext,
+): string {
   const styleImports = styles
     .map((stylePath) => `await import(${JSON.stringify(`/@fs/${stylePath}`)});`)
     .join("\n");
@@ -330,9 +445,211 @@ let app;
 let Component;
 let Vue;
 let propsState;
+const atlasContext = ${JSON.stringify(context)};
+
+function translation(key) {
+  const value = String(key).split(".").reduce(
+    (current, part) =>
+      current && typeof current === "object" ? current[part] : undefined,
+    atlasContext.translations
+  );
+  if (typeof value === "string") return value;
+  return String(key)
+    .split(".")
+    .at(-1)
+    .replaceAll(/[-_]/g, " ")
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+function installNuxtPreviewGlobals() {
+  const locale = Vue.ref("en");
+  const route = Vue.reactive({
+    path: "/",
+    fullPath: "/",
+    name: "atlas-preview",
+    params: {},
+    query: {},
+  });
+  const router = {
+    push: async () => undefined,
+    replace: async () => undefined,
+    back: () => undefined,
+  };
+  const noop = () => undefined;
+  const asyncData = () => ({
+    data: Vue.ref(null),
+    pending: Vue.ref(false),
+    error: Vue.ref(null),
+    refresh: async () => undefined,
+  });
+  Object.assign(globalThis, {
+    ...Vue,
+    $fetch: async () => null,
+    defineNuxtComponent: Vue.defineComponent,
+    navigateTo: async () => undefined,
+    persistedState: {
+      localStorage: window.localStorage,
+      cookiesWithOptions: () => window.localStorage,
+    },
+    useAppConfig: () => ({}),
+    useAsyncData: asyncData,
+    useCookie: () => Vue.ref(null),
+    useColorMode: () => Vue.reactive({
+      preference: "dark",
+      value: "dark",
+      unknown: false,
+    }),
+    useFetch: asyncData,
+    useHead: noop,
+    useI18n: () => ({ t: translation, locale }),
+    useLocalePath: () => (value) =>
+      typeof value === "string" ? value : value?.path || "/",
+    useNuxtApp: () => ({
+      $i18n: { t: translation, locale },
+      $router: router,
+      runWithContext: (callback) => callback(),
+    }),
+    useRoute: () => route,
+    useRouter: () => router,
+    useRuntimeConfig: () => ({ public: {} }),
+    useSeoMeta: noop,
+    useState: (_key, init) =>
+      Vue.ref(typeof init === "function" ? init() : undefined),
+    useSupabaseClient: () => ({
+      auth: {
+        getUser: async () => ({ data: { user: null }, error: null }),
+        resetPasswordForEmail: async () => ({ error: null }),
+        signInWithOAuth: async () => ({ error: null }),
+        signInWithPassword: async () => ({ error: null }),
+        signUp: async () => ({ error: null }),
+        signOut: async () => ({ error: null }),
+        updateUser: async () => ({ error: null }),
+      },
+      from: () => ({
+        select() { return this; },
+        insert() { return this; },
+        update() { return this; },
+        delete() { return this; },
+        eq() { return this; },
+        single: async () => ({ data: null, error: null }),
+      }),
+    }),
+    useSupabaseUser: () => Vue.ref(null),
+    useSwitchLocalePath: () => () => "/",
+    useToast: () => ({
+      add: (toast) => ({ id: "atlas-toast", ...toast }),
+      remove: noop,
+    }),
+  });
+}
+
+async function installProjectAutoImports() {
+  for (const modulePath of atlasContext.autoImports) {
+    try {
+      const module = await import(/* @vite-ignore */ "/@fs/" + modulePath);
+      Object.assign(globalThis, module);
+    } catch (error) {
+      console.warn(
+        "[Component Atlas] Could not preload auto-import module",
+        modulePath,
+        error
+      );
+    }
+  }
+}
+
+function installNuxtPreviewComponents(app) {
+  const link = Vue.defineComponent({
+    name: "AtlasNuxtLink",
+    inheritAttrs: false,
+    props: { to: { type: [String, Object], default: "" } },
+    setup(props, { attrs, slots }) {
+      return () =>
+        Vue.h(
+          "a",
+          {
+            ...attrs,
+            href:
+              typeof props.to === "string"
+                ? props.to || "#"
+                : props.to?.path || "#",
+          },
+          slots.default?.()
+        );
+    },
+  });
+  const image = Vue.defineComponent({
+    name: "AtlasNuxtImg",
+    inheritAttrs: false,
+    props: {
+      src: { type: String, default: "" },
+      alt: { type: String, default: "" },
+    },
+    setup(props, { attrs }) {
+      return () => Vue.h("img", { ...attrs, src: props.src, alt: props.alt });
+    },
+  });
+  const icon = Vue.defineComponent({
+    name: "AtlasIcon",
+    inheritAttrs: false,
+    props: { name: { type: String, default: "" } },
+    setup(props, { attrs }) {
+      return () =>
+        Vue.h(
+          "span",
+          { ...attrs, "data-atlas-icon": props.name, "aria-hidden": "true" },
+          "◇"
+        );
+    },
+  });
+  const passthrough = (name, tag = "div") =>
+    Vue.defineComponent({
+      name,
+      inheritAttrs: false,
+      setup(_props, { attrs, slots }) {
+        return () => Vue.h(tag, attrs, slots.default?.());
+      },
+    });
+  const button = passthrough("AtlasButton", "button");
+  const input = passthrough("AtlasInput", "input");
+
+  app.component("NuxtLink", link);
+  app.component("NuxtImg", image);
+  app.component("NuxtPicture", image);
+  app.component("UIcon", icon);
+  app.component("Icon", icon);
+  app.component("UAvatar", image);
+  app.component("UButton", button);
+  app.component("UInput", input);
+  for (const name of [
+    "ClientOnly",
+    "NuxtLayout",
+    "NuxtPage",
+    "UApp",
+    "UBadge",
+    "UCard",
+    "UContainer",
+    "UDropdownMenu",
+    "UModal",
+    "UPopover",
+    "UTooltip",
+  ]) {
+    app.component(name, passthrough("Atlas" + name));
+  }
+  for (const entry of atlasContext.components) {
+    app.component(
+      entry.name,
+      Vue.defineAsyncComponent(() =>
+        import(/* @vite-ignore */ "/@fs/" + entry.sourcePath)
+      )
+    );
+  }
+  app.directive("scroll-reveal", {});
+}
 
 function syncState() {
   applyEnvironment();
+  if (!propsState) return;
   for (const key of Object.keys(propsState)) delete propsState[key];
   Object.assign(propsState, previewState.props || {});
   for (const name of previewState.actionNames || []) {
@@ -348,6 +665,7 @@ window.addEventListener("message", (event) => {
   ) return;
   renderFailed = false;
   previewState = { ...previewState, ...event.data.state };
+  if (!Vue || !propsState) return;
   syncState();
   Vue.nextTick(() => {
     if (!renderFailed) send("rendered");
@@ -356,7 +674,8 @@ window.addEventListener("message", (event) => {
 
 try {
   Vue = await import("vue");
-  Object.assign(globalThis, Vue);
+  installNuxtPreviewGlobals();
+  await installProjectAutoImports();
   propsState = Vue.reactive({});
   ${styleImports}
   if (!componentPath) throw new Error("No component source path was provided.");
@@ -372,6 +691,20 @@ try {
       });
     }
   });
+  try {
+    const Pinia = await import("pinia");
+    const pinia = Pinia.createPinia();
+    Pinia.setActivePinia(pinia);
+    app.use(pinia);
+  } catch {
+    // Pinia is optional. Components that do not use stores still render.
+  }
+  installNuxtPreviewComponents(app);
+  app.config.globalProperties.$t = translation;
+  app.config.globalProperties.$i18n = {
+    t: translation,
+    locale: Vue.ref("en"),
+  };
   app.config.errorHandler = (error) => reportError(error);
   app.mount(mount);
   send("ready");
@@ -385,6 +718,7 @@ function atlasPlugin(
   framework: Framework,
   styles: string[],
   viewerOrigin: string,
+  vueContext: VuePreviewContext,
 ): Plugin {
   return {
     name: "component-atlas-preview",
@@ -396,7 +730,7 @@ function atlasPlugin(
       if (id !== RESOLVED_ENTRY) return undefined;
       return framework === "react"
         ? reactRuntime(styles, viewerOrigin)
-        : vueRuntime(styles, viewerOrigin);
+        : vueRuntime(styles, viewerOrigin, vueContext);
     },
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
@@ -432,6 +766,10 @@ export async function startPreviewServer(
   const port = options.port ?? 4174;
   const viewerOrigin = options.viewerOrigin ?? "http://127.0.0.1:4173";
   const styles = await globalStyles(rootPath, options.framework);
+  const vueContext =
+    options.framework === "vue"
+      ? await vuePreviewContext(rootPath)
+      : { components: [], autoImports: [], translations: {} };
   const projectHash = createHash("sha1")
     .update(rootPath.toLowerCase())
     .digest("hex")
@@ -440,6 +778,7 @@ export async function startPreviewServer(
     options.framework === "react"
       ? react({ exclude: /component-atlas-vite/ })
       : vue();
+  const projectTailwindPlugins = await tailwindPlugins(rootPath, styles);
   const server: ViteDevServer = await createServer({
     root: rootPath,
     configFile: false,
@@ -449,12 +788,18 @@ export async function startPreviewServer(
     resolve: {
       alias: runtimeAliases(rootPath, options.framework),
       preserveSymlinks: true,
-      tsconfigPaths: true,
+      // Nuxt's root tsconfig commonly extends generated files under `.nuxt`.
+      // Those files are intentionally absent in clean repositories and Vite 8's
+      // native resolver treats the missing reference as a fatal error. Nuxt's
+      // standard aliases are registered above, so Vue previews do not need the
+      // generated tsconfig just to render an SFC in isolation.
+      tsconfigPaths: options.framework === "react",
     },
     plugins: [
+      ...projectTailwindPlugins,
       styleFidelityPlugin(rootPath, styles),
       frameworkPlugin,
-      atlasPlugin(options.framework, styles, viewerOrigin),
+      atlasPlugin(options.framework, styles, viewerOrigin, vueContext),
     ],
     server: {
       host: "127.0.0.1",

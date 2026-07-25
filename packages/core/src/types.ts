@@ -13,6 +13,7 @@ export type PreviewControlKind =
   | "boolean"
   | "select"
   | "number"
+  | "date"
   | "color"
   | "text"
   | "json"
@@ -78,8 +79,14 @@ export interface PreviewControl {
   type: string;
   required: boolean;
   options: string[];
+  presets?: PreviewControlPreset[];
   defaultValue?: unknown;
   description?: string;
+}
+
+export interface PreviewControlPreset {
+  label: string;
+  value: unknown;
 }
 
 export interface PreviewViewport {
@@ -117,12 +124,19 @@ export interface PreviewStyleEnvironment {
     | "not-applicable";
 }
 
+export interface PreviewDependencyEnvironment {
+  status: "installed" | "missing";
+  packageManager: "pnpm" | "npm" | "yarn" | "bun" | "unknown";
+  installCommand: string;
+}
+
 export interface ComponentPlaygroundContract {
   component: ComponentNode;
   controls: PreviewControl[];
   tokens: DesignToken[];
   scenarios: PreviewScenario[];
   styling: PreviewStyleEnvironment;
+  dependencies: PreviewDependencyEnvironment;
   renderable: boolean;
   renderabilityReason?: string;
 }

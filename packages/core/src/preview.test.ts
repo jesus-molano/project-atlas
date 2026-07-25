@@ -29,6 +29,8 @@ function specimen(overrides: Partial<ComponentNode> = {}): ComponentNode {
       },
       { name: "disabled", type: "boolean", required: false },
       { name: "label", type: "string", required: true },
+      { name: "lineClamp", type: "1 | 2 | 3", required: false },
+      { name: "items", type: "Item[]", required: true },
       { name: "className", type: "unknown", required: false },
       { name: "onClick", type: "() => void", required: false },
     ],
@@ -57,6 +59,18 @@ describe("component playground", () => {
         }),
         expect.objectContaining({ name: "disabled", kind: "boolean" }),
         expect.objectContaining({ name: "label", kind: "text" }),
+        expect.objectContaining({
+          name: "lineClamp",
+          kind: "select",
+          options: ["1", "2", "3"],
+        }),
+        expect.objectContaining({
+          name: "items",
+          kind: "json",
+          presets: expect.arrayContaining([
+            expect.objectContaining({ label: "Sample list" }),
+          ]),
+        }),
         expect.objectContaining({ name: "onClick", kind: "action" }),
         expect.objectContaining({
           name: "onClose",
@@ -69,6 +83,14 @@ describe("component playground", () => {
       variant: "solid",
       disabled: false,
       label: "Example label",
+      lineClamp: 1,
+      items: [
+        {
+          id: "atlas-item",
+          name: "Sample item",
+          label: "Sample item",
+        },
+      ],
       className: "",
     });
   });

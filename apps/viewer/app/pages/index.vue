@@ -9,6 +9,7 @@ import {
   type ComponentNode,
   type DesignToken,
   type PreviewControl,
+  type PreviewDependencyEnvironment,
   type PreviewScenario,
   type PreviewStyleEnvironment,
   type PreviewViewport,
@@ -18,6 +19,7 @@ const { data: graph, error, refresh } = await useFetch<ComponentGraph>("/api/gra
 const { data: runtime } = await useFetch<{
   previewOrigin: string;
   styling: PreviewStyleEnvironment;
+  dependencies: PreviewDependencyEnvironment;
 }>("/api/runtime");
 
 const mode = ref<"map" | "lab">("lab");
@@ -41,6 +43,30 @@ const saveState = ref<"idle" | "saving" | "saved" | "error">("idle");
 const saveMessage = ref("");
 const jsonErrors = ref<Record<string, boolean>>({});
 const copyState = ref<"idle" | "copied">("idle");
+const previewHistory = ref<Record<string, "ready" | "error">>({});
+
+const scopeOptions = [
+  {
+    value: "all",
+    label: "All",
+    description: "Every indexed component",
+  },
+  {
+    value: "public",
+    label: "Shared",
+    description: "Reusable UI from ui, shared, or common folders",
+  },
+  {
+    value: "feature",
+    label: "Feature",
+    description: "Owned by a product area such as anime, auth, or layout",
+  },
+  {
+    value: "private",
+    label: "Internal",
+    description: "File-local or explicitly internal implementation detail",
+  },
+] as const;
 
 const filteredComponents = computed(() => {
   if (!graph.value) return [];
@@ -145,13 +171,6 @@ const counts = computed(() => {
   };
 });
 
-const specimenNumber = computed(() => {
-  const index = graph.value?.components.findIndex(
-    (component) => component.id === selected.value?.id,
-  );
-  return String((index ?? 0) + 1).padStart(3, "0");
-});
-
 const agentContract = computed(() =>
   JSON.stringify(
     {
@@ -162,6 +181,7 @@ const agentContract = computed(() =>
       viewport: viewport.value,
       background: background.value,
       styling: runtime.value?.styling,
+      dependencies: runtime.value?.dependencies,
     },
     null,
     2,
@@ -170,12 +190,21 @@ const agentContract = computed(() =>
 
 const stylePipelineLabel = computed(() => {
   const pipeline = runtime.value?.styling.pipeline;
-  if (pipeline === "tailwind-v4") return "TW4 · FULL SOURCE";
-  if (pipeline === "tailwind-v3") return "TW3 · PROJECT CONFIG";
-  if (pipeline === "project-css") return "PROJECT CSS";
-  if (pipeline === "none") return "NO GLOBAL CSS";
-  return "CSS · CHECKING";
+  if (pipeline === "tailwind-v4") return "Tailwind 4 · project styles";
+  if (pipeline === "tailwind-v3") return "Tailwind 3 · project config";
+  if (pipeline === "project-css") return "Project CSS";
+  if (pipeline === "none") return "No global CSS";
+  return "CSS · checking";
 });
+
+function scopeLabel(visibility: ComponentNode["visibility"]): string {
+  return scopeOptions.find((item) => item.value === visibility)?.label ?? visibility;
+}
+
+function scopeCount(value: (typeof scopeOptions)[number]["value"]): number {
+  if (value === "all") return graph.value?.components.length ?? 0;
+  return counts.value[value];
+}
 
 function selectComponent(component: ComponentNode): void {
   selectedId.value = component.id;
@@ -187,7 +216,7 @@ function resetPreview(): void {
   viewport.value = { width: 768, height: 560 };
   background.value = "#11161d";
   activeScenarioId.value = undefined;
-  scenarioName.value = "Default";
+  scenarioName.value = `${selected.value?.effectiveName ?? "Component"} state`;
   previewMessage.value = "";
   lastAction.value = "";
   saveState.value = "idle";
@@ -220,6 +249,16 @@ function applyScenario(scenario: PreviewScenario): void {
   tokenOverrides.value = { ...scenario.tokens };
   viewport.value = { ...scenario.viewport };
   background.value = scenario.background;
+}
+
+function chooseScenario(event: Event): void {
+  const id = (event.target as HTMLSelectElement).value;
+  if (!id) {
+    resetPreview();
+    return;
+  }
+  const scenario = scenarios.value.find((item) => item.id === id);
+  if (scenario) applyScenario(scenario);
 }
 
 async function saveScenario(): Promise<void> {
@@ -259,6 +298,37 @@ async function copyContract(): Promise<void> {
 
 function updateText(name: string, event: Event): void {
   previewValues.value[name] = (event.target as HTMLInputElement).value;
+}
+
+function selectValue(control: PreviewControl, event: Event): void {
+  const value = (event.target as HTMLSelectElement).value;
+  if (value === "true") previewValues.value[control.name] = true;
+  else if (value === "false") previewValues.value[control.name] = false;
+  else if (value === "null") previewValues.value[control.name] = null;
+  else if (/^-?\d+(?:\.\d+)?$/.test(value)) {
+    previewValues.value[control.name] = Number(value);
+  } else {
+    previewValues.value[control.name] = value;
+  }
+}
+
+function presetIndex(control: PreviewControl): number {
+  const serialized = JSON.stringify(previewValues.value[control.name] ?? null);
+  return (
+    control.presets?.findIndex(
+      (preset) => JSON.stringify(preset.value) === serialized,
+    ) ?? -1
+  );
+}
+
+function applyPreset(control: PreviewControl, event: Event): void {
+  const index = Number((event.target as HTMLSelectElement).value);
+  const preset = control.presets?.[index];
+  if (!preset) return;
+  previewValues.value[control.name] = JSON.parse(
+    JSON.stringify(preset.value),
+  ) as unknown;
+  jsonErrors.value[control.name] = false;
 }
 
 function updateBoolean(name: string, event: Event): void {
@@ -305,7 +375,13 @@ function setPreviewStatus(
   message?: string,
 ): void {
   previewStatus.value = status;
-  previewMessage.value = message ?? "";
+  previewMessage.value =
+    status === "error" && runtime.value?.dependencies.status === "missing"
+      ? `Project dependencies are missing. Run \`${runtime.value.dependencies.installCommand}\` in the target repository.`
+      : (message ?? "");
+  if (selected.value && status !== "booting") {
+    previewHistory.value[selected.value.id] = status;
+  }
 }
 </script>
 
@@ -327,8 +403,8 @@ function setPreviewStatus(
             <span />
           </div>
           <div>
-            <p>Component Atlas</p>
-            <span>{{ graph.project.name }} · local instrument</span>
+            <p>Atlas</p>
+            <span>{{ graph.project.name }} · reuse workbench</span>
           </div>
         </div>
 
@@ -353,7 +429,7 @@ function setPreviewStatus(
 
         <div class="scan-meta">
           <span class="framework-pill">{{ graph.project.framework }}</span>
-          <span>{{ graph.components.length }} specimens</span>
+          <span>{{ graph.components.length }} components</span>
           <span>{{ graph.tokens.length }} tokens</span>
         </div>
       </header>
@@ -362,8 +438,8 @@ function setPreviewStatus(
         <aside class="catalog-panel">
           <div class="panel-heading">
             <div>
-              <span class="eyebrow">Field catalog / 01</span>
-              <h1>Specimens</h1>
+              <span class="eyebrow">Reuse index</span>
+              <h1>Components</h1>
             </div>
             <span class="result-count">{{ filteredComponents.length }}</span>
           </div>
@@ -374,29 +450,29 @@ function setPreviewStatus(
               v-model="query"
               type="search"
               aria-label="Search components"
-              placeholder="Search intent, prop or name"
+              placeholder="Find by name, prop, or intent"
             >
             <kbd>⌘K</kbd>
           </label>
 
           <div class="scope-tabs" role="tablist" aria-label="Component scope">
             <button
-              v-for="item in [
-                ['all', graph.components.length],
-                ['public', counts.public],
-                ['feature', counts.feature],
-                ['private', counts.private],
-              ]"
-              :key="item[0]"
-              :class="{ active: scope === item[0] }"
+              v-for="item in scopeOptions"
+              :key="item.value"
+              :class="{ active: scope === item.value }"
+              :title="item.description"
               role="tab"
-              :aria-selected="scope === item[0]"
-              @click="scope = item[0] as typeof scope"
+              :aria-selected="scope === item.value"
+              @click="scope = item.value"
             >
-              {{ item[0] }}
-              <span>{{ item[1] }}</span>
+              {{ item.label }}
+              <span>{{ scopeCount(item.value) }}</span>
             </button>
           </div>
+
+          <p class="scope-help">
+            Shared is the first place to look before creating anything new.
+          </p>
 
           <div class="component-list">
             <button
@@ -406,12 +482,22 @@ function setPreviewStatus(
               :class="{ selected: selected?.id === component.id }"
               @click="selectComponent(component)"
             >
-              <span :class="['scope-dot', component.visibility]" />
+              <span
+                :class="[
+                  'scope-dot',
+                  component.visibility,
+                  previewHistory[component.id]
+                    ? `preview-${previewHistory[component.id]}`
+                    : '',
+                ]"
+              />
               <span class="component-copy">
                 <strong>{{ component.effectiveName }}</strong>
                 <small>{{ component.relativePath }}</small>
               </span>
-              <span class="api-count">{{ component.props.length }}</span>
+              <span class="api-count">
+                {{ component.props.length }} {{ component.props.length === 1 ? "prop" : "props" }}
+              </span>
             </button>
             <div v-if="filteredComponents.length === 0" class="empty-results">
               No specimen matches this search.
@@ -445,16 +531,18 @@ function setPreviewStatus(
             @select="selectedId = $event"
           />
           <div class="map-legend">
-            <span><i class="scope-dot public" /> public</span>
+            <span><i class="scope-dot public" /> shared</span>
             <span><i class="scope-dot feature" /> feature</span>
-            <span><i class="scope-dot private" /> private</span>
+            <span><i class="scope-dot private" /> internal</span>
           </div>
         </section>
 
         <section v-else-if="selected" class="lab-panel">
           <header class="lab-header">
             <div>
-              <span class="eyebrow">Live specimen / {{ specimenNumber }}</span>
+              <span class="eyebrow">
+                Live preview · {{ scopeLabel(selected.visibility) }}
+              </span>
               <h2>{{ selected.effectiveName }}</h2>
             </div>
             <div class="lab-actions">
@@ -472,28 +560,33 @@ function setPreviewStatus(
               >
                 {{ stylePipelineLabel }}
               </span>
+              <span
+                v-if="runtime?.dependencies.status === 'missing'"
+                class="dependency-status"
+                :title="`Run ${runtime.dependencies.installCommand} in the target repository`"
+              >
+                Dependencies missing
+              </span>
             </div>
           </header>
 
           <div class="lab-commandbar">
             <div class="scenario-rail">
-              <span>States</span>
-              <button
-                :class="{ active: !activeScenarioId }"
-                :aria-pressed="!activeScenarioId"
-                @click="resetPreview"
+              <label for="scenario-select">Scenario</label>
+              <select
+                id="scenario-select"
+                :value="activeScenarioId ?? ''"
+                @change="chooseScenario"
               >
-                Draft
-              </button>
-              <button
-                v-for="scenario in scenarios"
-                :key="scenario.id"
-                :class="{ active: activeScenarioId === scenario.id }"
-                :aria-pressed="activeScenarioId === scenario.id"
-                @click="applyScenario(scenario)"
-              >
-                {{ scenario.name }}
-              </button>
+                <option value="">Live defaults</option>
+                <option
+                  v-for="scenario in scenarios"
+                  :key="scenario.id"
+                  :value="scenario.id"
+                >
+                  {{ scenario.name }}
+                </option>
+              </select>
             </div>
             <div class="viewport-rail" aria-label="Preview viewport">
               <button
@@ -531,10 +624,10 @@ function setPreviewStatus(
             </span>
             <div v-if="!renderable" class="render-boundary">
               <span class="boundary-symbol">↗</span>
-              <strong>Private specimen</strong>
+              <strong>Internal component</strong>
               <p>
-                This React component is file-local. Extract or export it before
-                isolated rendering; its contract remains available to agents.
+                This component is file-local. Export it before isolated
+                rendering; its contract and relationships remain available to agents.
               </p>
             </div>
             <PreviewCanvas
@@ -549,12 +642,17 @@ function setPreviewStatus(
               @status="setPreviewStatus"
               @action="lastAction = $event"
             />
+            <div v-if="previewStatus === 'error'" class="preview-diagnostic">
+              <strong>Preview needs project context</strong>
+              <p>{{ previewMessage }}</p>
+              <span>The component contract is still available to you and to agents.</span>
+            </div>
           </div>
 
           <footer class="lab-footer">
             <span>
               <i :class="['scope-dot', selected.visibility]" />
-              {{ selected.visibility }} / {{ selected.framework }}
+              {{ scopeLabel(selected.visibility) }} / {{ selected.framework }}
             </span>
             <span>{{ controls.length }} controls</span>
             <span>{{ componentTokens.length }} semantic tokens</span>
@@ -571,9 +669,9 @@ function setPreviewStatus(
           <div class="detail-header">
             <div class="detail-kicker">
               <span :class="['scope-badge', selected.visibility]">
-                {{ selected.visibility }}
+                {{ scopeLabel(selected.visibility) }}
               </span>
-              <span>№ {{ specimenNumber }}</span>
+              <span>{{ selected.props.length }} props</span>
             </div>
             <h2>{{ selected.effectiveName }}</h2>
             <code>{{ selected.relativePath }}</code>
@@ -659,8 +757,8 @@ function setPreviewStatus(
 
             <section v-if="inspectorTab === 'props'" class="control-stack">
               <div class="inspector-intro">
-                <span class="eyebrow">Input deck / live</span>
-                <p>Changes stream directly into the isolated component.</p>
+                <span class="eyebrow">Live controls</span>
+                <p>Choose common values first. Raw JSON stays under Advanced.</p>
               </div>
 
               <div v-for="control in controls" :key="control.name" class="control-row">
@@ -689,9 +787,13 @@ function setPreviewStatus(
                   v-else-if="control.kind === 'select'"
                   :id="`control-${control.name}`"
                   :value="String(previewValues[control.name] ?? '')"
-                  @change="updateText(control.name, $event)"
+                  @change="selectValue(control, $event)"
                 >
-                  <option v-for="option in control.options" :key="option">
+                  <option
+                    v-for="option in control.options"
+                    :key="option"
+                    :value="option"
+                  >
                     {{ option }}
                   </option>
                 </select>
@@ -704,6 +806,14 @@ function setPreviewStatus(
                   @input="updateNumber(control.name, $event)"
                 >
 
+                <input
+                  v-else-if="control.kind === 'date'"
+                  :id="`control-${control.name}`"
+                  type="date"
+                  :value="String(previewValues[control.name] ?? '')"
+                  @input="updateText(control.name, $event)"
+                >
+
                 <div v-else-if="control.kind === 'color'" class="color-control">
                   <input
                     :id="`control-${control.name}`"
@@ -714,14 +824,35 @@ function setPreviewStatus(
                   <code>{{ previewValues[control.name] }}</code>
                 </div>
 
-                <textarea
-                  v-else-if="control.kind === 'json'"
-                  :id="`control-${control.name}`"
-                  :class="{ invalid: jsonErrors[control.name] }"
-                  :value="jsonValue(control.name)"
-                  rows="4"
-                  @change="updateJson(control.name, $event)"
-                />
+                <div v-else-if="control.kind === 'json'" class="object-control">
+                  <select
+                    v-if="control.presets?.length"
+                    :aria-label="`${control.label} preset`"
+                    :value="presetIndex(control)"
+                    @change="applyPreset(control, $event)"
+                  >
+                    <option
+                      v-for="(preset, index) in control.presets"
+                      :key="`${control.name}-${preset.label}`"
+                      :value="index"
+                    >
+                      {{ preset.label }}
+                    </option>
+                    <option v-if="presetIndex(control) === -1" :value="-1">
+                      Custom value
+                    </option>
+                  </select>
+                  <details>
+                    <summary>Advanced JSON</summary>
+                    <textarea
+                      :id="`control-${control.name}`"
+                      :class="{ invalid: jsonErrors[control.name] }"
+                      :value="jsonValue(control.name)"
+                      rows="4"
+                      @change="updateJson(control.name, $event)"
+                    />
+                  </details>
+                </div>
 
                 <input
                   v-else
@@ -732,15 +863,15 @@ function setPreviewStatus(
                 >
               </div>
               <p v-if="controls.length === 0" class="muted control-empty">
-                This specimen has no inferred inputs. Its visual state is still
+                This component has no inferred inputs. Its visual state is still
                 rendered in isolation.
               </p>
             </section>
 
             <section v-else-if="inspectorTab === 'tokens'" class="control-stack">
               <div class="inspector-intro">
-                <span class="eyebrow">Semantic palette / {{ componentTokens.length }}</span>
-                <p>Override roles, not arbitrary decoration.</p>
+                <span class="eyebrow">Project tokens / {{ componentTokens.length }}</span>
+                <p>Try the real design tokens without editing source files.</p>
               </div>
 
               <div
@@ -806,7 +937,7 @@ function setPreviewStatus(
                 {{
                   saveState === "error"
                     ? saveMessage
-                    : "Writes an agent-readable scenario under .component-atlas."
+                    : "Human preview and agent contract stay in sync."
                 }}
               </small>
             </section>
@@ -815,7 +946,7 @@ function setPreviewStatus(
           <section class="detail-section source-facts">
             <span>{{ selected.testPaths.length }} tests</span>
             <span>{{ selected.renderedNames.length }} children</span>
-            <span v-if="selected.feature">feature: {{ selected.feature }}</span>
+            <span v-if="selected.feature">owner: {{ selected.feature }}</span>
           </section>
         </aside>
       </section>

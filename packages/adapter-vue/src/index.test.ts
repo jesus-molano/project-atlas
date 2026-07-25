@@ -21,7 +21,16 @@ describe("VueAdapter", () => {
     expect(modal?.props).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "title", required: true }),
-        expect.objectContaining({ name: "open", required: false }),
+        expect.objectContaining({
+          name: "open",
+          required: false,
+          defaultValue: "false",
+        }),
+        expect.objectContaining({
+          name: "size",
+          type: "'sm' | 'md' | 'lg'",
+          defaultValue: "'md'",
+        }),
       ]),
     );
     expect(modal?.slots).toEqual(expect.arrayContaining(["default", "footer"]));

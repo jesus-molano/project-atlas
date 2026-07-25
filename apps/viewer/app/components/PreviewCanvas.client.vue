@@ -23,6 +23,7 @@ const host = ref<HTMLElement>();
 const frame = ref<HTMLIFrameElement>();
 const scale = ref(1);
 let observer: ResizeObserver | undefined;
+let bootTimer: number | undefined;
 
 const source = computed(() => {
   if (!props.previewOrigin) return "";
@@ -80,6 +81,24 @@ function pushState(): void {
   }
 }
 
+function beginBoot(): void {
+  if (bootTimer) window.clearTimeout(bootTimer);
+  emit("status", "booting");
+  bootTimer = window.setTimeout(() => {
+    emit(
+      "status",
+      "error",
+      "Preview did not start. Check that project dependencies are installed or inspect the runtime error below.",
+    );
+  }, 4500);
+}
+
+function finishBoot(): void {
+  if (!bootTimer) return;
+  window.clearTimeout(bootTimer);
+  bootTimer = undefined;
+}
+
 function receive(event: MessageEvent): void {
   if (
     !props.previewOrigin ||
@@ -89,11 +108,14 @@ function receive(event: MessageEvent): void {
     return;
   }
   if (event.data.type === "ready") {
+    finishBoot();
     emit("status", "ready");
     pushState();
   } else if (event.data.type === "rendered") {
+    finishBoot();
     emit("status", "ready");
   } else if (event.data.type === "error") {
+    finishBoot();
     emit("status", "error", String(event.data.message ?? "Unknown render error"));
   } else if (event.data.type === "action") {
     emit("action", String(event.data.name ?? "event"));
@@ -106,15 +128,17 @@ watch(
   { deep: true },
 );
 watch(() => props.viewport, resize, { deep: true });
-watch(source, () => emit("status", "booting"));
+watch(source, beginBoot);
 
 onMounted(() => {
   observer = new ResizeObserver(resize);
   if (host.value) observer.observe(host.value);
   window.addEventListener("message", receive);
   resize();
+  beginBoot();
 });
 onBeforeUnmount(() => {
+  finishBoot();
   observer?.disconnect();
   window.removeEventListener("message", receive);
 });

@@ -5,6 +5,8 @@ import type {
   ComponentProp,
   DesignToken,
   PreviewControl,
+  PreviewControlPreset,
+  PreviewDependencyEnvironment,
   PreviewScenario,
   PreviewStyleEnvironment,
 } from "./types.js";
@@ -17,10 +19,99 @@ function titleCase(value: string): string {
 }
 
 function unionOptions(type: string): string[] {
-  const options = [...type.matchAll(/["']([^"']+)["']/g)].map(
-    (match) => match[1],
-  );
-  return [...new Set(options.filter((option): option is string => Boolean(option)))];
+  const options = type
+    .split("|")
+    .map((candidate) => candidate.trim().replace(/^\((.*)\)$/, "$1"))
+    .flatMap((candidate) => {
+      const quoted = candidate.match(/^["']([^"']+)["']$/);
+      if (quoted?.[1] !== undefined) return [quoted[1]];
+      if (/^-?\d+(?:\.\d+)?$/.test(candidate)) return [candidate];
+      if (/^(?:true|false|null)$/.test(candidate)) return [candidate];
+      return [];
+    });
+  return [...new Set(options)];
+}
+
+function optionValue(option: string): unknown {
+  if (option === "true") return true;
+  if (option === "false") return false;
+  if (option === "null") return null;
+  if (/^-?\d+(?:\.\d+)?$/.test(option)) return Number(option);
+  return option;
+}
+
+function semanticOptions(prop: ComponentProp): string[] {
+  const name = prop.name.toLowerCase();
+  if (/^(to|href|url)$/.test(name)) return ["", "/", "/search"];
+  if (/size$/.test(name)) return ["xs", "sm", "md", "lg"];
+  if (/position$/.test(name)) return ["static", "top-left", "top-right"];
+  if (/align(?:ment)?$/.test(name)) return ["left", "center", "right"];
+  if (/orientation$|direction$/.test(name)) return ["horizontal", "vertical"];
+  return [];
+}
+
+function semanticSample(name: string): unknown {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("genre")) {
+    return { mal_id: 1, name: "Action", type: "Anime" };
+  }
+  if (normalized.includes("anime")) {
+    return {
+      mal_id: 1,
+      title: "Sample anime",
+      title_english: "Sample anime",
+      score: 8.4,
+      episodes: 12,
+      year: 2026,
+      status: "Currently Airing",
+      airing: true,
+      genres: [{ mal_id: 1, name: "Action", type: "Anime" }],
+      images: {
+        webp: {
+          image_url: "",
+          large_image_url: "",
+        },
+      },
+    };
+  }
+  if (normalized.includes("user")) {
+    return { id: "atlas-user", name: "Atlas User", avatarUrl: "" };
+  }
+  if (normalized.includes("item")) {
+    return { id: "atlas-item", name: "Sample item", label: "Sample item" };
+  }
+  return { id: "atlas-sample", name: "Sample value", label: "Sample value" };
+}
+
+function complexPresets(prop: ComponentProp): PreviewControlPreset[] {
+  const isArray = /\[\]|Array\s*</.test(prop.type);
+  const namedReferences = prop.type
+    .split("|")
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => !/^(?:null|undefined)$/.test(candidate));
+  const isObject =
+    isArray ||
+    /\b(?:object|Record|Map|Set)\b/.test(prop.type) ||
+    (namedReferences.length > 0 &&
+      namedReferences.every((candidate) =>
+        /^[A-Z][A-Za-z0-9]*(?:<.*>)?$/.test(candidate),
+      )) ||
+    /^[A-Z][A-Za-z0-9]*(?:<.*>)?(?:\s*\|\s*(?:null|undefined))?$/.test(
+      prop.type,
+    );
+  if (!isObject) return [];
+  const sample = semanticSample(prop.name);
+  const samplePreset = {
+    label: isArray ? "Sample list" : "Sample data",
+    value: isArray ? [sample] : sample,
+  };
+  const emptyPreset = {
+    label: isArray ? "Empty list" : "Empty object",
+    value: isArray ? [] : {},
+  };
+  return prop.required
+    ? [samplePreset, emptyPreset]
+    : [{ label: "Not set", value: null }, emptyPreset, samplePreset];
 }
 
 function isAction(prop: ComponentProp): boolean {
@@ -45,6 +136,7 @@ function defaultText(name: string): string {
     return "Preview content";
   }
   if (normalized.includes("url") || normalized.includes("href")) return "#";
+  if (normalized.includes("poster") || normalized.includes("image")) return "";
   return "";
 }
 
@@ -58,7 +150,7 @@ function parseDefault(prop: ComponentProp): unknown {
     if (quoted?.[1] !== undefined) return quoted[1];
   }
   const options = unionOptions(prop.type);
-  if (options[0] !== undefined) return options[0];
+  if (options[0] !== undefined) return optionValue(options[0]);
   if (/\bboolean\b/.test(prop.type)) {
     return prop.required || /open|show|visible|active|enabled/i.test(prop.name);
   }
@@ -68,18 +160,22 @@ function parseDefault(prop: ComponentProp): unknown {
   if (/\bstring\b/.test(prop.type) || prop.type === "unknown") {
     return defaultText(prop.name);
   }
-  if (prop.type.includes("[]")) return [];
+  if (prop.type.includes("[]")) return prop.required ? undefined : [];
   return undefined;
 }
 
 function controlFor(prop: ComponentProp): PreviewControl {
-  const options = unionOptions(prop.type);
+  const literalOptions = unionOptions(prop.type);
+  const options =
+    literalOptions.length > 0 ? literalOptions : semanticOptions(prop);
+  const presets = complexPresets(prop);
   let kind: PreviewControl["kind"] = "json";
   if (isAction(prop)) kind = "action";
   else if (prop.name === "children") kind = "text";
   else if (options.length > 0) kind = "select";
   else if (/\bboolean\b/.test(prop.type)) kind = "boolean";
   else if (/\bnumber\b/.test(prop.type)) kind = "number";
+  else if (/\bDate\b/.test(prop.type) || /date$/i.test(prop.name)) kind = "date";
   else if (
     /color|colour|background|foreground|accent/i.test(prop.name) &&
     /\bstring\b/.test(prop.type)
@@ -88,12 +184,16 @@ function controlFor(prop: ComponentProp): PreviewControl {
   } else if (/\bstring\b/.test(prop.type) || prop.type === "unknown") {
     kind = "text";
   }
-  const defaultValue =
+  const inferredDefault =
     kind === "action"
       ? undefined
       : prop.name === "children"
         ? defaultText(prop.name)
         : parseDefault(prop);
+  const defaultValue =
+    inferredDefault !== undefined
+      ? inferredDefault
+      : presets[0]?.value;
   return {
     name: prop.name,
     label: titleCase(prop.name),
@@ -101,6 +201,7 @@ function controlFor(prop: ComponentProp): PreviewControl {
     type: prop.type,
     required: prop.required,
     options,
+    ...(presets.length > 0 ? { presets } : {}),
     ...(defaultValue !== undefined ? { defaultValue } : {}),
   };
 }
@@ -170,6 +271,11 @@ export function buildPlaygroundContract(
     entryPoints: [],
     sourceRegistration: "not-applicable",
   },
+  dependencies: PreviewDependencyEnvironment = {
+    status: "missing",
+    packageManager: "unknown",
+    installCommand: "Install project dependencies",
+  },
 ): ComponentPlaygroundContract {
   const renderable = component.framework === "vue" || component.exported;
   return {
@@ -180,6 +286,7 @@ export function buildPlaygroundContract(
       (scenario) => scenario.componentId === component.id,
     ),
     styling,
+    dependencies,
     renderable,
     ...(!renderable
       ? {
