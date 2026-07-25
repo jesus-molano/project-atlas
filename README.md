@@ -1,24 +1,27 @@
 # Component Atlas
 
-Local-first component intelligence for Vue/Nuxt and React/Next repositories.
+Local-first component context for Vue/Nuxt and React/Next repositories.
 
-Component Atlas indexes every UI component, resolves composition and test
-relationships, finds explainable similarity, and gives both developers and
-coding agents a reuse-first workflow.
+Component Atlas indexes the existing UI surface, resolves composition and test
+relationships, finds explainable similarity, and gives Codex or Claude compact
+reuse context before implementation.
 
 ## Status
 
-This repository contains a working local-first release:
+The repository contains a working context-engine release:
 
 - Nuxt 4.5, TypeScript 7, and Vite 8 toolchain
 - Vue/Nuxt and React/Next static analyzers
-- SQLite-backed local graph
-- inferred prop controls and semantic CSS-token discovery
-- live Vue and React component preview runtime
-- saved, agent-readable preview scenarios
-- CLI and MCP server with the same playground contract
-- Nuxt viewer with relationship Map and interactive Lab modes
-- reusable `reuse-first` Codex skill
+- SQLite-backed component graph
+- public, feature, and internal scope classification
+- explainable similarity and transitive impact analysis
+- compact reuse-context bundle through CLI and MCP
+- explicit reuse/extend/compose/extract/create decision records
+- read-only relationship map
+- reusable `reuse-first` workflow module
+
+Component previews and the Lab have intentionally been removed. Atlas does not
+try to reproduce an application's runtime or styling pipeline.
 
 ## Quick start
 
@@ -26,17 +29,20 @@ This repository contains a working local-first release:
 pnpm install
 pnpm build
 pnpm atlas scan /path/to/project
-pnpm atlas search /path/to/project "modal"
-pnpm atlas playground /path/to/project UiButton
+pnpm atlas context /path/to/project "confirmation dialog for destructive action"
 pnpm atlas open /path/to/project
 ```
 
-The scanner writes a small, human-readable catalog and saved preview scenarios
-under `.component-atlas/` in the analyzed repository. The database stays outside
-the repository under the operating system's local application-data directory.
-Running `component-atlas setup` keeps those local artifacts globally ignored by
-Git.
+`context` is the primary agent query. It returns a compact candidate list with
+scope, source path, public API, composition, consumers, similarity evidence,
+tests, and change impact.
 
-See [docs/architecture.md](docs/architecture.md) for the data model and
-[docs/workflow.md](docs/workflow.md) for the intended agent workflow.
-[docs/setup.md](docs/setup.md) covers Codex, Claude Code, MCP, and skill setup.
+The scanner writes a small human-readable catalog and decision records under
+`.component-atlas/` in the analyzed repository. The database stays outside the
+repository under the operating system's local application-data directory.
+Running `component-atlas setup` keeps local artifacts globally ignored by Git.
+
+See [docs/architecture.md](docs/architecture.md) for the data model,
+[docs/workflow.md](docs/workflow.md) for the intended agent workflow, and
+[docs/frontend-task-integration.md](docs/frontend-task-integration.md) for the
+future portable skill boundary.

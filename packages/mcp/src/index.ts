@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
 import {
+  buildReuseContext,
   componentImpact,
   findComponent,
   searchComponents,
@@ -9,11 +10,9 @@ import {
   type DecisionKind,
 } from "@component-atlas/core";
 import {
-  getComponentPlayground,
   graphSummary,
   loadProjectGraph,
   recordDecision,
-  savePreviewScenario,
   scanProject,
 } from "@component-atlas/runtime";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -69,6 +68,20 @@ export function createMcpServer(): McpServer {
     async ({ root_path, query, limit }) => {
       const graph = await loadProjectGraph(root_path);
       return text(searchComponents(graph, query, limit ?? 10));
+    },
+  );
+
+  server.tool(
+    "get_reuse_context",
+    "Return a compact mental map of candidates, scopes, APIs, relationships, similarity, and change impact for a frontend intent.",
+    {
+      root_path: z.string(),
+      intent: z.string().min(1),
+      limit: z.number().int().min(1).max(5).optional(),
+    },
+    async ({ root_path, intent, limit }) => {
+      const graph = await loadProjectGraph(root_path);
+      return text(buildReuseContext(graph, intent, limit ?? 3));
     },
   );
 
@@ -143,62 +156,6 @@ export function createMcpServer(): McpServer {
         ...componentImpact(graph, component.id),
       });
     },
-  );
-
-  server.tool(
-    "get_component_playground",
-    "Return inferred controls, semantic design tokens, CSS pipeline fidelity, renderability, and saved preview scenarios for a component.",
-    {
-      root_path: z.string(),
-      component: z.string(),
-    },
-    async ({ root_path, component }) =>
-      text(await getComponentPlayground(root_path, component)),
-  );
-
-  server.tool(
-    "save_component_scenario",
-    "Save a deterministic prop, token, viewport, and background state that humans and agents can reopen.",
-    {
-      root_path: z.string(),
-      component: z.string(),
-      name: z.string().min(1),
-      id: z.string().optional(),
-      props: z.record(z.unknown()).optional(),
-      tokens: z.record(z.string()).optional(),
-      viewport: z
-        .object({
-          width: z.number().int().min(240).max(2560),
-          height: z.number().int().min(200).max(1600),
-        })
-        .optional(),
-      background: z.string().optional(),
-      notes: z.string().optional(),
-    },
-    async ({
-      root_path,
-      component,
-      name,
-      id,
-      props,
-      tokens,
-      viewport,
-      background,
-      notes,
-    }) =>
-      text(
-        await savePreviewScenario({
-          rootPath: root_path,
-          component,
-          name,
-          ...(id ? { id } : {}),
-          props: props ?? {},
-          tokens: tokens ?? {},
-          ...(viewport ? { viewport } : {}),
-          ...(background ? { background } : {}),
-          ...(notes ? { notes } : {}),
-        }),
-      ),
   );
 
   server.tool(

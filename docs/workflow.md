@@ -4,12 +4,13 @@ Component Atlas sits between requirement discovery and implementation.
 
 ```mermaid
 flowchart TD
-  T[Jira, Confluence, Figma node, screenshots]
+  T[Jira, Confluence, Figma, screenshots, or pasted requirements]
   Q[Clarify behavior and missing states]
   I[State implementation intent]
-  D[Refresh and search Component Atlas]
-  E[Inspect candidates, Lab states, and change impact]
-  C{Decision gate}
+  S[Refresh Component Atlas]
+  C[Get compact reuse context]
+  E[Inspect candidate source and impact]
+  D{Decision gate}
   R[Reuse]
   P[Extend or compose]
   X[Extract and reuse]
@@ -17,56 +18,39 @@ flowchart TD
   B[Implement and validate]
   U[Refresh graph and record result]
 
-  T --> Q --> I --> D --> E --> C
-  C --> R
-  C --> P
-  C --> X
-  C --> N
-  R --> B
-  P --> B
-  X --> B
-  N --> B
+  T --> Q --> I --> S --> C --> E --> D
+  D --> R --> B
+  D --> P --> B
+  D --> X --> B
+  D --> N --> B
   B --> U
 ```
 
 ## Agent gate
 
-Use the repository's `skills/reuse-first` skill whenever a task creates or
-substantially changes frontend UI. It forces:
+Use `skills/reuse-first` whenever frontend work may create or substantially
+change a component:
 
-1. a compact requirements interrogation;
-2. multiple intent-based component searches;
-3. inspection of source API, similarity, usage, and change impact;
-4. interrogation of inferred props, semantic tokens, and missing visual states
-   in the shared Lab;
-5. one explicit `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`
-   decision;
-6. a local Markdown decision record before implementation;
-7. a post-change graph refresh and saved validation scenario.
-
-This prevents “search by filename only,” which misses private components,
-autoimports, components with domain-specific names, and near-duplicates.
+1. Clarify only requirements that can change the component decision.
+2. Refresh the repository index.
+3. Call `get_reuse_context` with one precise implementation intent.
+4. Inspect the strongest candidate's source when the compact bundle is not
+   sufficient.
+5. Run dedicated impact analysis before changing a shared API.
+6. Record exactly one `reuse`, `extend`, `compose`, `extract-and-reuse`, or
+   `create` decision.
+7. Implement, validate in the target repository, and refresh the graph.
 
 ## Useful commands
 
 ```powershell
 component-atlas scan "C:\path\to\repo"
-component-atlas search "C:\path\to\repo" "empty state with retry"
+component-atlas context "C:\path\to\repo" "empty state with retry"
 component-atlas show "C:\path\to\repo" UiEmptyState
 component-atlas similar "C:\path\to\repo" MonthlySalaryDialog
 component-atlas impact "C:\path\to\repo" UiModal
-component-atlas playground "C:\path\to\repo" UiModal
 component-atlas open "C:\path\to\repo"
 ```
-
-Save a state that both people and agents can reopen:
-
-```powershell
-component-atlas --% scenario "C:\path\to\repo" UiButton --name "Danger / disabled" --props "{\"variant\":\"danger\",\"disabled\":true,\"children\":\"Delete account\"}" --viewport 390x720
-```
-
-`--%` is PowerShell's stop-parsing marker; it preserves JSON quotes and values
-with spaces for the native Node CLI. The Lab avoids shell escaping entirely.
 
 Record a decision:
 
@@ -80,7 +64,6 @@ component-atlas decision "C:\path\to\repo" `
 
 ## Current boundary
 
-The first release accepts Jira, Confluence, Figma links, and screenshots as task
-context supplied to the coding agent. It does not yet ingest those systems into
-the Atlas database. That integration belongs after the component graph and reuse
-gate have proved useful in daily work.
+Jira, Confluence, Figma links, screenshots, and pasted text are task context
+owned by the calling agent or future `frontend-task` skill. Atlas itself indexes
+only local source code and never assumes a connector is installed.

@@ -12,21 +12,14 @@ import { scanVueProject } from "@component-atlas/adapter-vue";
 import {
   GRAPH_SCHEMA_VERSION,
   buildGraphEdges,
-  buildPlaygroundContract,
-  findComponent,
   projectId,
   slash,
   type ComponentDecision,
   type ComponentGraph,
-  type ComponentPlaygroundContract,
   type DesignToken,
   type DesignTokenKind,
   type DecisionKind,
   type Framework,
-  type PreviewScenario,
-  type PreviewDependencyEnvironment,
-  type PreviewStyleEnvironment,
-  type PreviewViewport,
 } from "@component-atlas/core";
 import { AtlasStore } from "@component-atlas/store";
 
@@ -52,30 +45,6 @@ export interface RecordDecisionInput {
   author?: string;
 }
 
-export interface SavePreviewScenarioInput {
-  rootPath: string;
-  component: string;
-  name: string;
-  id?: string;
-  props?: Record<string, unknown>;
-  tokens?: Record<string, string>;
-  viewport?: PreviewViewport;
-  background?: string;
-  notes?: string;
-}
-
-const PREVIEW_STYLE_CANDIDATES = [
-  "app/assets/css/main.css",
-  "app/assets/css/app.css",
-  "assets/css/main.css",
-  "assets/css/app.css",
-  "styles/main.css",
-  "src/app/globals.css",
-  "app/globals.css",
-  "src/styles/globals.css",
-  "styles/globals.css",
-];
-
 async function exists(filePath: string): Promise<boolean> {
   try {
     await access(filePath);
@@ -92,79 +61,6 @@ async function packageJson(rootPath: string): Promise<PackageJson> {
   } catch (error) {
     throw new Error(`Cannot read ${filePath}: ${String(error)}`);
   }
-}
-
-export async function detectPreviewStyleEnvironment(
-  inputPath: string,
-): Promise<PreviewStyleEnvironment> {
-  const rootPath = path.resolve(inputPath);
-  const entries: string[] = [];
-  const contents: string[] = [];
-  for (const candidate of PREVIEW_STYLE_CANDIDATES) {
-    const filePath = path.join(rootPath, candidate);
-    if (!(await exists(filePath))) continue;
-    entries.push(slash(path.relative(rootPath, filePath)));
-    contents.push(await readFile(filePath, "utf8"));
-  }
-
-  const manifest = await packageJson(rootPath);
-  const dependencies = {
-    ...manifest.dependencies,
-    ...manifest.devDependencies,
-  };
-  const tailwindVersion = dependencies.tailwindcss;
-  const usesTailwindImport = contents.some((content) =>
-    /@import\s+(?:url\(\s*)?["']tailwindcss["']/.test(content),
-  );
-  const pipeline =
-    usesTailwindImport || /^(\^|~|>=?)?4(?:\.|$)/.test(tailwindVersion ?? "")
-      ? "tailwind-v4"
-      : tailwindVersion
-        ? "tailwind-v3"
-        : entries.length > 0
-          ? "project-css"
-          : "none";
-
-  return {
-    pipeline,
-    entryPoints: entries,
-    sourceRegistration:
-      pipeline === "tailwind-v4"
-        ? "project-root"
-        : pipeline === "tailwind-v3"
-          ? "project-config"
-          : "not-applicable",
-  };
-}
-
-export async function detectPreviewDependencies(
-  inputPath: string,
-): Promise<PreviewDependencyEnvironment> {
-  const rootPath = path.resolve(inputPath);
-  const manifest = await packageJson(rootPath);
-  let packageManager: PreviewDependencyEnvironment["packageManager"] = "unknown";
-  if (manifest.packageManager?.startsWith("pnpm")) packageManager = "pnpm";
-  else if (manifest.packageManager?.startsWith("yarn")) packageManager = "yarn";
-  else if (manifest.packageManager?.startsWith("bun")) packageManager = "bun";
-  else if (manifest.packageManager?.startsWith("npm")) packageManager = "npm";
-  else if (await exists(path.join(rootPath, "pnpm-lock.yaml"))) packageManager = "pnpm";
-  else if (
-    (await exists(path.join(rootPath, "bun.lock"))) ||
-    (await exists(path.join(rootPath, "bun.lockb")))
-  ) {
-    packageManager = "bun";
-  } else if (await exists(path.join(rootPath, "yarn.lock"))) packageManager = "yarn";
-  else if (await exists(path.join(rootPath, "package-lock.json"))) packageManager = "npm";
-
-  const installCommand =
-    packageManager === "unknown" ? "npm install" : `${packageManager} install`;
-  return {
-    status: (await exists(path.join(rootPath, "node_modules")))
-      ? "installed"
-      : "missing",
-    packageManager,
-    installCommand,
-  };
 }
 
 function tokenKind(name: string, value: string): DesignTokenKind {
@@ -424,114 +320,6 @@ ${input.rationale}
     "utf8",
   );
   return decision;
-}
-
-export async function listPreviewScenarios(
-  inputPath: string,
-  componentSelector?: string,
-): Promise<PreviewScenario[]> {
-  const graph = await loadProjectGraph(inputPath);
-  const component = componentSelector
-    ? findComponent(graph, componentSelector)
-    : undefined;
-  if (componentSelector && !component) {
-    throw new Error(`Component "${componentSelector}" was not found.`);
-  }
-  const store = new AtlasStore(graph.project.id);
-  try {
-    return store.listScenarios(graph.project.id, component?.id);
-  } finally {
-    store.close();
-  }
-}
-
-export async function getComponentPlayground(
-  inputPath: string,
-  componentSelector: string,
-): Promise<ComponentPlaygroundContract> {
-  const graph = await loadProjectGraph(inputPath);
-  const component = findComponent(graph, componentSelector);
-  if (!component) {
-    throw new Error(`Component "${componentSelector}" was not found.`);
-  }
-  const scenarios = await listPreviewScenarios(inputPath, component.id);
-  const styling = await detectPreviewStyleEnvironment(graph.project.rootPath);
-  const dependencies = await detectPreviewDependencies(graph.project.rootPath);
-  return buildPlaygroundContract(
-    graph,
-    component,
-    scenarios,
-    styling,
-    dependencies,
-  );
-}
-
-export async function savePreviewScenario(
-  input: SavePreviewScenarioInput,
-): Promise<PreviewScenario> {
-  const rootPath = path.resolve(input.rootPath);
-  const name = input.name.trim();
-  if (!name) throw new Error("Scenario name is required.");
-  const graph = await loadProjectGraph(rootPath);
-  const component = findComponent(graph, input.component);
-  if (!component) {
-    throw new Error(`Component "${input.component}" was not found.`);
-  }
-  const viewport = input.viewport ?? { width: 768, height: 560 };
-  if (
-    !Number.isInteger(viewport.width) ||
-    !Number.isInteger(viewport.height) ||
-    viewport.width < 240 ||
-    viewport.width > 2560 ||
-    viewport.height < 200 ||
-    viewport.height > 1600
-  ) {
-    throw new Error("Viewport must be between 240x200 and 2560x1600.");
-  }
-  const now = new Date().toISOString();
-  const existing = input.id
-    ? (await listPreviewScenarios(rootPath, component.id)).find(
-        (scenario) => scenario.id === input.id,
-      )
-    : undefined;
-  const id =
-    input.id ??
-    createHash("sha256")
-      .update(`${graph.project.id}\0${component.id}\0${name}`)
-      .digest("hex")
-      .slice(0, 24);
-  const scenario: PreviewScenario = {
-    id,
-    projectId: graph.project.id,
-    componentId: component.id,
-    name,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-    props: input.props ?? {},
-    tokens: input.tokens ?? {},
-    viewport,
-    background: input.background ?? "#11161d",
-    ...(input.notes ? { notes: input.notes } : {}),
-  };
-  const store = new AtlasStore(graph.project.id);
-  try {
-    store.saveScenario(scenario);
-  } finally {
-    store.close();
-  }
-  const directory = path.join(rootPath, ".component-atlas", "scenarios");
-  await mkdir(directory, { recursive: true });
-  const fileName = `${component.effectiveName}-${name}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 80);
-  await writeFile(
-    path.join(directory, `${fileName || scenario.id}.json`),
-    `${JSON.stringify(scenario, null, 2)}\n`,
-    "utf8",
-  );
-  return scenario;
 }
 
 export function graphSummary(graph: ComponentGraph): Record<string, unknown> {

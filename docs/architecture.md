@@ -1,7 +1,7 @@
 # Architecture
 
-Component Atlas is local-first and deliberately split into analysis, storage,
-agent access, and presentation.
+Component Atlas is local-first and split into analysis, storage, agent access,
+and an optional read-only map.
 
 ```mermaid
 flowchart LR
@@ -11,11 +11,10 @@ flowchart LR
   G[Framework-neutral graph]
   S[(SQLite in local app data)]
   A[.component-atlas catalog and decisions]
-  C[CLI]
-  M[MCP server]
-  P[Vite preview runtime]
-  W[Nuxt Map and Lab viewer]
-  K[reuse-first skill]
+  C[CLI context query]
+  M[MCP context query]
+  W[Read-only relationship map]
+  K[reuse-first workflow module]
 
   R --> V
   R --> X
@@ -26,95 +25,83 @@ flowchart LR
   S --> C
   S --> M
   S --> W
-  R --> P
-  P --> W
   K --> M
   K -. fallback .-> C
 ```
 
 ## Package boundaries
 
-- `core`: graph schema, search, explainable similarity, impact traversal, and
-  framework-neutral playground contracts.
-- `adapter-vue`: Vue SFC macros, templates, Nuxt runtime names, autoimports, and
-  mirrored tests.
+- `core`: graph schema, search, compact reuse context, explainable similarity,
+  and impact traversal.
+- `adapter-vue`: Vue SFC macros, templates, Nuxt runtime names, autoimports,
+  and mirrored tests.
 - `adapter-react`: exported and file-local React components, props, JSX
   composition, styling tokens, and tests.
 - `store`: SQLite persistence using Node's built-in `node:sqlite`.
-- `runtime`: detection, indexing orchestration, design-token discovery,
-  scenarios, artifacts, and decision records.
-- `preview`: loopback-only Vite runtime that imports components from their real
-  repository and streams prop, token, background, viewport, and action state.
-  It reuses the target project's PostCSS pipeline and explicitly registers that
-  project as a Tailwind v4 source, preserving complete utility CSS without
-  changing the target repository.
+- `runtime`: framework detection, indexing orchestration, artifacts, and
+  decision records.
 - `cli`: human and script interface.
-- `mcp`: agent-facing tools over stdio.
-- `viewer`: local Nuxt application with a relationship Map and interactive
-  component Lab. It reads the database through a minimal server boundary and
-  persists only explicit preview scenarios.
+- `mcp`: Codex/Claude tools over stdio.
+- `viewer`: optional local Nuxt relationship map. It only reads the graph.
+
+## Agent context contract
+
+`buildReuseContext` is the stable integration boundary. Given a repository graph,
+an implementation intent, and a candidate limit, it returns plain JSON with:
+
+- project freshness and scope counts;
+- ranked component candidates;
+- source path, ownership, and public API;
+- direct composition and consumers;
+- explainable structural similarity;
+- direct and transitive change impact;
+- tests and concise next actions.
+
+Large implementation details such as class-token arrays and full source are
+excluded. Agents can call focused tools only when the compact bundle leaves a
+decision unresolved.
 
 ## Graph model
 
-A component node records:
+A component node records source/runtime names, scope, props, emits, slots,
+models, rendered components, imports, tests, source location, class tokens, and
+a content hash.
 
-- source and effective runtime names;
-- public, feature, or private scope;
-- props, emits, slots, and models;
-- rendered component names and imports;
-- tests, source location, class tokens, and a content hash.
+Edge types:
 
-The project graph also records CSS custom properties as semantic design tokens.
-Each component playground contract combines the indexed component, inferred
-controls, relevant tokens, renderability, and saved scenarios. The contract is
-plain JSON so the viewer, CLI, Codex, and Claude can share exactly the same
-state.
-
-The graph currently has three edge types:
-
-- `renders`: source composition and impact traversal;
-- `similar_to`: weighted structural evidence, never an automatic refactor;
+- `renders`: composition and reverse impact traversal;
+- `similar_to`: weighted structural evidence;
 - `tested_by`: component-to-test traceability.
 
-Similarity weights are intentionally deterministic:
-
-- name intent: 30%;
-- shared props: 25%;
-- rendered children: 20%;
-- static class tokens: 15%;
-- matching API shape: 10%.
-
-Every similarity result includes the shared evidence so a developer or agent can
-reject a superficially similar match.
+Similarity is deterministic: name 30%, props 25%, rendered children 20%, style
+tokens 15%, and API shape 10%.
 
 ## Storage
 
-Large and machine-oriented state is written to:
+Machine state:
 
 ```text
 %LOCALAPPDATA%\ComponentAtlas\projects\<project-id>\atlas.sqlite
 ```
 
-The analyzed repository receives only:
+Local repository artifacts:
 
 ```text
 .component-atlas/
 ├── project.json
 ├── catalog.md
-├── decisions/
-└── scenarios/
+└── decisions/
 ```
 
-The CLI setup command adds `.component-atlas/` to the Git global excludes file.
-This keeps the artifacts available to local agents without polluting project
-commits.
+Older local databases or directories may still contain saved preview scenarios.
+Atlas no longer reads, writes, or exposes them; they are left untouched so the
+product change does not silently delete user material.
 
 ## Scope semantics
 
-- `public`: shared UI, layout, or common component.
-- `feature`: exported component owned by one product feature.
-- `private`: file-local React component or explicitly local Vue component.
+- `public`: shared, reusable UI.
+- `feature`: exported component owned by one feature.
+- `private`: file-local or explicitly internal implementation detail.
 
-A private component is a discovery candidate, but never a valid cross-feature
-import. The reuse gate must choose `extract-and-reuse` when its responsibility
-should become shared.
+A private component remains discoverable but is not a valid cross-feature
+import. Choose `extract-and-reuse` when its responsibility should become shared.

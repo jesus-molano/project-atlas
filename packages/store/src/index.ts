@@ -10,7 +10,6 @@ import {
   type DesignToken,
   type Framework,
   type GraphEdge,
-  type PreviewScenario,
   type ProjectMetadata,
 } from "@component-atlas/core";
 
@@ -106,15 +105,6 @@ export class AtlasStore {
         decision TEXT NOT NULL,
         payload TEXT NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS scenarios (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        component_id TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        payload TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS scenarios_component
-        ON scenarios(project_id, component_id, updated_at);
     `);
   }
 
@@ -251,45 +241,6 @@ export class AtlasStore {
       )
       .all(projectId) as unknown as JsonRow[];
     return rows.map((row) => JSON.parse(row.payload) as ComponentDecision);
-  }
-
-  saveScenario(scenario: PreviewScenario): void {
-    this.database
-      .prepare(`
-        INSERT INTO scenarios (
-          id, project_id, component_id, updated_at, payload
-        ) VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          component_id = excluded.component_id,
-          updated_at = excluded.updated_at,
-          payload = excluded.payload
-      `)
-      .run(
-        scenario.id,
-        scenario.projectId,
-        scenario.componentId,
-        scenario.updatedAt,
-        JSON.stringify(scenario),
-      );
-  }
-
-  listScenarios(projectId: string, componentId?: string): PreviewScenario[] {
-    const rows = componentId
-      ? (this.database
-          .prepare(`
-            SELECT payload FROM scenarios
-            WHERE project_id = ? AND component_id = ?
-            ORDER BY updated_at DESC
-          `)
-          .all(projectId, componentId) as unknown as JsonRow[])
-      : (this.database
-          .prepare(`
-            SELECT payload FROM scenarios
-            WHERE project_id = ?
-            ORDER BY updated_at DESC
-          `)
-          .all(projectId) as unknown as JsonRow[]);
-    return rows.map((row) => JSON.parse(row.payload) as PreviewScenario);
   }
 
   close(): void {

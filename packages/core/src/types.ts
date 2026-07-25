@@ -9,15 +9,6 @@ export type DecisionKind =
   | "compose"
   | "extract-and-reuse"
   | "create";
-export type PreviewControlKind =
-  | "boolean"
-  | "select"
-  | "number"
-  | "date"
-  | "color"
-  | "text"
-  | "json"
-  | "action";
 export type DesignTokenKind =
   | "color"
   | "space"
@@ -72,75 +63,6 @@ export interface DesignToken {
   sourcePath: string;
 }
 
-export interface PreviewControl {
-  name: string;
-  label: string;
-  kind: PreviewControlKind;
-  type: string;
-  required: boolean;
-  options: string[];
-  presets?: PreviewControlPreset[];
-  defaultValue?: unknown;
-  description?: string;
-}
-
-export interface PreviewControlPreset {
-  label: string;
-  value: unknown;
-}
-
-export interface PreviewViewport {
-  width: number;
-  height: number;
-}
-
-export interface PreviewScenario {
-  id: string;
-  projectId: string;
-  componentId: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-  props: Record<string, unknown>;
-  tokens: Record<string, string>;
-  viewport: PreviewViewport;
-  background: string;
-  notes?: string;
-}
-
-export type PreviewStylePipeline =
-  | "tailwind-v4"
-  | "tailwind-v3"
-  | "project-css"
-  | "none"
-  | "unknown";
-
-export interface PreviewStyleEnvironment {
-  pipeline: PreviewStylePipeline;
-  entryPoints: string[];
-  sourceRegistration:
-    | "project-root"
-    | "project-config"
-    | "not-applicable";
-}
-
-export interface PreviewDependencyEnvironment {
-  status: "installed" | "missing";
-  packageManager: "pnpm" | "npm" | "yarn" | "bun" | "unknown";
-  installCommand: string;
-}
-
-export interface ComponentPlaygroundContract {
-  component: ComponentNode;
-  controls: PreviewControl[];
-  tokens: DesignToken[];
-  scenarios: PreviewScenario[];
-  styling: PreviewStyleEnvironment;
-  dependencies: PreviewDependencyEnvironment;
-  renderable: boolean;
-  renderabilityReason?: string;
-}
-
 export interface SimilarityEvidence {
   score: number;
   reasons: string[];
@@ -179,6 +101,69 @@ export interface ComponentSearchResult {
   component: ComponentNode;
   score: number;
   reasons: string[];
+}
+
+export interface ComponentContextReference {
+  id: string;
+  name: string;
+  path: string;
+  scope: ComponentVisibility;
+  owner?: string;
+}
+
+export interface ComponentContextLink {
+  id: string;
+  name: string;
+  scope: ComponentVisibility;
+}
+
+export interface ReuseContextCandidate {
+  rank: number;
+  component: ComponentContextReference;
+  match: {
+    reasons: string[];
+  };
+  api: {
+    props: ComponentProp[];
+    totalProps: number;
+    events: string[];
+    slots: string[];
+    models: string[];
+  };
+  relations: {
+    renders: ComponentContextLink[];
+    renderedBy: ComponentContextLink[];
+    similar: Array<{
+      component: ComponentContextLink;
+      score: number;
+      reasons: string[];
+    }>;
+  };
+  impact: {
+    directConsumers: number;
+    transitiveConsumers: number;
+    direct: ComponentContextLink[];
+  };
+  tests: string[];
+}
+
+export interface ReuseContextBundle {
+  schemaVersion: 1;
+  intent: string;
+  project: {
+    name: string;
+    framework: Framework;
+    scannedAt: string;
+  };
+  index: {
+    components: number;
+    shared: number;
+    feature: number;
+    internal: number;
+  };
+  scopeLegend: Record<ComponentVisibility, string>;
+  candidates: ReuseContextCandidate[];
+  nextActions: string[];
 }
 
 export interface ComponentDecision {
