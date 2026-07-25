@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildReuseContext } from "./context.js";
+import {
+  buildComponentContext,
+  buildImpactContext,
+  buildReuseContext,
+  searchComponentContext,
+} from "./context.js";
 import { buildGraphEdges } from "./graph.js";
 import {
   GRAPH_SCHEMA_VERSION,
@@ -93,6 +98,44 @@ describe("reuse context", () => {
     });
     expect(context.nextActions.join(" ")).toContain("feature ownership");
     expect(JSON.stringify(context)).not.toContain("classTokens");
+
+    const focused = buildComponentContext(graph, "MonthlySalaryDialog");
+    expect(focused.component.name).toBe("MonthlySalaryDialog");
+    expect(focused.relations.renders[0]?.name).toBe("UiModal");
+    expect(focused.impact.transitiveConsumers).toBe(1);
+    expect(JSON.stringify(focused)).not.toContain("classTokens");
+
+    const search = searchComponentContext(graph, "monthly salary dialog", 3);
+    expect(search[0]?.component).toMatchObject({
+      name: "MonthlySalaryDialog",
+      path: "components/MonthlySalaryDialog.vue",
+    });
+    expect(JSON.stringify(search)).not.toContain("renderedNames");
+
+    const impact = buildImpactContext(graph, "MonthlySalaryDialog");
+    expect(impact).toMatchObject({
+      risk: "contained",
+      directConsumers: 1,
+      direct: [expect.objectContaining({ name: "SalaryPage" })],
+    });
+
+    const consumers = Array.from({ length: 25 }, (_, index) =>
+      component(`ModalConsumer${index}`, "feature", [], ["UiModal"]),
+    );
+    const crowdedComponents = [modal, ...consumers];
+    const crowdedGraph: ComponentGraph = {
+      ...graph,
+      components: crowdedComponents,
+      edges: buildGraphEdges(crowdedComponents),
+    };
+    const crowdedImpact = buildImpactContext(crowdedGraph, "UiModal");
+    expect(crowdedImpact).toMatchObject({
+      risk: "high",
+      directConsumers: 25,
+      transitiveConsumers: 25,
+    });
+    expect(crowdedImpact.direct).toHaveLength(10);
+    expect(crowdedImpact.transitive).toHaveLength(20);
   });
 
   it("requires a concrete intent", () => {

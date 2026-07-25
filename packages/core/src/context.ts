@@ -1,17 +1,25 @@
 import {
   componentImpact,
+  findComponent,
   searchComponents,
   similarComponents,
 } from "./graph.js";
 import type {
+  CompactComponentSearchResult,
+  ComponentContextBundle,
+  ComponentImpactContext,
   ComponentContextLink,
   ComponentContextReference,
   ComponentGraph,
   ComponentNode,
+  ComponentSimilarityContext,
+  ReuseContextCandidate,
   ReuseContextBundle,
 } from "./types.js";
 
-function reference(component: ComponentNode): ComponentContextReference {
+export function componentContextReference(
+  component: ComponentNode,
+): ComponentContextReference {
   return {
     id: component.id,
     name: component.effectiveName,
@@ -21,7 +29,9 @@ function reference(component: ComponentNode): ComponentContextReference {
   };
 }
 
-function link(component: ComponentNode): ComponentContextLink {
+export function componentContextLink(
+  component: ComponentNode,
+): ComponentContextLink {
   return {
     id: component.id,
     name: component.effectiveName,
@@ -47,8 +57,141 @@ function relatedComponents(
   return ids
     .map((id) => byId.get(id))
     .filter((component): component is ComponentNode => Boolean(component))
-    .map(link)
+    .map(componentContextLink)
     .slice(0, 5);
+}
+
+function boundedLimit(value: number, fallback: number, maximum: number): number {
+  return Number.isInteger(value) && value > 0
+    ? Math.min(value, maximum)
+    : fallback;
+}
+
+function candidateContext(
+  graph: ComponentGraph,
+  component: ComponentNode,
+  rank: number,
+  reasons: string[],
+): ReuseContextCandidate {
+  const impact = componentImpact(graph, component.id);
+  return {
+    rank,
+    component: componentContextReference(component),
+    match: { reasons },
+    api: {
+      props: component.props.slice(0, 8),
+      totalProps: component.props.length,
+      events: component.events.map((event) => event.name).slice(0, 8),
+      slots: component.slots.slice(0, 8),
+      models: component.models.slice(0, 8),
+    },
+    relations: {
+      renders: relatedComponents(graph, component.id, "renders"),
+      renderedBy: relatedComponents(graph, component.id, "rendered-by"),
+      similar: similarComponents(graph, component.id)
+        .slice(0, 2)
+        .map((candidate) => ({
+          component: componentContextLink(candidate.component),
+          score: candidate.evidence.score,
+          reasons: candidate.evidence.reasons.slice(0, 2),
+        })),
+    },
+    impact: {
+      directConsumers: impact.directConsumers.length,
+      transitiveConsumers: impact.transitiveConsumers.length,
+      direct: impact.directConsumers.map(componentContextLink).slice(0, 5),
+    },
+    tests: component.testPaths.slice(0, 3),
+  };
+}
+
+export function searchComponentContext(
+  graph: ComponentGraph,
+  query: string,
+  limit = 10,
+): CompactComponentSearchResult[] {
+  return searchComponents(graph, query, boundedLimit(limit, 10, 50)).map((result) => ({
+    component: componentContextReference(result.component),
+    score: result.score,
+    reasons: result.reasons,
+  }));
+}
+
+export function buildComponentContext(
+  graph: ComponentGraph,
+  selector: string,
+): ComponentContextBundle {
+  const component = findComponent(graph, selector);
+  if (!component) {
+    throw new Error(`Component "${selector}" was not found in ${graph.project.name}.`);
+  }
+  const candidate = candidateContext(graph, component, 1, ["exact component"]);
+  const guidance = [
+    ...(component.visibility === "private"
+      ? ["Do not reuse this internal component across feature boundaries."]
+      : []),
+    ...(component.visibility === "feature"
+      ? ["Confirm feature ownership before cross-feature reuse."]
+      : []),
+    ...(candidate.impact.transitiveConsumers > 2
+      ? ["Analyze change impact before modifying its public API."]
+      : []),
+  ];
+  return {
+    schemaVersion: 1,
+    project: {
+      name: graph.project.name,
+      framework: graph.project.framework,
+      scannedAt: graph.project.scannedAt,
+    },
+    component: candidate.component,
+    api: candidate.api,
+    relations: candidate.relations,
+    impact: candidate.impact,
+    tests: candidate.tests,
+    guidance,
+  };
+}
+
+export function buildImpactContext(
+  graph: ComponentGraph,
+  selector: string,
+): ComponentImpactContext {
+  const component = findComponent(graph, selector);
+  if (!component) {
+    throw new Error(`Component "${selector}" was not found in ${graph.project.name}.`);
+  }
+  const impact = componentImpact(graph, component.id);
+  const total = impact.transitiveConsumers.length;
+  return {
+    component: componentContextReference(component),
+    risk: total >= 8 ? "high" : total >= 3 ? "moderate" : "contained",
+    directConsumers: impact.directConsumers.length,
+    transitiveConsumers: total,
+    direct: impact.directConsumers.map(componentContextLink).slice(0, 10),
+    transitive: impact.transitiveConsumers.map(componentContextLink).slice(0, 20),
+  };
+}
+
+export function buildSimilarityContext(
+  graph: ComponentGraph,
+  selector: string,
+  limit = 5,
+): ComponentSimilarityContext {
+  const component = findComponent(graph, selector);
+  if (!component) {
+    throw new Error(`Component "${selector}" was not found in ${graph.project.name}.`);
+  }
+  return {
+    component: componentContextReference(component),
+    candidates: similarComponents(graph, component.id)
+      .slice(0, boundedLimit(limit, 5, 20))
+      .map((candidate) => ({
+        component: componentContextReference(candidate.component),
+        score: candidate.evidence.score,
+        reasons: candidate.evidence.reasons.slice(0, 3),
+      })),
+  };
 }
 
 export function buildReuseContext(
@@ -60,43 +203,10 @@ export function buildReuseContext(
   if (!normalizedIntent) {
     throw new Error("Reuse context requires a non-empty implementation intent.");
   }
-  const candidateLimit =
-    Number.isInteger(limit) && limit > 0 ? Math.min(limit, 5) : 3;
+  const candidateLimit = boundedLimit(limit, 3, 5);
   const candidates = searchComponents(graph, normalizedIntent, candidateLimit).map(
-    (result, index) => {
-      const impact = componentImpact(graph, result.component.id);
-      return {
-        rank: index + 1,
-        component: reference(result.component),
-        match: {
-          reasons: result.reasons,
-        },
-        api: {
-          props: result.component.props.slice(0, 8),
-          totalProps: result.component.props.length,
-          events: result.component.events.map((event) => event.name).slice(0, 8),
-          slots: result.component.slots.slice(0, 8),
-          models: result.component.models.slice(0, 8),
-        },
-        relations: {
-          renders: relatedComponents(graph, result.component.id, "renders"),
-          renderedBy: relatedComponents(graph, result.component.id, "rendered-by"),
-          similar: similarComponents(graph, result.component.id)
-            .slice(0, 2)
-            .map((candidate) => ({
-              component: link(candidate.component),
-              score: candidate.evidence.score,
-              reasons: candidate.evidence.reasons.slice(0, 2),
-            })),
-        },
-        impact: {
-          directConsumers: impact.directConsumers.length,
-          transitiveConsumers: impact.transitiveConsumers.length,
-          direct: impact.directConsumers.map(link).slice(0, 5),
-        },
-        tests: result.component.testPaths.slice(0, 3),
-      };
-    },
+    (result, index) =>
+      candidateContext(graph, result.component, index + 1, result.reasons),
   );
 
   const top = candidates[0];

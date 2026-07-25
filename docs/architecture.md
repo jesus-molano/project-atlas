@@ -59,7 +59,14 @@ an implementation intent, and a candidate limit, it returns plain JSON with:
 
 Large implementation details such as class-token arrays and full source are
 excluded. Agents can call focused tools only when the compact bundle leaves a
-decision unresolved.
+decision unresolved. Focused component, search, similarity, usage, and impact
+queries follow the same compact-by-default rule. Full indexed nodes are
+available only through an explicit CLI `--raw` or MCP `raw: true` diagnostic
+option.
+
+MCP returns every result twice in one protocol response: formatted JSON text
+for broad client compatibility and native `structuredContent` for clients that
+can consume the result without reparsing text.
 
 ## Graph model
 

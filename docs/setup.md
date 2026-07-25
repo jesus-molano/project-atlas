@@ -53,7 +53,10 @@ Use `skills/reuse-first/SKILL.md` as a Claude command or project instruction.
 - `record_component_decision`
 
 All tools take an absolute `root_path`. Read operations use the existing local
-graph and scan only when none exists.
+graph and scan only when none exists. Query tools return compact JSON both as
+MCP text content and native `structuredContent`. Set `raw: true` only when
+diagnosing the index itself; normal agent workflows should keep the compact
+default.
 
 ## Optional relationship map
 

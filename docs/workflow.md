@@ -52,6 +52,9 @@ component-atlas impact "C:\path\to\repo" UiModal
 component-atlas open "C:\path\to\repo"
 ```
 
+These queries return compact agent context. Add `--raw` only when debugging an
+incorrect index result, not while deciding whether to reuse a component.
+
 Record a decision:
 
 ```powershell

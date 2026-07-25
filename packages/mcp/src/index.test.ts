@@ -23,6 +23,24 @@ describe("Component Atlas MCP surface", () => {
       expect(names).toContain("scan_repository");
       expect(names).not.toContain("get_component_playground");
       expect(names).not.toContain("save_component_scenario");
+      expect(
+        names.some((name) => /preview|scenario|playground/i.test(name)),
+      ).toBe(false);
+      for (const name of [
+        "search_components",
+        "get_component",
+        "find_similar_components",
+        "list_component_usages",
+        "analyze_prop_change_impact",
+      ]) {
+        expect(
+          tools.tools.find((tool) => tool.name === name)?.inputSchema,
+        ).toMatchObject({
+          properties: {
+            raw: { type: "boolean" },
+          },
+        });
+      }
     } finally {
       await client.close();
       await server.close();

@@ -37,6 +37,11 @@ pnpm atlas open /path/to/project
 scope, source path, public API, composition, consumers, similarity evidence,
 tests, and change impact.
 
+Focused `search`, `show`, `similar`, and `impact` queries are also compact by
+default. Their `--raw` option is reserved for indexer diagnostics because it can
+include large style-token and source-analysis payloads. MCP follows the same
+contract with `raw: true`.
+
 The scanner writes a small human-readable catalog and decision records under
 `.component-atlas/` in the analyzed repository. The database stays outside the
 repository under the operating system's local application-data directory.

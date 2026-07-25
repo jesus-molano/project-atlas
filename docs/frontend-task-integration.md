@@ -15,6 +15,9 @@ local-code context engine.
    change remains ambiguous.
 7. Record the component decision, implement, validate, and rescan.
 
+Focused queries remain compact by default. The orchestrator should never request
+`raw` Atlas nodes unless it is explicitly diagnosing index extraction.
+
 The skill must feature-detect sources. Missing Jira, Figma, or Confluence access
 must not block repository analysis, and Atlas must never invent external context.
 

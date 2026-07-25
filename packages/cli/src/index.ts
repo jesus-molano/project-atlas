@@ -11,9 +11,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildComponentContext,
+  buildImpactContext,
   buildReuseContext,
+  buildSimilarityContext,
   componentImpact,
   findComponent,
+  searchComponentContext,
   searchComponents,
   similarComponents,
   type DecisionKind,
@@ -58,6 +62,14 @@ function printJson(value: unknown): void {
 function printComponent(component: ReturnType<typeof findComponent>): void {
   if (!component) return;
   printJson(component);
+}
+
+function parseLimit(value: string, maximum: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`Limit must be a positive integer, received "${value}".`);
+  }
+  return Math.min(parsed, maximum);
 }
 
 async function configureGlobalIgnore(): Promise<string> {
@@ -179,11 +191,23 @@ export function createProgram(): Command {
     .argument("<path>", "repository root")
     .argument("<query>", "component intent, name, prop, or path")
     .option("-l, --limit <number>", "maximum results", "10")
-    .description("Find reuse candidates.")
-    .action(async (rootPath: string, query: string, options: { limit: string }) => {
-      const graph = await loadProjectGraph(rootPath);
-      printJson(searchComponents(graph, query, Number(options.limit)));
-    });
+    .option("--raw", "include full indexed nodes")
+    .description("Find compact reuse candidates.")
+    .action(
+      async (
+        rootPath: string,
+        query: string,
+        options: { limit: string; raw?: boolean },
+      ) => {
+        const graph = await loadProjectGraph(rootPath);
+        const limit = parseLimit(options.limit, 50);
+        printJson(
+          options.raw
+            ? searchComponents(graph, query, limit)
+            : searchComponentContext(graph, query, limit),
+        );
+      },
+    );
 
   program
     .command("context")
@@ -193,40 +217,67 @@ export function createProgram(): Command {
     .description("Return compact reuse context for a coding agent.")
     .action(async (rootPath: string, intent: string, options: { limit: string }) => {
       const graph = await loadProjectGraph(rootPath);
-      printJson(buildReuseContext(graph, intent, Number(options.limit)));
+      printJson(buildReuseContext(graph, intent, parseLimit(options.limit, 5)));
     });
 
   program
     .command("show")
     .argument("<path>", "repository root")
     .argument("<component>", "id, name, runtime name, or source path")
-    .description("Show one indexed component.")
-    .action(async (rootPath: string, selector: string) => {
-      const graph = await loadProjectGraph(rootPath);
-      printComponent(requireFound(findComponent(graph, selector), selector));
-    });
+    .option("--raw", "include the full indexed node")
+    .description("Show compact context for one component.")
+    .action(
+      async (rootPath: string, selector: string, options: { raw?: boolean }) => {
+        const graph = await loadProjectGraph(rootPath);
+        if (options.raw) {
+          printComponent(requireFound(findComponent(graph, selector), selector));
+          return;
+        }
+        printJson(buildComponentContext(graph, selector));
+      },
+    );
 
   program
     .command("similar")
     .argument("<path>", "repository root")
     .argument("<component>", "id, name, runtime name, or source path")
-    .description("Find explainably similar components.")
-    .action(async (rootPath: string, selector: string) => {
-      const graph = await loadProjectGraph(rootPath);
-      const component = requireFound(findComponent(graph, selector), selector);
-      printJson(similarComponents(graph, component.id));
-    });
+    .option("-l, --limit <number>", "maximum candidates", "5")
+    .option("--raw", "include full indexed nodes and evidence")
+    .description("Find compact, explainably similar components.")
+    .action(
+      async (
+        rootPath: string,
+        selector: string,
+        options: { limit: string; raw?: boolean },
+      ) => {
+        const graph = await loadProjectGraph(rootPath);
+        const limit = parseLimit(options.limit, 20);
+        if (options.raw) {
+          const component = requireFound(findComponent(graph, selector), selector);
+          printJson(similarComponents(graph, component.id).slice(0, limit));
+          return;
+        }
+        printJson(buildSimilarityContext(graph, selector, limit));
+      },
+    );
 
   program
     .command("impact")
     .argument("<path>", "repository root")
     .argument("<component>", "id, name, runtime name, or source path")
-    .description("List direct and transitive consumers.")
-    .action(async (rootPath: string, selector: string) => {
-      const graph = await loadProjectGraph(rootPath);
-      const component = requireFound(findComponent(graph, selector), selector);
-      printJson(componentImpact(graph, component.id));
-    });
+    .option("--raw", "include full indexed consumer nodes")
+    .description("Summarize direct and transitive consumers.")
+    .action(
+      async (rootPath: string, selector: string, options: { raw?: boolean }) => {
+        const graph = await loadProjectGraph(rootPath);
+        if (options.raw) {
+          const component = requireFound(findComponent(graph, selector), selector);
+          printJson(componentImpact(graph, component.id));
+          return;
+        }
+        printJson(buildImpactContext(graph, selector));
+      },
+    );
 
   program
     .command("decision")

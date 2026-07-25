@@ -117,6 +117,12 @@ export interface ComponentContextLink {
   scope: ComponentVisibility;
 }
 
+export interface CompactComponentSearchResult {
+  component: ComponentContextReference;
+  score: number;
+  reasons: string[];
+}
+
 export interface ReuseContextCandidate {
   rank: number;
   component: ComponentContextReference;
@@ -164,6 +170,39 @@ export interface ReuseContextBundle {
   scopeLegend: Record<ComponentVisibility, string>;
   candidates: ReuseContextCandidate[];
   nextActions: string[];
+}
+
+export interface ComponentContextBundle {
+  schemaVersion: 1;
+  project: {
+    name: string;
+    framework: Framework;
+    scannedAt: string;
+  };
+  component: ComponentContextReference;
+  api: ReuseContextCandidate["api"];
+  relations: ReuseContextCandidate["relations"];
+  impact: ReuseContextCandidate["impact"];
+  tests: string[];
+  guidance: string[];
+}
+
+export interface ComponentImpactContext {
+  component: ComponentContextReference;
+  risk: "contained" | "moderate" | "high";
+  directConsumers: number;
+  transitiveConsumers: number;
+  direct: ComponentContextLink[];
+  transitive: ComponentContextLink[];
+}
+
+export interface ComponentSimilarityContext {
+  component: ComponentContextReference;
+  candidates: Array<{
+    component: ComponentContextReference;
+    score: number;
+    reasons: string[];
+  }>;
 }
 
 export interface ComponentDecision {

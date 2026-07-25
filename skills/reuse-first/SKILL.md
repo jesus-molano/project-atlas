@@ -21,7 +21,8 @@ create a component until the discovery and decision gate is complete.
    consumers, similarity evidence, tests, and impact in that bundle.
 6. Use `get_component`, `find_similar_components`, or
    `list_component_usages` only when the compact bundle leaves a concrete
-   ambiguity.
+   ambiguity. Keep their compact default; request `raw` only to diagnose an
+   incorrect index.
 7. Call `analyze_prop_change_impact` before extending a shared API.
 8. Choose exactly one decision:
    - `reuse`: use the existing API unchanged.

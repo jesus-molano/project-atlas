@@ -13,3 +13,5 @@
 
 Component selectors accept an Atlas ID, source path, source name, or effective
 runtime name. Use absolute repository paths and quote CLI paths with spaces.
+Focused queries are compact by default. CLI `--raw` and MCP `raw: true` expose
+full index data and are intended only for diagnostics.
