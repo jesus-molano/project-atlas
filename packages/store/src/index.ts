@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
+  type ActionResolution,
   GRAPH_SCHEMA_VERSION,
   type AgentRunAuditRecord,
   type ComponentDecision,
@@ -230,6 +231,18 @@ export class AtlasStore {
       );
       CREATE INDEX IF NOT EXISTS agent_run_audits_project
         ON agent_run_audits(project_id, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS action_resolutions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        checkout_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        resolved_at TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        UNIQUE(project_id, checkout_id, idempotency_key)
+      );
+      CREATE INDEX IF NOT EXISTS action_resolutions_scope
+        ON action_resolutions(project_id, checkout_id, item_id, resolved_at DESC);
     `);
   }
 
@@ -575,6 +588,69 @@ export class AtlasStore {
         .prepare("DELETE FROM agent_run_audits WHERE project_id = ?")
         .run(projectId).changes,
     );
+  }
+
+  saveActionResolution(resolution: ActionResolution): ActionResolution {
+    return this.saveActionResolutions([resolution])[0]!;
+  }
+
+  saveActionResolutions(resolutions: ActionResolution[]): ActionResolution[] {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const select = this.database.prepare(`
+        SELECT payload FROM action_resolutions
+        WHERE project_id = ? AND checkout_id = ? AND idempotency_key = ?
+      `);
+      const insert = this.database.prepare(`
+        INSERT INTO action_resolutions (
+          id, project_id, checkout_id, item_id, resolved_at,
+          idempotency_key, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const saved = resolutions.map((resolution) => {
+        const existing = select.get(
+          resolution.projectId,
+          resolution.checkoutId,
+          resolution.idempotencyKey,
+        ) as JsonRow | undefined;
+        if (existing) return JSON.parse(existing.payload) as ActionResolution;
+        insert.run(
+          resolution.id,
+          resolution.projectId,
+          resolution.checkoutId,
+          resolution.itemId,
+          resolution.resolvedAt,
+          resolution.idempotencyKey,
+          JSON.stringify(resolution),
+        );
+        return resolution;
+      });
+      this.database.exec("COMMIT");
+      return saved;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listActionResolutions(
+    projectId: string,
+    checkoutId: string,
+    limit = 500,
+  ): ActionResolution[] {
+    const rows = this.database
+      .prepare(`
+        SELECT payload FROM action_resolutions
+        WHERE project_id = ? AND checkout_id = ?
+        ORDER BY resolved_at DESC
+        LIMIT ?
+      `)
+      .all(
+        projectId,
+        checkoutId,
+        Math.max(1, Math.min(limit, 1_000)),
+      ) as unknown as JsonRow[];
+    return rows.map((row) => JSON.parse(row.payload) as ActionResolution);
   }
 
   saveDesignIndex(projectId: string, index: DesignFileIndex): void {

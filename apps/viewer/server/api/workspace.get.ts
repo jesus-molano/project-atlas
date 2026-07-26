@@ -10,6 +10,10 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { agentAdapterStatus } from "../utils/agent-runs";
+import {
+  buildActionCenterSnapshot,
+  listActionResolutionsForSnapshot,
+} from "../utils/action-center";
 import { loadProjectAtlasSnapshot, projectGitState } from "../utils/project";
 
 function uniqueContradictions(items: MemoryItem[]) {
@@ -203,6 +207,13 @@ export default defineEventHandler(async () => {
     (decision, index, items) =>
       items.findIndex((candidate) => candidate.id === decision.id) === index,
   );
+  const actionResolutions = listActionResolutionsForSnapshot(snapshot);
+  const actionCenter = buildActionCenterSnapshot(
+    snapshot,
+    capabilities,
+    agentRuns,
+    actionResolutions,
+  );
   return {
     schemaVersion: 1,
     generatedAt: snapshot.capturedAt,
@@ -217,6 +228,8 @@ export default defineEventHandler(async () => {
     agent,
     evaluations,
     agentRuns,
+    actionResolutions: actionResolutions.slice(0, 12),
+    actionCenterCounts: actionCenter.counts,
     git: projectGitState(),
     localHealth: localArtifactHealth(snapshot.graph.project.rootPath),
     risks: projectRisks(snapshot),
