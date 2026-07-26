@@ -5,7 +5,7 @@ Validated locally on 2026-07-26 without corporate data:
 - relative documentation links and the five-minute installation command;
 - production build: Nuxt 4.5.0, Vite 8.1.5, Vue 3.5.40;
 - TypeScript build/typecheck for every package and the viewer;
-- 29 tests across 11 files covering Code Atlas, Design Atlas, Project Memory,
+- 38 tests across 17 files covering Code Atlas, Design Atlas, Project Memory,
   runtime, MCP, and the `frontend-task` source precheck;
 - cold start and idempotent Markdown rebuild;
 - active versus superseded knowledge;
@@ -28,7 +28,7 @@ Validated locally on 2026-07-26 without corporate data:
 - MCP in-memory client/server smoke with compact `structuredContent`;
 - CLI end-to-end smoke for index, orient, search, task, gate, propose, apply,
   and outcome;
-- `frontend-task` metadata/reference validation and 11 capability-routing cases:
+- `frontend-task` metadata/reference validation and 14 capability-routing cases:
   repository-only, Jira, Figma, all sources, absent plugins, absent Atlas,
   design-required, non-visual, native selector, and chat fallback;
 - portable installer PowerShell parse, dry run, isolated link/copy, and

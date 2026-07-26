@@ -36,9 +36,55 @@ function findingId(code: DesignFinding["code"], nodeIds: string[] = []): string 
 }
 
 function devStatusEvidence(node: DesignIndexNode): string {
-  return node.devStatusAvailability === "source-unavailable"
+  return node.devStatusProvenance === "user-confirmed"
+    ? `${node.devStatus} (user-confirmed)`
+    : node.devStatusAvailability === "source-unavailable"
     ? "status unavailable from source"
     : node.devStatus;
+}
+
+const GROUPED_TITLES: Partial<Record<DesignFinding["code"], string>> = {
+  "duplicate-design-pattern": "Possible duplicate design patterns",
+  "inconsistent-variants": "Related variants have inconsistent dev status",
+  "ready-without-states": "Ready for dev frames may omit relevant states",
+  "naming-inconsistency": "Design naming may be inconsistent",
+  "responsive-coverage-gap": "Small-breakpoint behavior is not evidenced",
+};
+
+export function compactDesignFindings(
+  findings: DesignFinding[],
+  maxFindings = 12,
+  maxExamples = 3,
+): DesignFinding[] {
+  const groups = new Map<string, DesignFinding[]>();
+  for (const finding of findings) {
+    const key = `${finding.level}:${finding.code}:${finding.recommendation}`;
+    const group = groups.get(key) ?? [];
+    group.push(finding);
+    groups.set(key, group);
+  }
+  return [...groups.values()].slice(0, maxFindings).map((group) => {
+    const first = group[0]!;
+    const nodeIds = [...new Set(group.flatMap((item) => item.nodeIds ?? []))];
+    const evidence = [...new Set(group.flatMap((item) => item.evidence))];
+    const occurrences = group.reduce(
+      (total, item) => total + (item.occurrences ?? 1),
+      0,
+    );
+    return {
+      ...first,
+      id: findingId(first.code, nodeIds.slice(0, 8)),
+      title:
+        group.length > 1
+          ? (GROUPED_TITLES[first.code] ?? first.title)
+          : first.title,
+      evidence: evidence.slice(0, maxExamples),
+      ...(nodeIds.length ? { nodeIds: nodeIds.slice(0, 8) } : {}),
+      occurrences,
+      truncatedExamples:
+        evidence.length > maxExamples || nodeIds.length > 8 || group.length > 1,
+    };
+  });
 }
 
 export function decisionGate(findings: DesignFinding[]): DesignDecisionGate {
@@ -267,5 +313,5 @@ export function designIndexFindings(index: DesignFileIndex): DesignFinding[] {
         "Keep ranking by semantic structure and Atlas evidence, but verify the selected node through a source that exposes devStatus or by direct Figma selection. Do not interpret unavailable as absent.",
     });
   }
-  return findings;
+  return compactDesignFindings(findings);
 }

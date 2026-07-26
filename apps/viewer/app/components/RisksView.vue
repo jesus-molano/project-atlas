@@ -8,7 +8,16 @@ interface Risk {
   recommendation: string;
   memoryIds: string[];
 }
-defineProps<{ risks: Risk[] }>();
+interface CurrentDecision {
+  id: string;
+  type: string;
+  title: string;
+  summary: string;
+  status: string;
+  provenance: "code-atlas" | "project-memory";
+  updatedAt: string;
+}
+defineProps<{ risks: Risk[]; decisions: CurrentDecision[] }>();
 const filter = ref<"open" | "all" | "resolved">("open");
 </script>
 
@@ -25,6 +34,22 @@ const filter = ref<"open" | "all" | "resolved">("open");
         <button :class="{ active: filter === 'all' }" @click="filter = 'all'">All</button>
       </div>
     </header>
+    <section v-if="decisions.length" class="risk-ledger" aria-label="Current decisions">
+      <article v-for="decision in decisions" :key="decision.id" class="risk-record resolved">
+        <div class="risk-axis">
+          <span />
+          <small>{{ decision.status }}</small>
+        </div>
+        <div class="risk-copy">
+          <span class="eyebrow">{{ decision.provenance }} · {{ decision.type }}</span>
+          <h3>{{ decision.title }}</h3>
+          <p>{{ decision.summary }}</p>
+        </div>
+        <div class="risk-links">
+          <span>{{ decision.id }}</span>
+        </div>
+      </article>
+    </section>
     <div
       v-if="!risks.some((risk) => filter === 'all' || (filter === 'open' ? risk.level !== 'resolved' : risk.level === 'resolved'))"
       class="section-empty compact"

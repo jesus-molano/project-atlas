@@ -33,29 +33,38 @@ interface ProjectRisk {
 interface WorkspaceSnapshot {
   schemaVersion: 1;
   generatedAt: string;
+  fingerprint: string;
+  graph: ComponentGraph;
+  overview: ProjectAtlasEnvelope<ProjectOverviewViewModel>;
   designIndexes: DesignFileIndex[];
   memoryItems: MemoryItem[];
   memoryProposals: MemoryProposal[];
+  currentDecisions: Array<{
+    id: string;
+    type: MemoryItem["type"] | "component-reuse";
+    title: string;
+    summary: string;
+    status: string;
+    provenance: "code-atlas" | "project-memory";
+    updatedAt: string;
+  }>;
+  localHealth: Array<{
+    id: string;
+    level: "warning";
+    title: string;
+    detail: string;
+    recommendation: string;
+  }>;
   risks: ProjectRisk[];
 }
 
-const {
-  data: overview,
-  error: overviewError,
-  refresh: refreshOverview,
-} = await useFetch<ProjectAtlasEnvelope<ProjectOverviewViewModel>>(
-  "/api/overview",
-);
-const {
-  data: graph,
-  error: graphError,
-  refresh: refreshGraph,
-} = await useFetch<ComponentGraph>("/api/graph");
 const {
   data: workspace,
   error: workspaceError,
   refresh: refreshWorkspace,
 } = await useFetch<WorkspaceSnapshot>("/api/workspace");
+const overview = computed(() => workspace.value?.overview);
+const graph = computed(() => workspace.value?.graph);
 
 const activeSection = ref<AvailableSection>("overview");
 const selectedComponentId = ref<string>();
@@ -107,7 +116,9 @@ const navigation = computed(() => [
     id: "risks",
     code: "DR",
     label: "Decisions & risks",
-    count: overview.value?.data.counts.warnings ?? 0,
+    count:
+      (overview.value?.data.counts.warnings ?? 0) +
+      (overview.value?.data.counts.currentDecisions ?? 0),
     available: true,
   },
   {
@@ -137,9 +148,7 @@ const navigation = computed(() => [
   },
 ]);
 
-const fatalError = computed(
-  () => overviewError.value ?? graphError.value ?? workspaceError.value,
-);
+const fatalError = computed(() => workspaceError.value);
 
 const statusSummary = computed(() => {
   const sources = overview.value?.data.sources ?? [];
@@ -243,7 +252,7 @@ function sourceLabel(source: string): string {
 }
 
 async function refreshSnapshot(): Promise<void> {
-  await Promise.all([refreshOverview(), refreshGraph(), refreshWorkspace()]);
+  await refreshWorkspace();
 }
 
 function handleKeyboard(event: KeyboardEvent): void {
@@ -290,11 +299,21 @@ onBeforeUnmount(() => {
     <template v-else-if="overview && graph && workspace">
       <aside class="atlas-rail">
         <div class="atlas-brand">
-          <div class="atlas-mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
+          <svg
+            class="atlas-mark"
+            viewBox="0 0 31 31"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <g class="atlas-mark-edges">
+              <line x1="5.5" y1="6" x2="25.5" y2="12" />
+              <line x1="25.5" y1="12" x2="18" y2="25.5" />
+              <line x1="18" y1="25.5" x2="5.5" y2="6" />
+            </g>
+            <circle class="atlas-mark-code" cx="5.5" cy="6" r="4" />
+            <circle class="atlas-mark-design" cx="25.5" cy="12" r="4" />
+            <circle class="atlas-mark-memory" cx="18" cy="25.5" r="4" />
+          </svg>
           <div class="brand-copy">
             <strong>Project Atlas</strong>
             <span>local evidence plane</span>
@@ -603,11 +622,15 @@ onBeforeUnmount(() => {
               <h1>Contradictions and fragile evidence</h1>
             </div>
             <div class="compact-meta">
+              <span>snapshot {{ workspace.fingerprint.slice(0, 8) }}</span>
               <span>{{ workspace.risks.filter((item) => item.level !== "resolved").length }} open</span>
               <span>{{ workspace.risks.filter((item) => item.level === "resolved").length }} resolved</span>
             </div>
           </header>
-          <LazyRisksView :risks="workspace.risks" />
+          <LazyRisksView
+            :risks="workspace.risks"
+            :decisions="workspace.currentDecisions"
+          />
         </section>
 
         <section v-else-if="activeSection === 'task'" class="section-view">
@@ -659,6 +682,7 @@ onBeforeUnmount(() => {
           <LazyHealthView
             :sources="overview.data.sources"
             :root-path="overview.data.project.rootPath"
+            :local-health="workspace.localHealth"
             @refreshed="refreshSnapshot"
           />
         </section>

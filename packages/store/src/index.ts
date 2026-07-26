@@ -41,6 +41,14 @@ interface MemoryCountRow {
   count: number;
 }
 
+export interface AtlasStoredSnapshot {
+  graph: ComponentGraph | undefined;
+  designIndexes: DesignFileIndex[];
+  memoryItems: MemoryItem[];
+  memoryProposals: MemoryProposal[];
+  componentDecisions: ComponentDecision[];
+}
+
 function applicationDataRoot(): string {
   if (process.env.COMPONENT_ATLAS_HOME) {
     return path.resolve(process.env.COMPONENT_ATLAS_HOME);
@@ -315,6 +323,24 @@ export class AtlasStore {
       )
       .all(projectId) as unknown as JsonRow[];
     return rows.map((row) => JSON.parse(row.payload) as ComponentDecision);
+  }
+
+  readProjectSnapshot(projectId: string): AtlasStoredSnapshot {
+    this.database.exec("BEGIN");
+    try {
+      const snapshot = {
+        graph: this.loadGraph(projectId),
+        designIndexes: this.listDesignIndexes(projectId),
+        memoryItems: this.listMemoryItems(projectId),
+        memoryProposals: this.listMemoryProposals(projectId),
+        componentDecisions: this.listDecisions(projectId),
+      };
+      this.database.exec("COMMIT");
+      return snapshot;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   saveDesignIndex(projectId: string, index: DesignFileIndex): void {

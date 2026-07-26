@@ -97,62 +97,35 @@ kbd,
 .atlas-mark {
   width: 31px;
   height: 31px;
-  position: relative;
+  display: block;
   flex: 0 0 auto;
+  overflow: visible;
 }
 
-.atlas-mark::before,
-.atlas-mark::after {
-  content: "";
-  position: absolute;
-  background: var(--line-strong);
-  transform-origin: left center;
+.atlas-mark-edges {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-linecap: round;
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
 }
 
-.atlas-mark::before {
-  width: 19px;
-  height: 1px;
-  top: 9px;
-  left: 6px;
-  transform: rotate(23deg);
+.atlas-mark circle {
+  stroke: #0b0f15;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 
-.atlas-mark::after {
-  width: 17px;
-  height: 1px;
-  top: 19px;
-  left: 7px;
-  transform: rotate(-34deg);
+.atlas-mark-code {
+  fill: var(--code);
 }
 
-.atlas-mark span {
-  width: 7px;
-  height: 7px;
-  position: absolute;
-  z-index: 1;
-  border: 1px solid #0b0f15;
-  border-radius: 50%;
+.atlas-mark-design {
+  fill: var(--design);
 }
 
-.atlas-mark span:first-child {
-  top: 3px;
-  left: 2px;
-  background: var(--code);
-  box-shadow: 0 0 0 3px rgba(98, 212, 180, 0.08);
-}
-
-.atlas-mark span:nth-child(2) {
-  top: 9px;
-  right: 1px;
-  background: var(--design);
-  box-shadow: 0 0 0 3px rgba(146, 164, 255, 0.08);
-}
-
-.atlas-mark span:nth-child(3) {
-  right: 8px;
-  bottom: 1px;
-  background: var(--memory);
-  box-shadow: 0 0 0 3px rgba(230, 178, 109, 0.08);
+.atlas-mark-memory {
+  fill: var(--memory);
 }
 
 .brand-copy,

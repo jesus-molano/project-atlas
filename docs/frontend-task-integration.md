@@ -25,6 +25,11 @@ No manual scan, memory, context, or Figma command is required first.
 4. Ask only questions that can change behavior, ownership, accessibility,
    architecture, design target, or component strategy. Every question includes
    evidence and a recommendation.
+   Authentication, biometrics, privacy/data, permissions, destructive,
+   financial, and accessibility-critical tasks always require a current-turn
+   pre-edit checkpoint. If their material decisions are resolved, ask for
+   explicit confirmation to proceed. Earlier conversation and source URLs do
+   not silently satisfy the checkpoint.
 5. Use the native `request_user_input` selector when available for a material
    missing source (one question by default, three maximum). Otherwise ask one
    brief chat question. Do not build a separate form.
@@ -37,6 +42,9 @@ No manual scan, memory, context, or Figma command is required first.
    Treat `source-unavailable` as a connector limitation, not a missing state.
 10. Stop for `decision-required`, surface `warning` with its recommendation, and
    retain `resolved` findings without interrupting the user.
+    Medium-risk work also stops when sources conflict, persistence/cancel
+    semantics are unclear, states are missing, the target is uncertain, or a
+    shared API changes. Group one question by default and no more than three.
 11. After node confirmation, narrow a large frame to the smallest relevant
    subtree before deep context. Retrieve screenshot and exact variables for the
    same target; ask for a manual selection if it cannot be isolated.
@@ -69,6 +77,11 @@ Output: a hard-capped Project Atlas bundle with relevant memory, code
 candidates, optional design candidates, findings, uncertainty gate, next
 actions, and size metrics. It is independent from Codex, Claude, and
 task-source connectors.
+
+`get_reuse_context` accepts at most five candidates in CLI and MCP. Larger
+limits fail clearly rather than being silently accepted or clamped. When the
+budget trims candidate detail, metrics report truncation and preserve component
+IDs for focused expansion.
 
 The Figma handoff is also portable. The agent owns its approved Figma
 connection; Atlas accepts sparse metadata and serves cached queries. Missing

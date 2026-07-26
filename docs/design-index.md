@@ -75,6 +75,10 @@ replace an observed status with an unknown value from a weaker source.
 
 Atlas distinguishes:
 
+- `observed`: a status-capable source exposed Ready for Dev or Completed;
+- `user-confirmed`: a human confirmed the status while the connector could not
+  expose it; this is explicit lower-authority provenance, not an inferred fact;
+- `absent`: a status-capable source explicitly exposed no dev status;
 - `available`: this source can establish Ready for Dev, Completed, or no state;
 - `partial`: some cached scopes have observable status and others do not;
 - `source-unavailable`: the connector did not expose the field.
@@ -107,6 +111,15 @@ breakpoint is evidenced and never invents it. Sibling storyboard frames can be
 summarized as a flow family with observed and not-evidenced states, rather than
 being reported as duplicate components. Suspicious naming is surfaced for
 source confirmation without silently changing product copy.
+
+Repeated findings are grouped by rule and design family. Compact responses
+return an occurrence count, at most three evidence examples, at most eight node
+handles, and a truncation marker. Storyboard states remain one flow coverage
+matrix instead of being elevated as component duplicates.
+
+`map_figma_file`, `list_figma_indexes`, and `find_design_candidates` accept a
+hard response budget. MCP and CLI default to 3,600 characters and expose
+metrics plus expandable IDs when secondary evidence is trimmed.
 
 Results include reasons and confidence. A high score is still a proposal, not
 permission to fetch deep context. The decision gate asks for confirmation or a

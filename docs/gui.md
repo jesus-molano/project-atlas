@@ -31,14 +31,18 @@ source is not indexed yet. Use `--port` when the default port is occupied.
 - **Project Memory** provides typed search, active and historical states,
   authority, confidence, freshness, body, relations, backlinks, and provenance.
 - **Decisions & Risks** separates decisions required, warnings, and resolved
-  history, always with evidence and a recommendation.
+  findings, always with evidence and a recommendation. It composes Code Atlas
+  reuse decisions and active Project Memory decisions without duplicating them,
+  and labels their provenance.
 - **Task Context** combines a task with a few relevant code, design, and memory
   candidates under one hard response budget.
 - **Memory Inbox** reviews proposed semantic knowledge. A user can revise typed
   items, combine proposals, approve to local or canonical Markdown, or reject
   with an auditable reason.
 - **Integrations & Health** shows local source health, optional connector state,
-  workspace isolation, and explicit repository/memory refresh actions.
+  workspace isolation, explicit repository/memory refresh actions, and a
+  formatter/linter warning when `.component-atlas/` may be traversed. Atlas
+  never edits a product repository's formatter ignore files.
 - **Settings** controls browser-local retrieval defaults and explains storage,
   authority, privacy, and write policy.
 
@@ -57,11 +61,23 @@ The runtime clamps every package to 800–12,000 characters. The default remains
 3,600 characters, roughly 900 tokens. Copying the result copies only that
 bounded package.
 
+The workspace endpoint reads Code, Design, Memory, proposals, and component
+decisions in one SQLite read transaction. It returns a snapshot fingerprint
+and timestamp; refresh replaces the whole GUI revision atomically instead of
+mixing counts from separate requests.
+
 ## Data and write boundaries
 
 Repository and design facts are reconstructible derived data. Refreshing them
 is a local operation. Canonical decisions and conventions remain Markdown.
 Personal and episodic records stay in ignored local Markdown plus SQLite.
+
+Task Context generation is not persisted as a browsing history. Even a
+metadata-only log can disclose task timing and external handles, and no
+retention/sharing policy has been chosen. The GUI therefore keeps only the
+current browser result. A future history feature must be opt-in, locally
+scoped, capped, clearable, and must never store task text, documents, code,
+raw responses, secrets, or transient asset URLs.
 
 Memory Inbox is the only GUI path for semantic durable writes. Applying,
 rejecting, revising, and combining proposals call the same runtime functions as

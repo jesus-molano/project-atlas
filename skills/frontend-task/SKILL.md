@@ -37,7 +37,8 @@ and conversation are the baseline; every external source is optional.
    - low: localized visual or copy change with an established pattern;
    - medium: new states, responsive behavior, component API change, or several
      consumers;
-   - high: accessibility-critical interaction, destructive or financial flow,
+   - high: authentication, biometrics, privacy or personal data, permissions,
+     destructive or financial flows, accessibility-critical interaction,
      cross-feature/shared API, conflicting sources, or unclear target.
 
 ## Apply the decision and uncertainty gate
@@ -47,17 +48,32 @@ assumption. Surface a warning with evidence and a recommendation for suspected
 duplication, inconsistent variants, suspicious props, missing states, or weak
 Figma/code alignment.
 
-Ask the user only when an unresolved choice can change behavior, architecture,
-data handling, accessibility, ownership, or the design target. Ask one compact
-question containing:
+Before editing, apply this checkpoint policy:
+
+- High risk always requires a checkpoint in the current turn. Present the
+  provisional brief, detected sources or conflicts, and each material decision.
+  If no decision remains unresolved, still request explicit confirmation to
+  proceed. Links, a long earlier conversation, or prior task context do not
+  count as current-turn confirmation.
+- Medium risk requires a checkpoint when sources conflict, persistence versus
+  cancel/save semantics are unclear, states are missing, the target is
+  uncertain, or a shared API changes.
+- Low risk may continue without a checkpoint when no material ambiguity exists.
+
+When a checkpoint is required and `request_user_input` is callable, use its
+native selector. Otherwise ask one brief grouped question in chat and wait.
+Ask one question by default and never more than three material questions. A
+decision explicitly confirmed by the user in the current turn satisfies that
+specific checkpoint; record the evidence in the brief and do not ask it again.
+
+Each question must contain:
 
 - the decision needed;
 - evidence from the available sources;
 - the recommended default and why;
 - the consequence of the main alternative.
 
-Do not run a generic requirements interview. Low risk should normally require no
-question; medium and high risk justify more investigation, not more ceremony.
+Do not run a generic requirements interview.
 Do not ask for a source that is irrelevant or safely discoverable. A missing
 optional plugin never blocks the task; a missing required capability is
 reported with the option to connect/provide evidence or stop.

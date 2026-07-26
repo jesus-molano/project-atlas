@@ -1,6 +1,7 @@
 import { projectId } from "@component-atlas/core/naming";
 import type { ProjectAtlasSnapshot } from "@component-atlas/runtime";
 import { AtlasStore } from "@component-atlas/store";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 export function projectRootPath(): string {
@@ -26,18 +27,47 @@ export function loadProjectAtlasSnapshot(): ProjectAtlasSnapshot {
   const id = projectId(rootPath);
   const store = new AtlasStore(id);
   try {
-    const graph = store.loadGraph(id);
+    const stored = store.readProjectSnapshot(id);
+    const graph = stored.graph;
     if (!graph) {
       throw createError({
         statusCode: 404,
         statusMessage: "No index found. Run project-atlas scan first.",
       });
     }
+    const capturedAt = new Date().toISOString();
+    const fingerprint = createHash("sha256")
+      .update(
+        JSON.stringify({
+          project: [graph.project.id, graph.project.scannedAt],
+          graph: [graph.components.length, graph.edges.length, graph.tokens.length],
+          design: stored.designIndexes.map((index) => [
+            index.file.key,
+            index.indexedAt,
+            index.nodes.length,
+          ]),
+          memory: stored.memoryItems.map((item) => [item.id, item.updatedAt, item.status]),
+          proposals: stored.memoryProposals.map((item) => [
+            item.id,
+            item.createdAt,
+            item.status,
+          ]),
+          decisions: stored.componentDecisions.map((item) => [
+            item.id,
+            item.createdAt,
+          ]),
+        }),
+      )
+      .digest("hex")
+      .slice(0, 16);
     return {
+      fingerprint,
+      capturedAt,
       graph,
-      designIndexes: store.listDesignIndexes(id),
-      memoryItems: store.listMemoryItems(id),
-      memoryProposals: store.listMemoryProposals(id),
+      designIndexes: stored.designIndexes,
+      memoryItems: stored.memoryItems,
+      memoryProposals: stored.memoryProposals,
+      componentDecisions: stored.componentDecisions,
     };
   } finally {
     store.close();

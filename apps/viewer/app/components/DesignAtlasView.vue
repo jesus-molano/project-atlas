@@ -71,21 +71,31 @@ function statusLabel(status: string): string {
 }
 
 function nodeStatusLabel(node: DesignIndexNode): string {
-  return node.devStatusAvailability === "source-unavailable"
-    ? "Status unavailable from source"
-    : statusLabel(node.devStatus);
+  if (node.devStatusProvenance === "user-confirmed") {
+    return `${statusLabel(node.devStatus)} · user confirmed`;
+  }
+  if (node.devStatusProvenance === "source-unavailable") {
+    return "Status unavailable from source";
+  }
+  if (node.devStatusProvenance === "absent") return "No dev status observed";
+  return `${statusLabel(node.devStatus)} · observed`;
 }
 
 function statusClass(node: DesignIndexNode): string {
-  return node.devStatusAvailability === "source-unavailable"
+  return node.devStatusProvenance === "source-unavailable"
     ? "source-unavailable"
     : node.devStatus;
 }
 
 function pageStatusLabel(page: DesignIndexPage): string {
-  return page.devStatusAvailability === "source-unavailable"
-    ? "status unavailable"
-    : statusLabel(page.devStatus);
+  if (page.devStatusProvenance === "user-confirmed") {
+    return `${statusLabel(page.devStatus)} · user confirmed`;
+  }
+  if (page.devStatusProvenance === "source-unavailable") {
+    return "status unavailable";
+  }
+  if (page.devStatusProvenance === "absent") return "no dev status observed";
+  return `${statusLabel(page.devStatus)} · observed`;
 }
 </script>
 

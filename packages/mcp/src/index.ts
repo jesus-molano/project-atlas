@@ -320,6 +320,9 @@ export function createMcpServer(): McpServer {
           codeConnect: z.record(z.unknown()).optional(),
           devResources: z.array(z.unknown()).optional(),
           devStatusByNode: z.record(z.unknown()).optional(),
+          devStatusProvenanceByNode: z
+            .record(z.enum(["observed", "user-confirmed"]))
+            .optional(),
           devStatusAvailability: z
             .enum(["available", "source-unavailable"])
             .optional(),
@@ -327,6 +330,7 @@ export function createMcpServer(): McpServer {
         })
         .optional(),
       force: z.boolean().optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
     },
     async ({
       root_path,
@@ -341,9 +345,9 @@ export function createMcpServer(): McpServer {
       scope_page_name,
       enrichment,
       force,
-    }) =>
-      text(
-        await mapFigmaDesign({
+      budget_chars,
+    }) => {
+      const result = await mapFigmaDesign({
           rootPath: root_path,
           figmaUrl: figma_url,
           metadata,
@@ -363,15 +367,42 @@ export function createMcpServer(): McpServer {
               }
             : {}),
           ...(force ? { force: true } : {}),
+        });
+      const summary = result.summary;
+      return text(
+        fitBudgetedResponse(result as unknown as Record<string, unknown>, {
+          budgetChars: budget_chars,
+          totalMatches: summary.stats.nodes,
+          expandableIds: summary.pages.flatMap((page) =>
+            page.mainNodes.map((node) => node.id),
+          ),
+          preserveFirstKeys: ["summary", "gate"],
         }),
-      ),
+      );
+    },
   );
 
   server.tool(
     "list_figma_indexes",
     "List compact cached Figma file maps for one repository.",
-    { root_path: z.string() },
-    async ({ root_path }) => text(await listFigmaDesignIndexes(root_path)),
+    {
+      root_path: z.string(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({ root_path, budget_chars }) => {
+      const indexes = await listFigmaDesignIndexes(root_path);
+      return text(
+        fitBudgetedResponse(
+          { indexes } as Record<string, unknown>,
+          {
+            budgetChars: budget_chars,
+            totalMatches: indexes.length,
+            expandableIds: indexes.map((index) => index.file.key),
+            preserveFirstKeys: ["indexes"],
+          },
+        ),
+      );
+    },
   );
 
   server.tool(
@@ -382,14 +413,22 @@ export function createMcpServer(): McpServer {
       task: z.string().min(1),
       figma_file: z.string().optional(),
       limit: z.number().int().min(1).max(10).optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
     },
-    async ({ root_path, task, figma_file, limit }) =>
-      text(
-        await findTaskDesignCandidates(root_path, task, {
+    async ({ root_path, task, figma_file, limit, budget_chars }) => {
+      const result = await findTaskDesignCandidates(root_path, task, {
           ...(figma_file ? { figmaFile: figma_file } : {}),
           ...(limit ? { limit } : {}),
+        });
+      return text(
+        fitBudgetedResponse(result as unknown as Record<string, unknown>, {
+          budgetChars: budget_chars,
+          totalMatches: result.candidates.length,
+          expandableIds: result.candidates.map((item) => item.node.id),
+          preserveFirstKeys: ["candidates", "gate"],
         }),
-      ),
+      );
+    },
   );
 
   server.tool(

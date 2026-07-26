@@ -27,6 +27,10 @@ describe("frontend-task capability routing fixtures", () => {
       "non-visual-change",
       "plan-mode-native-selector",
       "default-mode-question-fallback",
+      "conflicting-sources",
+      "high-risk-persistence-choice",
+      "high-risk-urls-without-decision",
+      "high-risk-current-turn-confirmed",
     ];
 
     expect([...byId.keys()]).toEqual(expect.arrayContaining(requiredCases));
@@ -54,6 +58,23 @@ describe("frontend-task capability routing fixtures", () => {
     ).toMatchObject({
       questionMode: "one-chat-question",
       customUi: false,
+    });
+    expect(byId.get("conflicting-sources")?.expected).toMatchObject({
+      gate: "decision-required-with-evidence-and-recommendation",
+    });
+    expect(byId.get("high-risk-persistence-choice")?.expected).toMatchObject({
+      risk: "high",
+      checkpoint: "required-before-edit",
+      decision: "immediate-persistence-vs-save",
+      maxQuestions: 3,
+    });
+    expect(byId.get("high-risk-urls-without-decision")?.expected).toMatchObject({
+      checkpoint: "required-before-edit",
+      linksCountAsConfirmation: false,
+    });
+    expect(byId.get("high-risk-current-turn-confirmed")?.expected).toMatchObject({
+      checkpoint: "satisfied-by-current-turn-confirmation",
+      questionMode: "none-for-confirmed-decision",
     });
 
     const serialized = JSON.stringify(fixture);

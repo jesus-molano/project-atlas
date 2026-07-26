@@ -403,6 +403,66 @@ describe("Figma Design Index", () => {
     expect(upgraded.devStatus.availability).toBe("available");
     expect(upgraded.nodes.find((node) => node.id === "10:1")).toMatchObject({
       devStatusAvailability: "available",
+      devStatusProvenance: "observed",
+    });
+  });
+
+  it("groups repeated storyboard findings into a compact flow summary", () => {
+    const repeatedFrames = Array.from({ length: 120 }, (_, index) => {
+      const state = ["Entry", "Selection", "Capture", "Success", "Error"][
+        index % 5
+      ];
+      const width = index % 2 === 0 ? 1440 : 1200;
+      return `<frame id="3:${index + 1}" name="Checkout flow ${state} desktop" width="${width}" height="900" />`;
+    }).join("");
+    const index = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/LargeFixture/Large-fixture",
+      metadata: `<canvas id="1:1" name="Flows"><section id="2:1" name="Checkout storyboard">${repeatedFrames}</section></canvas>`,
+      format: "figma-mcp-xml",
+      enrichment: { devStatusAvailability: "source-unavailable" },
+    });
+    const summary = designIndexSummary(index);
+    const serializedFindings = JSON.stringify(summary.findings);
+
+    expect(summary.families).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "flow",
+          observedStates: expect.arrayContaining(["capture", "error", "success"]),
+        }),
+      ]),
+    );
+    expect(summary.findings.length).toBeLessThanOrEqual(12);
+    expect(serializedFindings.length).toBeLessThanOrEqual(3_000);
+    expect(
+      summary.findings.every(
+        (finding) =>
+          (finding.evidence.length <= 3) &&
+          ((finding.nodeIds?.length ?? 0) <= 8),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps manual Ready for dev confirmation distinct from source observation", () => {
+    const index = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/ManualStatusFixture/Manual-status",
+      metadata:
+        '<canvas id="1:1" name="Page"><frame id="2:1" name="Secure form" /></canvas>',
+      format: "figma-mcp-xml",
+      enrichment: {
+        devStatusAvailability: "source-unavailable",
+        devStatusByNode: { "2:1": "READY_FOR_DEV" },
+        devStatusProvenanceByNode: { "2:1": "user-confirmed" },
+      },
+    });
+    expect(index.nodes[0]).toMatchObject({
+      devStatus: "ready-for-dev",
+      devStatusAvailability: "source-unavailable",
+      devStatusProvenance: "user-confirmed",
+    });
+    expect(rankDesignCandidates(index, "secure form").candidates[0]?.node).toMatchObject({
+      status: "ready-for-dev",
+      statusProvenance: "user-confirmed",
     });
   });
 });

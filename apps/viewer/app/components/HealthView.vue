@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import type { SourceHealthViewModel } from "@component-atlas/runtime";
 
-const props = defineProps<{ sources: SourceHealthViewModel[]; rootPath: string }>();
+defineProps<{
+  sources: SourceHealthViewModel[];
+  rootPath: string;
+  localHealth: Array<{
+    id: string;
+    level: "warning";
+    title: string;
+    detail: string;
+    recommendation: string;
+  }>;
+}>();
 const emit = defineEmits<{ refreshed: [] }>();
 const pending = ref("");
 const message = ref("");
@@ -46,6 +56,19 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
       </article>
       <p v-if="message" class="inline-success">{{ message }}</p>
       <p v-if="error" class="inline-error">{{ error }}</p>
+      <article
+        v-for="finding in localHealth"
+        :key="finding.id"
+        class="health-record optional"
+      >
+        <span class="health-orb stale" />
+        <div>
+          <strong>{{ finding.title }}</strong>
+          <p>{{ finding.detail }}</p>
+          <code>{{ finding.recommendation }}</code>
+        </div>
+        <span class="status-chip">setup</span>
+      </article>
     </section>
     <section>
       <header class="workspace-toolbar"><div><span class="eyebrow">Optional enrichment</span><h2>Connectors degrade gracefully</h2></div></header>

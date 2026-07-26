@@ -263,6 +263,7 @@ function nodeStatus(
 ): {
   status: DesignDevStatus;
   availability: DesignDevStatusAvailability;
+  provenance: DesignIndexNode["devStatusProvenance"];
   description?: string;
 } {
   const override = record(enrichment?.devStatusByNode)?.[node.id];
@@ -270,7 +271,15 @@ function nodeStatus(
     override !== undefined
       ? statusFrom(override)
       : statusFrom(statusAttribute(node));
-  return { ...parsed, availability };
+  const explicitProvenance = enrichment?.devStatusProvenanceByNode?.[node.id];
+  const provenance =
+    explicitProvenance ??
+    (availability === "source-unavailable"
+      ? "source-unavailable"
+      : parsed.status === "none"
+        ? "absent"
+        : "observed");
+  return { ...parsed, availability, provenance };
 }
 
 function annotationFrom(value: unknown): DesignAnnotation | undefined {
@@ -660,6 +669,7 @@ function flattenNodes(
         nodeIds: [],
         devStatus: status.status,
         devStatusAvailability: status.availability,
+        devStatusProvenance: status.provenance,
         ...(status.description
           ? { devStatusDescription: status.description }
           : {}),
@@ -687,6 +697,7 @@ function flattenNodes(
         ...bounds(raw),
         devStatus: status.status,
         devStatusAvailability: status.availability,
+        devStatusProvenance: status.provenance,
         ...(status.description
           ? { devStatusDescription: status.description }
           : {}),
@@ -733,6 +744,9 @@ export function finalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
         devStatusAvailability:
           metadata?.devStatusAvailability ??
           (pageNodes[0]?.devStatusAvailability ?? "source-unavailable"),
+        devStatusProvenance:
+          metadata?.devStatusProvenance ??
+          (pageNodes[0]?.devStatusProvenance ?? "source-unavailable"),
         ...(metadata?.devStatusDescription
           ? { devStatusDescription: metadata.devStatusDescription }
           : {}),
@@ -823,6 +837,13 @@ export function normalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
     devStatusAvailability:
       node.devStatusAvailability ??
       (node.devStatus !== "none" ? "available" : fallbackAvailability),
+    devStatusProvenance:
+      node.devStatusProvenance ??
+      (node.devStatusAvailability === "source-unavailable"
+        ? "source-unavailable"
+        : node.devStatus === "none"
+          ? "absent"
+          : "observed"),
   }));
   const pages = index.pages.map((page) => ({
     ...page,
@@ -832,6 +853,13 @@ export function normalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
       (page.devStatus && page.devStatus !== "none"
         ? "available"
         : fallbackAvailability),
+    devStatusProvenance:
+      page.devStatusProvenance ??
+      (page.devStatusAvailability === "source-unavailable"
+        ? "source-unavailable"
+        : page.devStatus === "none"
+          ? "absent"
+          : "observed"),
   }));
   return finalizeDesignIndex({
     ...index,

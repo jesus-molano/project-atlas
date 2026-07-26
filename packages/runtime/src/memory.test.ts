@@ -218,7 +218,7 @@ describe.sequential("Project Atlas runtime", () => {
     const map = await orientProject(rootPath, { budgetChars: 1_600 });
     expect(JSON.stringify(map).length).toBeLessThanOrEqual(1_600);
     expect(map).toMatchObject({
-      codeAtlas: { components: 5 },
+      codeAtlas: { components: 6 },
       projectMemory: { counts: { total: 5 } },
     });
   });

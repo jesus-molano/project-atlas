@@ -17,9 +17,12 @@ describe("VueAdapter", () => {
       (item) => item.effectiveName === "FeatureConfirmDialog",
     );
     const hint = components.find((item) => item.name === "InlineHint");
+    const settings = components.find(
+      (item) => item.effectiveName === "FormsAccountSettingsForm",
+    );
     const route = components.find((item) => item.kind === "route");
 
-    expect(components).toHaveLength(5);
+    expect(components).toHaveLength(6);
     expect(modal?.props).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "title", required: true }),
@@ -37,6 +40,53 @@ describe("VueAdapter", () => {
     );
     expect(modal?.slots).toEqual(expect.arrayContaining(["default", "footer"]));
     expect(modal?.testPaths).toHaveLength(1);
+    expect(settings?.props).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "accountId",
+          type: "string",
+          required: true,
+        }),
+        expect.objectContaining({
+          name: "density",
+          type: '"compact" | "comfortable"',
+          required: false,
+          defaultValue: '"comfortable"',
+        }),
+        expect.objectContaining({
+          name: "label",
+          required: false,
+          defaultValue: '"Account settings"',
+        }),
+        expect.objectContaining({
+          name: "locked",
+          type: "boolean",
+          required: false,
+        }),
+      ]),
+    );
+    expect(settings?.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "save",
+          payload: "payload: SettingsPayload",
+        }),
+        expect.objectContaining({ name: "cancel" }),
+        expect.objectContaining({
+          name: "validated",
+          payload: "[valid: boolean]",
+        }),
+      ]),
+    );
+    expect(settings?.testPaths).toEqual(
+      expect.arrayContaining([
+        "tests/unit/components/forms/AccountSettingsForm.spec.ts",
+        "app/components/forms/__tests__/AutoImportedForm.spec.ts",
+      ]),
+    );
+    expect(settings?.testPaths).not.toContain(
+      "tests/unit/components/forms/AccountSettingsFormHelpers.spec.ts",
+    );
     expect(confirm?.renderedNames).toContain("UiBaseModal");
     expect(hint?.visibility).toBe("private");
     expect(route).toMatchObject({

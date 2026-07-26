@@ -10,6 +10,10 @@ response has a measured character hard cap.
 - small top-k results and opaque cursor pagination;
 - no full database dump by default;
 - no duplicated full JSON in MCP text and `structuredContent`;
+- Design map/list/candidate queries use the same hard cap and group repeated
+  findings before fitting the response;
+- `get_reuse_context` returns at most five candidates and exposes their IDs for
+  deliberate expansion;
 - explicit `raw` remains a diagnostic action for older Code Atlas queries.
 
 Every compact response reports:

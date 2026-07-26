@@ -27,6 +27,7 @@ import type { MemoryStatus, MemoryType } from "@component-atlas/memory";
 import { startMcpServer } from "@component-atlas/mcp";
 import {
   findTaskDesignCandidates,
+  fitBudgetedResponse,
   getProjectMemoryItem,
   getTaskContext,
   graphSummary,
@@ -88,7 +89,10 @@ function parseLimit(value: string, maximum: number): number {
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(`Limit must be a positive integer, received "${value}".`);
   }
-  return Math.min(parsed, maximum);
+  if (parsed > maximum) {
+    throw new Error(`Limit must not exceed ${maximum}, received "${value}".`);
+  }
+  return parsed;
 }
 
 function parseBudget(value: string): number {
@@ -244,10 +248,28 @@ export function createProgram(): Command {
     .argument("<path>", "repository root")
     .argument("<intent>", "frontend intent or component responsibility")
     .option("-l, --limit <number>", "maximum candidates", "3")
+    .option("--budget <characters>", "hard response budget", "3600")
     .description("Return compact reuse context for a coding agent.")
-    .action(async (rootPath: string, intent: string, options: { limit: string }) => {
+    .action(async (
+      rootPath: string,
+      intent: string,
+      options: { limit: string; budget: string },
+    ) => {
       const graph = await loadProjectGraph(rootPath);
-      printJson(buildReuseContext(graph, intent, parseLimit(options.limit, 5)));
+      const context = buildReuseContext(
+        graph,
+        intent,
+        parseLimit(options.limit, 5),
+      );
+      printBudgetedJson(
+        fitBudgetedResponse(context as unknown as Record<string, unknown>, {
+          budgetChars: parseBudget(options.budget),
+          totalMatches: context.candidates.length,
+          expandableIds: context.candidates.map(
+            (candidate) => candidate.component.id,
+          ),
+        }),
+      );
     });
 
   program
@@ -603,6 +625,7 @@ export function createProgram(): Command {
       "optional JSON with status, resources, libraries, Code Connect, or variables",
     )
     .option("--force", "reprocess an unchanged metadata snapshot")
+    .option("--budget <characters>", "hard response budget", "3600")
     .description("Create or incrementally update one cached Figma map.")
     .action(
       async (
@@ -619,6 +642,7 @@ export function createProgram(): Command {
           scopePageName?: string;
           enrichment?: string;
           force?: boolean;
+          budget: string;
         },
       ) => {
         if (
@@ -634,8 +658,7 @@ export function createProgram(): Command {
               await readFile(path.resolve(options.enrichment), "utf8"),
             ) as NonNullable<MapFigmaDesignInput["enrichment"]>)
           : undefined;
-        printJson(
-          await mapFigmaDesign({
+        const result = await mapFigmaDesign({
             rootPath,
             figmaUrl,
             metadata,
@@ -654,6 +677,15 @@ export function createProgram(): Command {
               : {}),
             ...(enrichment ? { enrichment } : {}),
             ...(options.force ? { force: true } : {}),
+          });
+        printBudgetedJson(
+          fitBudgetedResponse(result as unknown as Record<string, unknown>, {
+            budgetChars: parseBudget(options.budget),
+            totalMatches: result.summary.stats.nodes,
+            expandableIds: result.summary.pages.flatMap((page) =>
+              page.mainNodes.map((node) => node.id),
+            ),
+            preserveFirstKeys: ["summary", "gate"],
           }),
         );
       },
@@ -662,9 +694,21 @@ export function createProgram(): Command {
   figma
     .command("list")
     .argument("<path>", "repository root")
+    .option("--budget <characters>", "hard response budget", "3600")
     .description("List cached Figma maps without loading their full nodes.")
-    .action(async (rootPath: string) => {
-      printJson(await listFigmaDesignIndexes(rootPath));
+    .action(async (rootPath: string, options: { budget: string }) => {
+      const indexes = await listFigmaDesignIndexes(rootPath);
+      printBudgetedJson(
+        fitBudgetedResponse(
+          { indexes },
+          {
+            budgetChars: parseBudget(options.budget),
+            totalMatches: indexes.length,
+            expandableIds: indexes.map((index) => index.file.key),
+            preserveFirstKeys: ["indexes"],
+          },
+        ),
+      );
     });
 
   figma
@@ -673,6 +717,7 @@ export function createProgram(): Command {
     .argument("<task>", "task or implementation intent")
     .option("--file <figma-file>", "Figma URL or file key")
     .option("-l, --limit <number>", "maximum candidates", "5")
+    .option("--budget <characters>", "hard response budget", "3600")
     .description(
       "Rank a few explainable design candidates using Figma and Atlas signals.",
     )
@@ -680,12 +725,18 @@ export function createProgram(): Command {
       async (
         rootPath: string,
         task: string,
-        options: { file?: string; limit: string },
+        options: { file?: string; limit: string; budget: string },
       ) => {
-        printJson(
-          await findTaskDesignCandidates(rootPath, task, {
+        const result = await findTaskDesignCandidates(rootPath, task, {
             ...(options.file ? { figmaFile: options.file } : {}),
             limit: parseLimit(options.limit, 10),
+          });
+        printBudgetedJson(
+          fitBudgetedResponse(result as unknown as Record<string, unknown>, {
+            budgetChars: parseBudget(options.budget),
+            totalMatches: result.candidates.length,
+            expandableIds: result.candidates.map((item) => item.node.id),
+            preserveFirstKeys: ["candidates", "gate"],
           }),
         );
       },

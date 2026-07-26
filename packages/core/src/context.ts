@@ -67,6 +67,17 @@ function boundedLimit(value: number, fallback: number, maximum: number): number 
     : fallback;
 }
 
+function componentApi(component: ComponentNode): ReuseContextCandidate["api"] {
+  return {
+    props: component.props.slice(0, 8),
+    totalProps: component.props.length,
+    events: component.events.slice(0, 8),
+    totalEvents: component.events.length,
+    slots: component.slots.slice(0, 8),
+    models: component.models.slice(0, 8),
+  };
+}
+
 function candidateContext(
   graph: ComponentGraph,
   component: ComponentNode,
@@ -78,13 +89,7 @@ function candidateContext(
     rank,
     component: componentContextReference(component),
     match: { reasons },
-    api: {
-      props: component.props.slice(0, 8),
-      totalProps: component.props.length,
-      events: component.events.map((event) => event.name).slice(0, 8),
-      slots: component.slots.slice(0, 8),
-      models: component.models.slice(0, 8),
-    },
+    api: componentApi(component),
     relations: {
       renders: relatedComponents(graph, component.id, "renders"),
       renderedBy: relatedComponents(graph, component.id, "rendered-by"),
@@ -165,6 +170,8 @@ export function buildImpactContext(
   const total = impact.transitiveConsumers.length;
   return {
     component: componentContextReference(component),
+    api: componentApi(component),
+    tests: component.testPaths.slice(0, 3),
     risk: total >= 8 ? "high" : total >= 3 ? "moderate" : "contained",
     directConsumers: impact.directConsumers.length,
     transitiveConsumers: total,

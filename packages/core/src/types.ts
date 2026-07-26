@@ -133,7 +133,8 @@ export interface ReuseContextCandidate {
   api: {
     props: ComponentProp[];
     totalProps: number;
-    events: string[];
+    events: ComponentEvent[];
+    totalEvents: number;
     slots: string[];
     models: string[];
   };
@@ -190,6 +191,8 @@ export interface ComponentContextBundle {
 
 export interface ComponentImpactContext {
   component: ComponentContextReference;
+  api: ReuseContextCandidate["api"];
+  tests: string[];
   risk: "contained" | "moderate" | "high";
   directConsumers: number;
   transitiveConsumers: number;

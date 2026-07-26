@@ -64,6 +64,40 @@
       }
     },
     {
+      "id": "high-risk-persistence-choice",
+      "request": "Add a secure device enrollment flow. One source implies immediate persistence while the screen also has Save and Cancel.",
+      "sources": ["conversation", "repository", "specification", "design-node-url"],
+      "expected": {
+        "risk": "high",
+        "checkpoint": "required-before-edit",
+        "decision": "immediate-persistence-vs-save",
+        "questionMode": "native-selector-or-one-chat-question",
+        "maxQuestions": 3
+      }
+    },
+    {
+      "id": "high-risk-urls-without-decision",
+      "request": "Implement this authentication change using the linked ticket, specification, and design.",
+      "sources": ["conversation", "repository", "ticket-url", "specification-url", "design-node-url"],
+      "expected": {
+        "risk": "high",
+        "checkpoint": "required-before-edit",
+        "linksCountAsConfirmation": false,
+        "questionMode": "native-selector-or-one-chat-question"
+      }
+    },
+    {
+      "id": "high-risk-current-turn-confirmed",
+      "request": "Use immediate persistence for enrollment and let Cancel revert only the pending toggle. Proceed with that decision.",
+      "sources": ["conversation", "repository"],
+      "expected": {
+        "risk": "high",
+        "checkpoint": "satisfied-by-current-turn-confirmation",
+        "confirmedDecision": "immediate-persistence",
+        "questionMode": "none-for-confirmed-decision"
+      }
+    },
+    {
       "id": "all-explicit-sources",
       "request": "Implementa el ticket UI-142 usando la especificación y el frame enlazados.",
       "sources": ["conversation", "repository", "jira", "confluence", "figma-node-url"],

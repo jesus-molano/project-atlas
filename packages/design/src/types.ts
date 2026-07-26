@@ -6,6 +6,11 @@ export type DesignDevStatus = "ready-for-dev" | "completed" | "none";
 export type DesignDevStatusAvailability =
   | "available"
   | "source-unavailable";
+export type DesignDevStatusProvenance =
+  | "observed"
+  | "user-confirmed"
+  | "source-unavailable"
+  | "absent";
 export type DesignDevStatusCoverage =
   | "available"
   | "partial"
@@ -39,6 +44,8 @@ export interface DesignFinding {
   recommendation: string;
   question?: string;
   nodeIds?: string[];
+  occurrences?: number;
+  truncatedExamples?: boolean;
 }
 
 export interface DesignDecisionGate {
@@ -142,6 +149,7 @@ export interface DesignIndexNode {
   height?: number;
   devStatus: DesignDevStatus;
   devStatusAvailability: DesignDevStatusAvailability;
+  devStatusProvenance: DesignDevStatusProvenance;
   devStatusDescription?: string;
   annotations: DesignAnnotation[];
   resources: DesignResourceLink[];
@@ -157,6 +165,7 @@ export interface DesignIndexPage {
   nodeIds: string[];
   devStatus: DesignDevStatus;
   devStatusAvailability: DesignDevStatusAvailability;
+  devStatusProvenance: DesignDevStatusProvenance;
   devStatusDescription?: string;
   readyForDev: number;
   completed: number;
@@ -210,6 +219,10 @@ export interface DesignIndexEnrichment {
   codeConnect?: Record<string, unknown>;
   devResources?: unknown[];
   devStatusByNode?: Record<string, unknown>;
+  devStatusProvenanceByNode?: Record<
+    string,
+    Extract<DesignDevStatusProvenance, "observed" | "user-confirmed">
+  >;
   devStatusAvailability?: DesignDevStatusAvailability;
   variableCatalog?: unknown;
 }
@@ -252,6 +265,7 @@ export interface DesignIndexSummary {
     name: string;
     status: DesignDevStatus;
     statusAvailability: DesignDevStatusAvailability;
+    statusProvenance: DesignDevStatusProvenance;
     readyForDev: number;
     completed: number;
     mainNodes: Array<{
@@ -260,6 +274,7 @@ export interface DesignIndexSummary {
       type: string;
       status: DesignDevStatus;
       statusAvailability: DesignDevStatusAvailability;
+      statusProvenance: DesignDevStatusProvenance;
       url: string;
     }>;
   }>;
@@ -288,8 +303,10 @@ export interface DesignCandidate {
     path: string;
     status: DesignDevStatus;
     statusAvailability: DesignDevStatusAvailability;
+    statusProvenance: DesignDevStatusProvenance;
     pageStatus: DesignDevStatus;
     pageStatusAvailability: DesignDevStatusAvailability;
+    pageStatusProvenance: DesignDevStatusProvenance;
   };
   reasons: string[];
   matchedTaskTerms: string[];
@@ -299,6 +316,7 @@ export interface DesignCandidate {
     url: string;
     status: DesignDevStatus;
     statusAvailability: DesignDevStatusAvailability;
+    statusProvenance: DesignDevStatusProvenance;
   }>;
 }
 
@@ -323,6 +341,7 @@ export interface DesignNodeInspection {
     type: string;
     status: DesignDevStatus;
     statusAvailability: DesignDevStatusAvailability;
+    statusProvenance: DesignDevStatusProvenance;
     url: string;
   }>;
   relatedVariants: Array<{
@@ -330,6 +349,7 @@ export interface DesignNodeInspection {
     name: string;
     status: DesignDevStatus;
     statusAvailability: DesignDevStatusAvailability;
+    statusProvenance: DesignDevStatusProvenance;
     url: string;
   }>;
   findings: DesignFinding[];

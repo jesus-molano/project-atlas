@@ -10,6 +10,7 @@ import type {
 import { rankMemoryItems } from "@component-atlas/memory";
 import {
   searchComponentContext,
+  type ComponentDecision,
   type ComponentGraph,
 } from "@component-atlas/core";
 import {
@@ -95,6 +96,7 @@ export interface ProjectOverviewViewModel {
     components: number;
     designNodes: number;
     memoryItems: number;
+    currentDecisions: number;
     pendingMemoryProposals: number;
     warnings: number;
   };
@@ -173,10 +175,13 @@ export interface ProjectSearchViewModel {
 }
 
 export interface ProjectAtlasSnapshot {
+  fingerprint: string;
+  capturedAt: string;
   graph: ComponentGraph;
   designIndexes: DesignFileIndex[];
   memoryItems: MemoryItem[];
   memoryProposals: MemoryProposal[];
+  componentDecisions: ComponentDecision[];
 }
 
 function ageInDays(value: string | undefined, now: Date): number | undefined {
@@ -217,7 +222,13 @@ export function buildProjectOverviewViewModel(
   generatedAt = new Date().toISOString(),
 ): ProjectAtlasEnvelope<ProjectOverviewViewModel> {
   const now = new Date(generatedAt);
-  const { graph, designIndexes, memoryItems, memoryProposals } = snapshot;
+  const {
+    graph,
+    designIndexes,
+    memoryItems,
+    memoryProposals,
+    componentDecisions,
+  } = snapshot;
   const pendingProposals = memoryProposals.filter(
     (proposal) => proposal.status === "pending",
   );
@@ -326,6 +337,12 @@ export function buildProjectOverviewViewModel(
       source: "memory" as const,
       occurredAt: item.updatedAt,
     })),
+    ...componentDecisions.slice(0, 8).map((decision) => ({
+      id: `decision:${decision.id}:${decision.createdAt}`,
+      label: `${decision.decision}: ${decision.intent}`,
+      source: "repository" as const,
+      occurredAt: decision.createdAt,
+    })),
   ]
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
     .slice(0, 8);
@@ -415,6 +432,13 @@ export function buildProjectOverviewViewModel(
         components: graph.components.length,
         designNodes,
         memoryItems: memoryItems.length,
+        currentDecisions:
+          componentDecisions.length +
+          memoryItems.filter(
+            (item) =>
+              item.status === "active" &&
+              ["decision", "constraint", "convention"].includes(item.type),
+          ).length,
         pendingMemoryProposals: pendingProposals.length,
         warnings,
       },

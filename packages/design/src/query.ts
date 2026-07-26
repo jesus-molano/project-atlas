@@ -149,6 +149,7 @@ function relatedVariants(
       url: node.url,
       status: node.devStatus,
       statusAvailability: node.devStatusAvailability,
+      statusProvenance: node.devStatusProvenance,
     }));
 }
 
@@ -432,30 +433,35 @@ export function rankDesignCandidates(
         left.node.depth - right.node.depth ||
         left.node.name.localeCompare(right.node.name),
     );
-  const candidates = scored.slice(0, limit).map((item, indexPosition) => ({
-    rank: indexPosition + 1,
-    confidence: confidence(item.score),
-    score: item.score,
-    node: {
-      id: item.node.id,
-      name: item.node.name,
-      type: item.node.type,
-      url: item.node.url,
-      page: item.node.pageName,
-      path: item.node.path.join(" / "),
-      status: item.node.devStatus,
-      statusAvailability: item.node.devStatusAvailability,
-      pageStatus:
-        index.pages.find((page) => page.id === item.node.pageId)?.devStatus ??
-        "none",
-      pageStatusAvailability:
-        index.pages.find((page) => page.id === item.node.pageId)
-          ?.devStatusAvailability ?? "source-unavailable",
-    },
-    reasons: item.reasons,
-    matchedTaskTerms: item.matchedTaskTerms,
-    relatedVariants: relatedVariants(index, item.node),
-  }));
+  const candidates = scored.slice(0, limit).map((item, indexPosition) => {
+    const page = index.pages.find(
+      (candidate) => candidate.id === item.node.pageId,
+    );
+    return {
+      rank: indexPosition + 1,
+      confidence: confidence(item.score),
+      score: item.score,
+      node: {
+        id: item.node.id,
+        name: item.node.name,
+        type: item.node.type,
+        url: item.node.url,
+        page: item.node.pageName,
+        path: item.node.path.join(" / "),
+        status: item.node.devStatus,
+        statusAvailability: item.node.devStatusAvailability,
+        statusProvenance: item.node.devStatusProvenance,
+        pageStatus: page?.devStatus ?? "none",
+        pageStatusAvailability:
+          page?.devStatusAvailability ?? "source-unavailable",
+        pageStatusProvenance:
+          page?.devStatusProvenance ?? "source-unavailable",
+      },
+      reasons: item.reasons,
+      matchedTaskTerms: item.matchedTaskTerms,
+      relatedVariants: relatedVariants(index, item.node),
+    };
+  });
   const selectedIds = new Set(candidates.map((candidate) => candidate.node.id));
   const relevantIndexFindings = designIndexFindings(index).filter(
     (finding) =>
@@ -490,6 +496,7 @@ function mainNodes(index: DesignFileIndex, pageId: string) {
       type: node.type,
       status: node.devStatus,
       statusAvailability: node.devStatusAvailability,
+      statusProvenance: node.devStatusProvenance,
       url: node.url,
     }));
 }
@@ -612,6 +619,7 @@ export function designIndexSummary(
         name: page.name,
         status: page.devStatus,
         statusAvailability: page.devStatusAvailability,
+        statusProvenance: page.devStatusProvenance,
         readyForDev: page.readyForDev,
         completed: page.completed,
         mainNodes: pageNodes,
@@ -722,6 +730,7 @@ export function inspectDesignNode(
         type: child.type,
         status: child.devStatus,
         statusAvailability: child.devStatusAvailability,
+        statusProvenance: child.devStatusProvenance,
         url: child.url,
       })),
     relatedVariants: relatedVariants(index, node),

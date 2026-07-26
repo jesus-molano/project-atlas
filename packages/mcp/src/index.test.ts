@@ -158,6 +158,23 @@ describe("Component Atlas MCP surface", () => {
             | undefined
         )?.[0]?.text,
       ).toMatch(/compact structured context/);
+      expect(
+        (context.structuredContent as { metrics?: unknown } | undefined)
+          ?.metrics,
+      ).toMatchObject({
+        totalMatches: expect.any(Number),
+        expandableIds: expect.any(Array),
+      });
+
+      const invalidReuseLimit = await client.callTool({
+        name: "get_reuse_context",
+        arguments: {
+          root_path: rootPath,
+          intent: "confirmation dialog",
+          limit: 6,
+        },
+      });
+      expect(invalidReuseLimit.isError).toBe(true);
 
       const mapped = await client.callTool({
         name: "map_figma_file",
@@ -167,6 +184,7 @@ describe("Component Atlas MCP surface", () => {
             "https://www.figma.com/design/PersonalShop/Personal-shop",
           metadata,
           format: "figma-mcp-xml",
+          budget_chars: 1_600,
         },
       });
       expect(mapped.structuredContent).toMatchObject({
@@ -174,7 +192,14 @@ describe("Component Atlas MCP surface", () => {
         summary: {
           stats: { readyForDev: 0 },
         },
+        metrics: {
+          budgetChars: 1600,
+          usedChars: expect.any(Number),
+        },
       });
+      expect(JSON.stringify(mapped.structuredContent).length).toBeLessThanOrEqual(
+        1_600,
+      );
 
       const candidates = await client.callTool({
         name: "find_design_candidates",
@@ -182,6 +207,7 @@ describe("Component Atlas MCP surface", () => {
           root_path: rootPath,
           task: "añadir cupón en checkout móvil",
           figma_file: "PersonalShop",
+          budget_chars: 1_600,
         },
       });
       expect(candidates.structuredContent).toMatchObject({
@@ -202,6 +228,9 @@ describe("Component Atlas MCP surface", () => {
         id: "60:2",
         status: "none",
       });
+      expect(
+        JSON.stringify(candidates.structuredContent).length,
+      ).toBeLessThanOrEqual(1_600);
 
       const inspection = await client.callTool({
         name: "inspect_design_node",

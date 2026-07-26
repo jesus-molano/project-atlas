@@ -53,6 +53,7 @@ describe("reuse context", () => {
       ["title", "amount"],
       ["UiModal"],
     );
+    salary.events = [{ name: "save", payload: "amount: number" }];
     const savings = component(
       "MonthlySavingsDialog",
       "feature",
@@ -95,6 +96,11 @@ describe("reuse context", () => {
         directConsumers: 1,
         transitiveConsumers: 1,
       },
+      api: {
+        events: [{ name: "save", payload: "amount: number" }],
+        totalEvents: 1,
+      },
+      tests: ["test/MonthlySalaryDialog.test.ts"],
     });
     expect(context.nextActions.join(" ")).toContain("feature ownership");
     expect(JSON.stringify(context)).not.toContain("classTokens");
@@ -103,6 +109,10 @@ describe("reuse context", () => {
     expect(focused.component.name).toBe("MonthlySalaryDialog");
     expect(focused.relations.renders[0]?.name).toBe("UiModal");
     expect(focused.impact.transitiveConsumers).toBe(1);
+    expect(focused.api.events).toEqual([
+      { name: "save", payload: "amount: number" },
+    ]);
+    expect(focused.tests).toEqual(["test/MonthlySalaryDialog.test.ts"]);
     expect(JSON.stringify(focused)).not.toContain("classTokens");
 
     const search = searchComponentContext(graph, "monthly salary dialog", 3);
@@ -117,6 +127,14 @@ describe("reuse context", () => {
       risk: "contained",
       directConsumers: 1,
       direct: [expect.objectContaining({ name: "SalaryPage" })],
+      api: {
+        props: [
+          { name: "title", type: "string", required: true },
+          { name: "amount", type: "string", required: true },
+        ],
+        events: [{ name: "save", payload: "amount: number" }],
+      },
+      tests: ["test/MonthlySalaryDialog.test.ts"],
     });
 
     const consumers = Array.from({ length: 25 }, (_, index) =>

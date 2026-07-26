@@ -1,6 +1,9 @@
 import type { MemoryItem } from "@component-atlas/memory";
 import type { ProjectAtlasSnapshot } from "@component-atlas/runtime";
 import { designIndexSummary } from "@component-atlas/design";
+import { buildProjectOverviewViewModel } from "@component-atlas/runtime";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { loadProjectAtlasSnapshot } from "../utils/project";
 
 function uniqueContradictions(items: MemoryItem[]) {
@@ -116,14 +119,89 @@ function projectRisks(snapshot: ProjectAtlasSnapshot) {
   ];
 }
 
+function localArtifactHealth(rootPath: string) {
+  const packageFile = path.join(rootPath, "package.json");
+  const packageText = existsSync(packageFile)
+    ? readFileSync(packageFile, "utf8")
+    : "";
+  const configuredTools = ["prettier", "eslint"].filter((tool) =>
+    packageText.toLowerCase().includes(tool),
+  );
+  if (configuredTools.length === 0) return [];
+  const mentionsAtlas = (relativePath: string) => {
+    const filePath = path.join(rootPath, relativePath);
+    return (
+      existsSync(filePath) &&
+      readFileSync(filePath, "utf8").includes(".component-atlas")
+    );
+  };
+  const unprotected = configuredTools.filter((tool) =>
+    tool === "prettier"
+      ? !mentionsAtlas(".prettierignore")
+      : ![
+          ".eslintignore",
+          "eslint.config.js",
+          "eslint.config.mjs",
+          "eslint.config.cjs",
+          "eslint.config.ts",
+        ].some(mentionsAtlas),
+  );
+  return unprotected.length === 0
+    ? []
+    : [
+        {
+          id: "local-artifacts-formatter-scope",
+          level: "warning" as const,
+          title: "Local Atlas artifacts may enter formatter or lint scans",
+          detail: `Detected ${unprotected.join(" and ")} without an Atlas-specific ignore entry.`,
+          recommendation:
+            "If these tools traverse ignored directories, add `.component-atlas/` to the relevant formatter or lint ignore file. Atlas will not edit it automatically.",
+        },
+      ];
+}
+
 export default defineEventHandler(() => {
   const snapshot = loadProjectAtlasSnapshot();
+  const currentDecisions = [
+    ...snapshot.componentDecisions.map((decision) => ({
+      id: decision.id,
+      type: "component-reuse" as const,
+      title: `${decision.decision}: ${decision.intent}`,
+      summary: decision.rationale,
+      status: "recorded" as const,
+      provenance: "code-atlas" as const,
+      updatedAt: decision.createdAt,
+    })),
+    ...snapshot.memoryItems
+      .filter(
+        (item) =>
+          item.status === "active" &&
+          ["decision", "constraint", "convention"].includes(item.type),
+      )
+      .map((item) => ({
+        id: item.id,
+        type: item.type,
+        title: item.title,
+        summary: item.summary,
+        status: item.status,
+        provenance: "project-memory" as const,
+        updatedAt: item.updatedAt,
+      })),
+  ].filter(
+    (decision, index, items) =>
+      items.findIndex((candidate) => candidate.id === decision.id) === index,
+  );
   return {
     schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt: snapshot.capturedAt,
+    fingerprint: snapshot.fingerprint,
+    graph: snapshot.graph,
+    overview: buildProjectOverviewViewModel(snapshot, snapshot.capturedAt),
     designIndexes: snapshot.designIndexes,
     memoryItems: snapshot.memoryItems,
     memoryProposals: snapshot.memoryProposals,
+    currentDecisions,
+    localHealth: localArtifactHealth(snapshot.graph.project.rootPath),
     risks: projectRisks(snapshot),
   };
 });

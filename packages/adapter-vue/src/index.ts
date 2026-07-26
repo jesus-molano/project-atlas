@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { baseParse, NodeTypes, type RootNode, type TemplateChildNode } from "@vue/compiler-dom";
 import { parse as parseSfc } from "@vue/compiler-sfc";
@@ -31,6 +31,13 @@ interface TemplateFacts {
   slots: string[];
 }
 
+interface TestFacts {
+  path: string;
+  resolvedImports: Set<string>;
+  importedNames: Set<string>;
+  mountedNames: Set<string>;
+}
+
 const SOURCE_PATTERNS = [
   "app/components/**/*.vue",
   "components/**/*.vue",
@@ -55,7 +62,6 @@ function propertyName(node: ts.PropertyName | undefined): string | undefined {
 
 function typeText(
   node: ts.TypeNode | undefined,
-  source: ts.SourceFile,
   declarations: Map<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration>,
   seen = new Set<string>(),
 ): string {
@@ -70,18 +76,16 @@ function typeText(
     ) {
       return typeText(
         declaration.type,
-        source,
         declarations,
         new Set([...seen, name]),
       );
     }
   }
-  return node.getText(source);
+  return node.getText(node.getSourceFile());
 }
 
 function propsFromMembers(
-  members: ts.NodeArray<ts.TypeElement>,
-  source: ts.SourceFile,
+  members: readonly ts.TypeElement[],
   declarations: Map<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration>,
 ): ComponentProp[] {
   return members.flatMap((member) => {
@@ -91,7 +95,7 @@ function propsFromMembers(
     return [
       {
         name,
-        type: typeText(member.type, source, declarations),
+        type: typeText(member.type, declarations),
         required: !member.questionToken,
       },
     ];
@@ -100,16 +104,31 @@ function propsFromMembers(
 
 function resolveTypeMembers(
   typeNode: ts.TypeNode | undefined,
-  source: ts.SourceFile,
   declarations: Map<string, ts.InterfaceDeclaration | ts.TypeAliasDeclaration>,
-): ts.NodeArray<ts.TypeElement> | undefined {
+  seen = new Set<string>(),
+): readonly ts.TypeElement[] | undefined {
   if (!typeNode) return undefined;
   if (ts.isTypeLiteralNode(typeNode)) return typeNode.members;
+  if (ts.isIntersectionTypeNode(typeNode)) {
+    return typeNode.types.flatMap(
+      (type) => resolveTypeMembers(type, declarations, seen) ?? [],
+    );
+  }
   if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
-    const declaration = declarations.get(typeNode.typeName.text);
-    if (declaration && ts.isInterfaceDeclaration(declaration)) return declaration.members;
+    const name = typeNode.typeName.text;
+    if (seen.has(name)) return undefined;
+    const declaration = declarations.get(name);
+    const nextSeen = new Set([...seen, name]);
+    if (declaration && ts.isInterfaceDeclaration(declaration)) {
+      const inherited = declaration.heritageClauses?.flatMap((clause) =>
+        clause.types.flatMap((type) =>
+          resolveTypeMembers(type, declarations, nextSeen) ?? [],
+        ),
+      ) ?? [];
+      return [...inherited, ...declaration.members];
+    }
     if (declaration && ts.isTypeAliasDeclaration(declaration)) {
-      return resolveTypeMembers(declaration.type, source, declarations);
+      return resolveTypeMembers(declaration.type, declarations, nextSeen);
     }
   }
   return undefined;
@@ -139,19 +158,67 @@ function eventNameFromMember(member: ts.TypeElement): ComponentEvent[] {
     const name = propertyName(member.name);
     if (!name) return [];
     return member.type
-      ? [{ name, payload: member.type.getText() }]
+      ? [{ name, payload: member.type.getText(member.getSourceFile()) }]
       : [{ name }];
   }
   if (!ts.isCallSignatureDeclaration(member)) return [];
   const firstParameter = member.parameters[0];
   const type = firstParameter?.type;
   if (type && ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal)) {
-    return [{ name: type.literal.text }];
+    const payload = member.parameters
+      .slice(1)
+      .map((parameter) => parameter.getText(parameter.getSourceFile()))
+      .join(", ");
+    return [
+      payload
+        ? { name: type.literal.text, payload }
+        : { name: type.literal.text },
+    ];
   }
   return [];
 }
 
-function parseScript(script: string, fileName: string): ScriptFacts {
+function destructuredDefaults(source: ts.SourceFile): Map<string, string> {
+  const defaults = new Map<string, string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.initializer
+    ) {
+      const initializer = node.initializer;
+      const containsProps =
+        (ts.isCallExpression(initializer) &&
+          ts.isIdentifier(initializer.expression) &&
+          ["defineProps", "withDefaults", "reactive"].includes(
+            initializer.expression.text,
+          )) ||
+        initializer.getText(source).includes("defineProps");
+      if (containsProps) {
+        for (const element of node.name.elements) {
+          if (!element.initializer) continue;
+          const bindingName = ts.isIdentifier(element.name)
+            ? element.name
+            : undefined;
+          const name = propertyName(element.propertyName ?? bindingName);
+          if (name) defaults.set(name, element.initializer.getText(source));
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return defaults;
+}
+
+function parseScript(
+  script: string,
+  fileName: string,
+  importedDeclarations = new Map<
+    string,
+    ts.InterfaceDeclaration | ts.TypeAliasDeclaration
+  >(),
+): ScriptFacts {
   if (!script.trim()) {
     return { props: [], events: [], slots: [], models: [], imports: [] };
   }
@@ -165,7 +232,7 @@ function parseScript(script: string, fileName: string): ScriptFacts {
   const declarations = new Map<
     string,
     ts.InterfaceDeclaration | ts.TypeAliasDeclaration
-  >();
+  >(importedDeclarations);
   const imports: string[] = [];
   let props: ComponentProp[] = [];
   const events: ComponentEvent[] = [];
@@ -190,8 +257,8 @@ function parseScript(script: string, fileName: string): ScriptFacts {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       const macro = node.expression.text;
       if (macro === "defineProps") {
-        const members = resolveTypeMembers(node.typeArguments?.[0], source, declarations);
-        if (members) props = propsFromMembers(members, source, declarations);
+        const members = resolveTypeMembers(node.typeArguments?.[0], declarations);
+        if (members) props = propsFromMembers(members, declarations);
       } else if (macro === "withDefaults") {
         const inner = node.arguments[0];
         if (
@@ -202,10 +269,9 @@ function parseScript(script: string, fileName: string): ScriptFacts {
         ) {
           const members = resolveTypeMembers(
             inner.typeArguments?.[0],
-            source,
             declarations,
           );
-          if (members) props = propsFromMembers(members, source, declarations);
+          if (members) props = propsFromMembers(members, declarations);
           const defaults = collectDefaults(node, source);
           props = props.map((prop) => {
             const defaultValue = defaults.get(prop.name);
@@ -219,10 +285,10 @@ function parseScript(script: string, fileName: string): ScriptFacts {
           return;
         }
       } else if (macro === "defineEmits") {
-        const members = resolveTypeMembers(node.typeArguments?.[0], source, declarations);
+        const members = resolveTypeMembers(node.typeArguments?.[0], declarations);
         if (members) events.push(...members.flatMap(eventNameFromMember));
       } else if (macro === "defineSlots") {
-        const members = resolveTypeMembers(node.typeArguments?.[0], source, declarations);
+        const members = resolveTypeMembers(node.typeArguments?.[0], declarations);
         if (members) {
           slots.push(
             ...members
@@ -244,6 +310,13 @@ function parseScript(script: string, fileName: string): ScriptFacts {
     ts.forEachChild(node, visit);
   };
   visit(source);
+  const defaults = destructuredDefaults(source);
+  props = props.map((prop) => {
+    const defaultValue = defaults.get(prop.name);
+    return defaultValue === undefined
+      ? prop
+      : { ...prop, required: false, defaultValue };
+  });
 
   return {
     props,
@@ -365,34 +438,207 @@ function classify(relativePath: string): {
     : { visibility: "feature" };
 }
 
+function sourceCandidates(
+  specifier: string,
+  fromFile: string,
+  rootPath: string,
+): string[] {
+  const bases: string[] = [];
+  if (specifier.startsWith(".")) {
+    bases.push(path.resolve(path.dirname(fromFile), specifier));
+  } else if (specifier.startsWith("~~/") || specifier.startsWith("@@/")) {
+    bases.push(path.resolve(rootPath, specifier.slice(3)));
+  } else if (specifier.startsWith("~/") || specifier.startsWith("@/")) {
+    const relative = specifier.slice(2);
+    bases.push(path.resolve(rootPath, relative));
+    bases.push(path.resolve(rootPath, "app", relative));
+  }
+  return [...new Set(
+    bases.flatMap((base) => [
+      base,
+      `${base}.ts`,
+      `${base}.tsx`,
+      `${base}.d.ts`,
+      `${base}.vue`,
+      path.join(base, "index.ts"),
+      path.join(base, "index.d.ts"),
+    ]),
+  )];
+}
+
+async function resolveSourceImport(
+  specifier: string,
+  fromFile: string,
+  rootPath: string,
+): Promise<string | undefined> {
+  for (const candidate of sourceCandidates(specifier, fromFile, rootPath)) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // Continue through deterministic local candidates.
+    }
+  }
+  return undefined;
+}
+
+function declarationsIn(source: ts.SourceFile) {
+  return source.statements.filter(
+    (
+      statement,
+    ): statement is ts.InterfaceDeclaration | ts.TypeAliasDeclaration =>
+      ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement),
+  );
+}
+
+async function importedTypeDeclarations(
+  script: string,
+  sourcePath: string,
+  rootPath: string,
+) {
+  const source = ts.createSourceFile(
+    sourcePath,
+    script,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const declarations = new Map<
+    string,
+    ts.InterfaceDeclaration | ts.TypeAliasDeclaration
+  >();
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const importedPath = await resolveSourceImport(
+      statement.moduleSpecifier.text,
+      sourcePath,
+      rootPath,
+    );
+    if (!importedPath || !/\.d?tsx?$/i.test(importedPath)) continue;
+    const importedSource = ts.createSourceFile(
+      importedPath,
+      await readFile(importedPath, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      importedPath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const available = declarationsIn(importedSource);
+    for (const declaration of available) {
+      declarations.set(declaration.name.text, declaration);
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const binding of bindings.elements) {
+        const importedName = binding.propertyName?.text ?? binding.name.text;
+        const declaration = available.find(
+          (candidate) => candidate.name.text === importedName,
+        );
+        if (declaration) declarations.set(binding.name.text, declaration);
+      }
+    }
+    const defaultName = statement.importClause?.name?.text;
+    if (defaultName) {
+      const declaration = available.find((candidate) =>
+        candidate.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword,
+        ),
+      );
+      if (declaration) declarations.set(defaultName, declaration);
+    }
+  }
+  return declarations;
+}
+
+async function collectTestFacts(
+  rootPath: string,
+  testPaths: string[],
+): Promise<TestFacts[]> {
+  return Promise.all(
+    testPaths.map(async (testPath) => {
+      const absolutePath = path.resolve(rootPath, testPath);
+      const sourceText = await readFile(absolutePath, "utf8");
+      const source = ts.createSourceFile(
+        absolutePath,
+        sourceText,
+        ts.ScriptTarget.Latest,
+        true,
+        /\.tsx$/i.test(testPath) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      );
+      const resolvedImports = new Set<string>();
+      const importedNames = new Set<string>();
+      const mountedNames = new Set<string>();
+
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement)) continue;
+        const clause = statement.importClause;
+        if (clause?.name) importedNames.add(clause.name.text);
+        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+          for (const binding of clause.namedBindings.elements) {
+            importedNames.add(binding.name.text);
+          }
+        }
+        if (ts.isStringLiteral(statement.moduleSpecifier)) {
+          const imported = await resolveSourceImport(
+            statement.moduleSpecifier.text,
+            absolutePath,
+            rootPath,
+          );
+          if (imported?.toLowerCase().endsWith(".vue")) {
+            resolvedImports.add(slash(path.relative(rootPath, imported)).toLowerCase());
+          }
+        }
+      }
+
+      const visit = (node: ts.Node): void => {
+        if (
+          ts.isCallExpression(node) &&
+          ts.isIdentifier(node.expression) &&
+          /^(?:mount|mountSuspended|shallowMount|render)$/i.test(
+            node.expression.text,
+          )
+        ) {
+          const target = node.arguments[0];
+          if (target && ts.isIdentifier(target)) mountedNames.add(target.text);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+
+      return {
+        path: slash(testPath),
+        resolvedImports,
+        importedNames,
+        mountedNames,
+      };
+    }),
+  );
+}
+
 function testsFor(
   componentPath: string,
   componentName: string,
-  testPaths: string[],
+  effectiveName: string,
+  tests: TestFacts[],
 ): string[] {
   const rootParts = componentRoot(componentPath);
   const relativeStem = slash(
     [...rootParts.slice(0, -1), path.basename(rootParts.at(-1) ?? "", ".vue")]
       .join("/"),
   ).toLowerCase();
-  const exact = testPaths.filter((testPath) => {
-    const normalized = `/${slash(testPath).toLowerCase()}`;
-    return (
+  const normalizedComponentPath = slash(componentPath).toLowerCase();
+  const names = new Set([componentName, effectiveName]);
+  return tests.filter((test) => {
+    if (test.resolvedImports.has(normalizedComponentPath)) return true;
+    const normalized = `/${test.path.toLowerCase()}`;
+    const mirrored =
       normalized.includes(`/components/${relativeStem}.test.`) ||
-      normalized.includes(`/components/${relativeStem}.spec.`)
+      normalized.includes(`/components/${relativeStem}.spec.`);
+    const referenced = [...names].some(
+      (name) => test.importedNames.has(name) && test.mountedNames.has(name),
     );
-  });
-  if (exact.length > 0) return exact;
-  const sourceStem = path.basename(componentPath, path.extname(componentPath)).toLowerCase();
-  const candidates = new Set([sourceStem, componentName.toLowerCase()]);
-  return testPaths.filter((testPath) => {
-    const base = path.basename(testPath).toLowerCase();
-    return [...candidates].some(
-      (candidate) =>
-        base.startsWith(`${candidate}.`) ||
-        slash(testPath).toLowerCase().includes(`/${candidate}/`),
-    );
-  });
+    return referenced || mirrored;
+  }).map((test) => test.path);
 }
 
 export class VueAdapter implements FrameworkAdapter {
@@ -418,6 +664,7 @@ export class VueAdapter implements FrameworkAdapter {
         ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**"],
       })
     ).map(slash);
+    const testFacts = await collectTestFacts(rootPath, testPaths);
 
     return Promise.all(
       files.sort().map(async (sourcePath) => {
@@ -428,7 +675,16 @@ export class VueAdapter implements FrameworkAdapter {
           parsed.descriptor.scriptSetup?.content ??
           parsed.descriptor.script?.content ??
           "";
-        const scriptFacts = parseScript(script, sourcePath);
+        const externalDeclarations = await importedTypeDeclarations(
+          script,
+          sourcePath,
+          rootPath,
+        );
+        const scriptFacts = parseScript(
+          script,
+          sourcePath,
+          externalDeclarations,
+        );
         const templateFacts = parseTemplate(parsed.descriptor.template?.content ?? "");
         const name = pascalCase(path.basename(sourcePath, ".vue"));
         const effectiveName = effectiveNuxtName(relativePath) || name;
@@ -438,7 +694,12 @@ export class VueAdapter implements FrameworkAdapter {
           : /(^|\/)layouts\//i.test(relativePath)
             ? ("layout" as const)
             : ("component" as const);
-        const componentTests = testsFor(relativePath, name, testPaths);
+        const componentTests = testsFor(
+          relativePath,
+          name,
+          effectiveName,
+          testFacts,
+        );
         return {
           id: componentId("vue", relativePath, name),
           framework: "vue",
