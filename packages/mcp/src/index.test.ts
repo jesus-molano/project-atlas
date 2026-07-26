@@ -7,7 +7,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { createMcpServer } from "./index.js";
 
-describe("Component Atlas MCP surface", () => {
+describe("Project Atlas MCP surface", () => {
   it("exposes the complete compact Project Atlas tool contract", async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const server = createMcpServer();

@@ -1,4 +1,3 @@
-import { projectId } from "@component-atlas/core/naming";
 import type { ProjectAtlasSnapshot } from "@component-atlas/runtime";
 import { AtlasStore } from "@component-atlas/store";
 import { createHash } from "node:crypto";
@@ -24,7 +23,10 @@ export function projectAtlasCliEntry(): string {
 
 export function loadProjectAtlasSnapshot(): ProjectAtlasSnapshot {
   const rootPath = projectRootPath();
-  const id = projectId(rootPath);
+  const id = createHash("sha256")
+    .update(path.resolve(rootPath).toLowerCase())
+    .digest("hex")
+    .slice(0, 20);
   const store = new AtlasStore(id);
   try {
     const stored = store.readProjectSnapshot(id);

@@ -690,8 +690,20 @@ export function inspectDesignNode(
   const node = resolveNode(index, selector);
   const byId = new Map(index.nodes.map((item) => [item.id, item]));
   const breadcrumbs: DesignNodeInspection["breadcrumbs"] = [];
+  const visited = new Set<string>([node.id]);
   let current = node.parentId ? byId.get(node.parentId) : undefined;
   while (current) {
+    if (visited.has(current.id)) {
+      throw new Error(
+        `Design index contains a cyclic parent relationship at node ${current.id}.`,
+      );
+    }
+    if (visited.size >= 128) {
+      throw new Error(
+        "Design index parent hierarchy exceeds the 128-level safety limit.",
+      );
+    }
+    visited.add(current.id);
     breadcrumbs.unshift({
       id: current.id,
       name: current.name,

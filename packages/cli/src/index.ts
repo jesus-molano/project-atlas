@@ -58,11 +58,33 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function waitForUrl(url: string, attempts = 30): Promise<void> {
+export async function waitForViewer(
+  url: string,
+  expectedProjectId: string,
+  attempts = 30,
+): Promise<void> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const response = await fetch(url);
-      if (response.ok) return;
+      const response = await fetch(`${url}/api/workspace`, {
+        signal: AbortSignal.timeout(500),
+      });
+      if (response.ok) {
+        const payload = (await response.json()) as unknown;
+        if (
+          payload &&
+          typeof payload === "object" &&
+          "graph" in payload &&
+          payload.graph &&
+          typeof payload.graph === "object" &&
+          "project" in payload.graph &&
+          payload.graph.project &&
+          typeof payload.graph.project === "object" &&
+          "id" in payload.graph.project &&
+          payload.graph.project.id === expectedProjectId
+        ) {
+          return;
+        }
+      }
     } catch {
       // The local server may still be binding its port.
     }
@@ -173,15 +195,26 @@ async function openViewer(
   const shutdown = (): void => {
     if (!child.killed) child.kill();
   };
+  const removeSignalListeners = (): void => {
+    process.removeListener("SIGINT", shutdown);
+    process.removeListener("SIGTERM", shutdown);
+  };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
   child.once("error", (error) => {
     process.stderr.write(`Viewer process failed: ${error.message}\n`);
   });
   child.on("exit", (code) => {
+    removeSignalListeners();
     if (code && code !== 0) process.exitCode = code;
   });
-  await waitForUrl(url);
+  try {
+    await waitForViewer(url, graph.project.id);
+  } catch (error) {
+    shutdown();
+    removeSignalListeners();
+    throw error;
+  }
   if (options.browser) await open(url);
   process.stdout.write(`Project Atlas GUI is running at ${url}\n`);
 }

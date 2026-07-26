@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildGraphEdges, compareComponents, searchComponents } from "./graph.js";
+import {
+  buildGraphEdges,
+  compareComponents,
+  componentImpact,
+  searchComponents,
+} from "./graph.js";
 import {
   GRAPH_SCHEMA_VERSION,
   type ComponentGraph,
@@ -88,5 +93,58 @@ describe("component graph", () => {
           edge.target === modal.id,
       ),
     ).toBe(true);
+  });
+
+  it("terminates on cyclic render graphs without reporting the target as its own consumer", () => {
+    const left = component("LeftPanel", [], []);
+    const right = component("RightPanel", [], []);
+    const graph: ComponentGraph = {
+      schemaVersion: GRAPH_SCHEMA_VERSION,
+      project: {
+        id: "cyclic-fixture",
+        name: "cyclic-fixture",
+        rootPath: "/fixture",
+        framework: "vue",
+        scannedAt: new Date(0).toISOString(),
+        sourceFiles: 2,
+      },
+      components: [left, right],
+      edges: [
+        {
+          id: "left-right",
+          kind: "renders",
+          source: left.id,
+          target: right.id,
+        },
+        {
+          id: "right-left",
+          kind: "renders",
+          source: right.id,
+          target: left.id,
+        },
+        {
+          id: "left-left",
+          kind: "renders",
+          source: left.id,
+          target: left.id,
+        },
+      ],
+      tokens: [],
+    };
+
+    const impact = componentImpact(graph, left.id);
+    expect(impact.directConsumers.map((item) => item.id)).toEqual([right.id]);
+    expect(impact.transitiveConsumers.map((item) => item.id)).toEqual([right.id]);
+  });
+
+  it("bounds similarity edges for large families with the same public shape", () => {
+    const family = Array.from({ length: 300 }, (_, index) =>
+      component(`ListItem${String(index).padStart(3, "0")}`, ["label"], []),
+    );
+    const similarities = buildGraphEdges(family).filter(
+      (edge) => edge.kind === "similar_to",
+    );
+    expect(similarities.length).toBeGreaterThan(0);
+    expect(similarities.length).toBeLessThanOrEqual(family.length * 8);
   });
 });

@@ -36,6 +36,8 @@ const INDEXED_NODE_TYPES = new Set([
 ]);
 const PAGE_NODE_TYPES = new Set(["CANVAS", "PAGE"]);
 const MAX_INDEXED_NODES = 2_000;
+const MAX_METADATA_NODES = 10_000;
+const MAX_METADATA_DEPTH = 128;
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -111,6 +113,7 @@ function parseMetadataXml(payload: string): RawDesignNode[] {
   const roots: RawDesignNode[] = [];
   const stack: RawDesignNode[] = [];
   let generatedId = 0;
+  let parsedNodes = 0;
   const tags = xml.matchAll(/<\s*(\/?)\s*([A-Za-z_][\w:.-]*)([^>]*)>/g);
   for (const match of tags) {
     const closing = match[1] === "/";
@@ -118,8 +121,22 @@ function parseMetadataXml(payload: string): RawDesignNode[] {
     const tail = match[3] ?? "";
     if (!tagName || tagName.startsWith("!") || tagName.startsWith("?")) continue;
     if (closing) {
+      if (stack.length === 0) {
+        throw new Error("Figma MCP metadata contains an unmatched closing tag.");
+      }
       stack.pop();
       continue;
+    }
+    parsedNodes += 1;
+    if (parsedNodes > MAX_METADATA_NODES) {
+      throw new Error(
+        `Figma metadata exceeds the ${MAX_METADATA_NODES}-node safety limit.`,
+      );
+    }
+    if (stack.length >= MAX_METADATA_DEPTH) {
+      throw new Error(
+        `Figma metadata exceeds the ${MAX_METADATA_DEPTH}-level safety limit.`,
+      );
     }
     const attributes = parseXmlAttributes(tail);
     const id =
@@ -143,21 +160,48 @@ function parseMetadataXml(payload: string): RawDesignNode[] {
       "Figma MCP metadata did not contain parseable XML nodes. Pass page or node metadata, not a prose summary.",
     );
   }
+  if (stack.length > 0) {
+    throw new Error("Figma MCP metadata contains unclosed XML nodes.");
+  }
   return roots;
 }
 
-function rawNodeFromRest(value: unknown): RawDesignNode | undefined {
+interface RestTraversalState {
+  nodes: number;
+  visited: WeakSet<object>;
+}
+
+function rawNodeFromRest(
+  value: unknown,
+  depth = 0,
+  state: RestTraversalState = { nodes: 0, visited: new WeakSet<object>() },
+): RawDesignNode | undefined {
   const item = record(value);
   const id = text(item?.id);
   const type = text(item?.type);
   if (!item || !id || !type) return undefined;
+  if (depth > MAX_METADATA_DEPTH) {
+    throw new Error(
+      `Figma metadata exceeds the ${MAX_METADATA_DEPTH}-level safety limit.`,
+    );
+  }
+  if (state.visited.has(item)) {
+    throw new Error(`Figma metadata contains a cyclic node at ${id}.`);
+  }
+  state.visited.add(item);
+  state.nodes += 1;
+  if (state.nodes > MAX_METADATA_NODES) {
+    throw new Error(
+      `Figma metadata exceeds the ${MAX_METADATA_NODES}-node safety limit.`,
+    );
+  }
   return {
     id,
     name: text(item.name) ?? type,
     type: normalizedType(type),
     attributes: item,
     children: array(item.children)
-      .map(rawNodeFromRest)
+      .map((child) => rawNodeFromRest(child, depth + 1, state))
       .filter((child): child is RawDesignNode => Boolean(child)),
   };
 }
@@ -234,11 +278,16 @@ function statusAttribute(node: RawDesignNode): unknown {
 }
 
 function metadataExposesDevStatus(nodes: RawDesignNode[]): boolean {
-  return nodes.some(
-    (node) =>
-      statusAttribute(node) !== undefined ||
-      metadataExposesDevStatus(node.children),
-  );
+  const pending = [...nodes];
+  const visited = new Set<RawDesignNode>();
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (visited.has(node)) continue;
+    visited.add(node);
+    if (statusAttribute(node) !== undefined) return true;
+    pending.push(...node.children);
+  }
+  return false;
 }
 
 function devStatusAvailability(
@@ -560,7 +609,12 @@ function componentNamesIn(
   componentLookup: Map<string, string>,
 ): string[] {
   const names = new Set<string>();
-  const visit = (current: RawDesignNode): void => {
+  const pending = [node];
+  const visited = new Set<RawDesignNode>();
+  while (pending.length > 0 && names.size < 12) {
+    const current = pending.pop()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
     if (
       current !== node &&
       ["INSTANCE", "COMPONENT", "COMPONENT_SET"].includes(current.type)
@@ -570,10 +624,8 @@ function componentNamesIn(
         text(current.attributes["component-id"]);
       names.add(componentId ? componentLookup.get(componentId) ?? current.name : current.name);
     }
-    if (names.size >= 12) return;
-    for (const child of current.children) visit(child);
-  };
-  visit(node);
+    pending.push(...current.children);
+  }
   return [...names].slice(0, 12);
 }
 
@@ -582,12 +634,15 @@ function codeConnectionsIn(
   codeConnections: Map<string, DesignCodeConnection[]>,
 ): DesignCodeConnection[] {
   const connections: DesignCodeConnection[] = [];
-  const visit = (current: RawDesignNode): void => {
+  const pending = [node];
+  const visited = new Set<RawDesignNode>();
+  while (pending.length > 0 && connections.length < 12) {
+    const current = pending.pop()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
     connections.push(...(codeConnections.get(current.id) ?? []));
-    if (connections.length >= 12) return;
-    for (const child of current.children) visit(child);
-  };
-  visit(node);
+    pending.push(...current.children);
+  }
   return [
     ...new Map(
       connections.map((connection) => [
@@ -647,6 +702,8 @@ function flattenNodes(
   const pages: DesignFileIndex["pages"] = [];
   const resources = resourcesByNode(enrichment);
   const codeConnections = normalizeCodeConnections(enrichment);
+  const visitedRawNodes = new Set<RawDesignNode>();
+  let traversedRawNodes = 0;
   const unknownPage = scopePage ?? {
     id: `page:${scopeNodeId ?? "unknown"}`,
     name: "Page unavailable from scoped metadata",
@@ -656,7 +713,23 @@ function flattenNodes(
     page: { id: string; name: string },
     parentId: string | undefined,
     currentPath: string[],
+    depth = 0,
   ): string | undefined => {
+    if (visitedRawNodes.has(raw)) {
+      throw new Error(`Figma metadata contains a cyclic node at ${raw.id}.`);
+    }
+    if (depth > MAX_METADATA_DEPTH) {
+      throw new Error(
+        `Figma metadata exceeds the ${MAX_METADATA_DEPTH}-level safety limit.`,
+      );
+    }
+    visitedRawNodes.add(raw);
+    traversedRawNodes += 1;
+    if (traversedRawNodes > MAX_METADATA_NODES) {
+      throw new Error(
+        `Figma metadata exceeds the ${MAX_METADATA_NODES}-node safety limit.`,
+      );
+    }
     if (nodes.length >= MAX_INDEXED_NODES) return undefined;
     const isPage = PAGE_NODE_TYPES.has(raw.type);
     const activePage = isPage ? { id: raw.id, name: raw.name } : page;
@@ -713,7 +786,13 @@ function flattenNodes(
     }
     const childPath = keep ? [...basePath, raw.name] : basePath;
     for (const child of raw.children) {
-      const childId = walk(child, activePage, currentParent, childPath);
+      const childId = walk(
+        child,
+        activePage,
+        currentParent,
+        childPath,
+        depth + 1,
+      );
       if (indexedNode && childId) indexedNode.childIds.push(childId);
     }
     return indexedNode?.id;

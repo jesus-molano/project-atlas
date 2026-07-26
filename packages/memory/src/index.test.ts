@@ -3,6 +3,7 @@ import {
   MEMORY_SCHEMA_VERSION,
   assertMemoryContentSafe,
   compactMemorySearch,
+  decodeCursor,
   findSecretLikeContent,
   fitBudgetedResponse,
   memoryItemMarkdown,
@@ -63,6 +64,21 @@ describe("Project Atlas memory primitives", () => {
         },
       ],
     });
+
+    const withUnknownRelation = memoryItemMarkdown({
+      ...baseItem,
+      relations: [],
+    }).replace(
+      "relations: []",
+      'relations: [{"kind":"unknown_relation","targetId":"elsewhere"}]',
+    );
+    expect(
+      parseMemoryMarkdown(withUnknownRelation, {
+        projectId: "project-a",
+        projectName: "Project A",
+        sourcePath: "project-memory/invalid-relation.md",
+      }).relations,
+    ).toEqual([]);
   });
 
   it("enforces hard response budgets and exposes pagination metrics", () => {
@@ -137,6 +153,34 @@ describe("Project Atlas memory primitives", () => {
     );
     expect(() => assertMemoryContentSafe(content)).not.toThrow(
       /fixture-value-that-must-never-be-stored/,
+    );
+  });
+
+  it("bounds malformed cursors and adversarial memory structures", () => {
+    const cyclic: Record<string, unknown> = { summary: "Safe value" };
+    cyclic.self = cyclic;
+    expect(findSecretLikeContent(cyclic)).toEqual([]);
+    expect(() =>
+      fitBudgetedResponse({ cyclic }, { budgetChars: 800 }),
+    ).toThrow(/JSON-serializable data without cycles/);
+
+    const invalidCursor = Buffer.from(
+      JSON.stringify({ offset: "not-a-number" }),
+      "utf8",
+    ).toString("base64url");
+    expect(() => decodeCursor(invalidCursor)).toThrow(
+      "Invalid Project Atlas cursor.",
+    );
+
+    const deeplyNested: Record<string, unknown> = {};
+    let current = deeplyNested;
+    for (let index = 0; index < 70; index += 1) {
+      const next: Record<string, unknown> = {};
+      current.next = next;
+      current = next;
+    }
+    expect(() => findSecretLikeContent(deeplyNested)).toThrow(
+      /64-level safety limit/,
     );
   });
 });

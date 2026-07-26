@@ -22,7 +22,13 @@ function normalizedBudget(value: number | undefined): number {
 }
 
 function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    throw new Error(
+      "Compact responses must contain finite, JSON-serializable data without cycles.",
+    );
+  }
 }
 
 interface ArrayRef {
@@ -40,30 +46,64 @@ function collectShrinkable(
   value: unknown,
   arrays: ArrayRef[],
   strings: StringRef[],
-  parent?: Record<string, unknown> | unknown[],
-  key?: string | number,
 ): void {
-  if (typeof value === "string") {
-    if (parent && key !== undefined && value.length > 48) {
-      strings.push({ parent, key, value });
+  const pending: Array<{
+    value: unknown;
+    parent?: Record<string, unknown> | unknown[];
+    key?: string | number;
+    depth: number;
+  }> = [{ value, depth: 0 }];
+  let visitedNodes = 0;
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    visitedNodes += 1;
+    if (visitedNodes > 20_000 || current.depth > 128) {
+      throw new Error(
+        "Compact response exceeds the structural safety limit.",
+      );
     }
-    return;
-  }
-  if (Array.isArray(value)) {
-    arrays.push({
-      value,
-      ...(typeof key === "string" ? { key } : {}),
-    });
-    value.forEach((item, index) =>
-      collectShrinkable(item, arrays, strings, value, index),
-    );
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-  const object = value as Record<string, unknown>;
-  for (const [childKey, child] of Object.entries(object)) {
-    if (childKey === "metrics") continue;
-    collectShrinkable(child, arrays, strings, object, childKey);
+    if (typeof current.value === "string") {
+      if (
+        current.parent &&
+        current.key !== undefined &&
+        current.value.length > 48
+      ) {
+        strings.push({
+          parent: current.parent,
+          key: current.key,
+          value: current.value,
+        });
+      }
+      continue;
+    }
+    if (Array.isArray(current.value)) {
+      arrays.push({
+        value: current.value,
+        ...(typeof current.key === "string" ? { key: current.key } : {}),
+      });
+      for (let index = current.value.length - 1; index >= 0; index -= 1) {
+        pending.push({
+          value: current.value[index],
+          parent: current.value,
+          key: index,
+          depth: current.depth + 1,
+        });
+      }
+      continue;
+    }
+    if (!current.value || typeof current.value !== "object") continue;
+    const object = current.value as Record<string, unknown>;
+    const entries = Object.entries(object);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [childKey, child] = entries[index]!;
+      if (childKey === "metrics") continue;
+      pending.push({
+        value: child,
+        parent: object,
+        key: childKey,
+        depth: current.depth + 1,
+      });
+    }
   }
 }
 
@@ -166,9 +206,10 @@ export function decodeCursor(cursor: string | undefined): number {
     const parsed = JSON.parse(
       Buffer.from(cursor, "base64url").toString("utf8"),
     ) as { offset?: unknown };
-    return Number.isInteger(parsed.offset) && (parsed.offset as number) >= 0
-      ? (parsed.offset as number)
-      : 0;
+    if (!Number.isInteger(parsed.offset) || (parsed.offset as number) < 0) {
+      throw new Error("Invalid Project Atlas cursor.");
+    }
+    return parsed.offset as number;
   } catch {
     throw new Error("Invalid Project Atlas cursor.");
   }

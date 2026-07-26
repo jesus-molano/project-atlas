@@ -189,7 +189,7 @@ function catalogMarkdown(graph: ComponentGraph): string {
       return `| ${component.effectiveName} | ${component.visibility} | \`${component.relativePath}\` | ${props} |`;
     })
     .join("\n");
-  return `# Component Atlas catalog
+  return `# Project Atlas code catalog
 
 Generated ${graph.project.scannedAt}. Re-run \`component-atlas scan\` to refresh.
 
@@ -283,7 +283,7 @@ export async function loadProjectGraph(
     store.close();
   }
   if (options.scanIfMissing === false) {
-    throw new Error(`No Component Atlas index exists for ${rootPath}.`);
+    throw new Error(`No Project Atlas index exists for ${rootPath}.`);
   }
   return scanProject(rootPath);
 }

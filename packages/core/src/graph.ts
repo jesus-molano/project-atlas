@@ -7,6 +7,9 @@ import type {
 } from "./types.js";
 import { edgeId, tokenize } from "./text.js";
 
+const MAX_SIMILARITY_NEIGHBORS_PER_SIGNAL = 20;
+const MAX_SIMILARITY_CANDIDATES_PER_COMPONENT = 8;
+
 function jaccard(left: Iterable<string>, right: Iterable<string>): number {
   const a = new Set(left);
   const b = new Set(right);
@@ -107,27 +110,9 @@ export function buildGraphEdges(
     }
   }
 
-  for (let leftIndex = 0; leftIndex < components.length; leftIndex += 1) {
-    const left = components[leftIndex];
-    if (!left) continue;
-    for (
-      let rightIndex = leftIndex + 1;
-      rightIndex < components.length;
-      rightIndex += 1
-    ) {
-      const right = components[rightIndex];
-      if (!right) continue;
-      const evidence = compareComponents(left, right);
-      if (evidence.score < similarityThreshold) continue;
-      edges.push({
-        id: edgeId("similar_to", left.id, right.id),
-        kind: "similar_to",
-        source: left.id,
-        target: right.id,
-        evidence,
-      });
-    }
-  }
+  edges.push(
+    ...boundedSimilarityEdges(components, similarityThreshold),
+  );
 
   for (const component of components) {
     for (const testPath of component.testPaths) {
@@ -142,6 +127,119 @@ export function buildGraphEdges(
   }
 
   return dedupeEdges(edges);
+}
+
+function similaritySignals(component: ComponentNode): string[] {
+  const signals = [
+    ...tokenize(`${component.name} ${component.effectiveName}`).map(
+      (value) => `name:${value}`,
+    ),
+    ...component.props.map((prop) => `prop:${prop.name.toLowerCase()}`),
+    ...component.renderedNames.map(
+      (value) => `render:${value.toLowerCase()}`,
+    ),
+    ...component.classTokens
+      .slice(0, 12)
+      .map((value) => `class:${value.toLowerCase()}`),
+    `shape:${component.props.length}:${component.slots.length}:${component.events.length}`,
+  ];
+  return [...new Set(signals)];
+}
+
+function boundedSimilarityEdges(
+  components: ComponentNode[],
+  similarityThreshold: number,
+): GraphEdge[] {
+  const byId = new Map(
+    components.map((component) => [component.id, component]),
+  );
+  const buckets = new Map<string, string[]>();
+  for (const component of components) {
+    for (const signal of similaritySignals(component)) {
+      const bucket = buckets.get(signal) ?? [];
+      bucket.push(component.id);
+      buckets.set(signal, bucket);
+    }
+  }
+  const candidates = new Map<string, Set<string>>();
+  for (const bucket of buckets.values()) {
+    const ids = [...new Set(bucket)].sort();
+    for (let index = 0; index < ids.length; index += 1) {
+      const source = ids[index]!;
+      const sourceCandidates = candidates.get(source) ?? new Set<string>();
+      const start = Math.max(
+        0,
+        index - MAX_SIMILARITY_NEIGHBORS_PER_SIGNAL,
+      );
+      const end = Math.min(
+        ids.length,
+        index + MAX_SIMILARITY_NEIGHBORS_PER_SIGNAL + 1,
+      );
+      for (let neighbor = start; neighbor < end; neighbor += 1) {
+        const target = ids[neighbor]!;
+        if (target !== source) sourceCandidates.add(target);
+      }
+      candidates.set(source, sourceCandidates);
+    }
+  }
+
+  const evidenceByPair = new Map<
+    string,
+    {
+      source: string;
+      target: string;
+      evidence: SimilarityEvidence;
+    }
+  >();
+  const selectedPairIds = new Set<string>();
+  for (const component of components) {
+    const ranked = [...(candidates.get(component.id) ?? [])]
+      .map((candidateId) => {
+        const candidate = byId.get(candidateId);
+        if (!candidate) return undefined;
+        const [source, target] = [component.id, candidate.id].sort();
+        const pairId = edgeId("similar_to", source!, target!);
+        let pair = evidenceByPair.get(pairId);
+        if (!pair) {
+          pair = {
+            source: source!,
+            target: target!,
+            evidence: compareComponents(component, candidate),
+          };
+          evidenceByPair.set(pairId, pair);
+        }
+        return { pairId, candidateId, evidence: pair.evidence };
+      })
+      .filter(
+        (
+          result,
+        ): result is {
+          pairId: string;
+          candidateId: string;
+          evidence: SimilarityEvidence;
+        } =>
+          Boolean(result && result.evidence.score >= similarityThreshold),
+      )
+      .sort(
+        (left, right) =>
+          right.evidence.score - left.evidence.score ||
+          left.candidateId.localeCompare(right.candidateId),
+      )
+      .slice(0, MAX_SIMILARITY_CANDIDATES_PER_COMPONENT);
+    for (const result of ranked) selectedPairIds.add(result.pairId);
+  }
+  return [...selectedPairIds]
+    .map((pairId) => {
+      const pair = evidenceByPair.get(pairId)!;
+      return {
+        id: pairId,
+        kind: "similar_to" as const,
+        source: pair.source,
+        target: pair.target,
+        evidence: pair.evidence,
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function dedupeEdges(edges: GraphEdge[]): GraphEdge[] {
@@ -298,8 +396,10 @@ export function componentImpact(
     consumers.add(edge.source);
     reverse.set(edge.target, consumers);
   }
-  const directIds = [...(reverse.get(componentId) ?? [])];
-  const visited = new Set<string>(directIds);
+  const directIds = [...(reverse.get(componentId) ?? [])].filter(
+    (id) => id !== componentId,
+  );
+  const visited = new Set<string>([componentId, ...directIds]);
   const queue = [...directIds];
   while (queue.length > 0) {
     const current = queue.shift();
@@ -315,6 +415,7 @@ export function componentImpact(
       .map((id) => byId.get(id))
       .filter((node): node is ComponentNode => Boolean(node)),
     transitiveConsumers: [...visited]
+      .filter((id) => id !== componentId)
       .map((id) => byId.get(id))
       .filter((node): node is ComponentNode => Boolean(node)),
   };

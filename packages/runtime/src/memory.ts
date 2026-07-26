@@ -3,6 +3,7 @@ import {
   access,
   mkdir,
   readFile,
+  realpath,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -108,6 +109,7 @@ export async function indexProjectMemory(rootPath: string) {
     unique: true,
     dot: true,
     ignore: ["**/node_modules/**"],
+    followSymbolicLinks: false,
   });
   const entries: Array<{ item: MemoryItem; sourceHash: string }> = [];
   const sourceById = new Map<string, string>();
@@ -758,6 +760,58 @@ function proposalFindings(
   return findings;
 }
 
+const memoryTypes = new Set<MemoryItem["type"]>([
+  "project",
+  "domain",
+  "glossary-term",
+  "subsystem",
+  "module",
+  "convention",
+  "decision",
+  "constraint",
+  "integration",
+  "known-issue",
+  "fragile-area",
+  "attempt",
+  "outcome",
+  "plan",
+  "debt",
+  "note",
+]);
+const memoryAuthorities = new Set<MemoryItem["authority"]>([
+  "observed",
+  "inferred",
+  "decided",
+  "verified",
+]);
+const memoryScopes = new Set<MemoryScope>([
+  "canonical",
+  "local",
+  "episodic",
+]);
+
+function assertMemoryDrafts(items: MemoryItemDraft[]): void {
+  if (!Array.isArray(items) || items.length === 0 || items.length > 20) {
+    throw new Error("A memory proposal requires between 1 and 20 typed items.");
+  }
+  for (const [index, item] of items.entries()) {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      !memoryTypes.has(item.type) ||
+      !memoryAuthorities.has(item.authority) ||
+      !item.title?.trim() ||
+      !item.summary?.trim() ||
+      !Number.isFinite(item.confidence) ||
+      item.confidence < 0 ||
+      item.confidence > 1 ||
+      (item.scope !== undefined && !memoryScopes.has(item.scope))
+    ) {
+      throw new Error(`Memory proposal item ${index + 1} is invalid.`);
+    }
+  }
+}
+
 export interface ProposeMemoryUpdateInput {
   rootPath: string;
   rationale: string;
@@ -771,6 +825,7 @@ export async function proposeMemoryUpdate(input: ProposeMemoryUpdateInput) {
   if (!input.rationale.trim() || input.items.length === 0) {
     throw new Error("A memory proposal needs a rationale and at least one item.");
   }
+  assertMemoryDrafts(input.items);
   assertMemoryContentSafe({
     rationale: input.rationale,
     evidence: input.evidence,
@@ -883,6 +938,17 @@ async function writeMemoryItem(
       ? path.join(rootPath, "project-memory")
       : path.join(rootPath, ".component-atlas", "memory");
   await mkdir(directory, { recursive: true });
+  const [realRoot, realDirectory] = await Promise.all([
+    realpath(rootPath),
+    realpath(directory),
+  ]);
+  const directoryRelative = path.relative(realRoot, realDirectory);
+  if (
+    directoryRelative.startsWith("..") ||
+    path.isAbsolute(directoryRelative)
+  ) {
+    throw new Error("Refusing to write memory outside the project root.");
+  }
   const filePath = path.join(directory, `${safeFileName(item.id)}.md`);
   const relativePath = slash(path.relative(rootPath, filePath));
   const next = { ...item, bodyPath: relativePath };
@@ -901,7 +967,17 @@ async function rewriteSupersededSource(
     throw new Error(`Refusing to rewrite memory outside project scope: ${item.bodyPath}`);
   }
   if (await exists(absolute)) {
-    await writeFile(absolute, memoryItemMarkdown(item), "utf8");
+    const [realRoot, realSource] = await Promise.all([
+      realpath(rootPath),
+      realpath(absolute),
+    ]);
+    const realRelative = path.relative(realRoot, realSource);
+    if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+      throw new Error(
+        `Refusing to rewrite memory outside project scope: ${item.bodyPath}`,
+      );
+    }
+    await writeFile(realSource, memoryItemMarkdown(item), "utf8");
   }
 }
 
@@ -1080,6 +1156,7 @@ export async function reviseMemoryProposal(input: {
   if (!rationale || input.items.length === 0) {
     throw new Error("A memory proposal needs a rationale and at least one item.");
   }
+  assertMemoryDrafts(input.items);
   assertMemoryContentSafe({
     rationale,
     evidence: input.evidence,
@@ -1229,6 +1306,15 @@ export interface RecordOutcomeInput {
 }
 
 export async function recordProjectOutcome(input: RecordOutcomeInput) {
+  if (
+    !input.task.trim() ||
+    !input.summary.trim() ||
+    !["success", "failure", "partial"].includes(input.result)
+  ) {
+    throw new Error(
+      "A task outcome requires a task, a summary, and a valid result.",
+    );
+  }
   assertMemoryContentSafe(input);
   const graph = await loadProjectGraph(input.rootPath);
   const createdAt = new Date().toISOString();

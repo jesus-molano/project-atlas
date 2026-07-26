@@ -130,7 +130,9 @@ Edge types:
 - `tested_by`: component-to-test traceability.
 
 Similarity is deterministic: name 30%, props 25%, rendered children 20%, style
-tokens 15%, and API shape 10%.
+tokens 15%, and API shape 10%. Candidate discovery uses bounded shared-signal
+neighborhoods and retains at most eight strongest candidates per component, so
+a family of similar components cannot create a complete quadratic graph.
 
 Route and layout SFCs participate in render edges so an actual page consumer is
 visible in impact traversal, but they are excluded from reusable-component
@@ -171,7 +173,9 @@ project-memory/             # optional canonical team knowledge
 ```
 
 See [project-memory.md](project-memory.md) for the memory schema and
-[token-budgets.md](token-budgets.md) for response guarantees.
+[token-budgets.md](token-budgets.md) for response guarantees. The reproducible
+resource, termination, dependency and performance baseline is in
+[quality-audit.md](quality-audit.md).
 
 ## Human control plane
 

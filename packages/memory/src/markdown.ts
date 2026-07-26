@@ -5,6 +5,7 @@ import {
   type MemoryAuthority,
   type MemoryItem,
   type MemoryRelation,
+  type MemoryRelationKind,
   type MemoryScope,
   type MemoryStatus,
   type MemoryType,
@@ -42,6 +43,23 @@ const AUTHORITIES = new Set<MemoryAuthority>([
   "verified",
 ]);
 const SCOPES = new Set<MemoryScope>(["canonical", "local", "episodic"]);
+const RELATION_KINDS = new Set<MemoryRelationKind>([
+  "belongs_to",
+  "depends_on",
+  "implements",
+  "affects",
+  "decided_by",
+  "motivated_by",
+  "contradicts",
+  "supersedes",
+  "verified_by",
+  "failed_for",
+  "fixed_by",
+  "related_to",
+  "references_code",
+  "references_design",
+  "references_ticket",
+]);
 
 function scalar(value: string): unknown {
   const trimmed = value.trim();
@@ -108,7 +126,7 @@ function relations(value: unknown): MemoryRelation[] {
       const kind = string(item.kind) as MemoryRelation["kind"] | undefined;
       const targetId = string(item.targetId);
       const summary = string(item.summary);
-      if (!kind || !targetId) return undefined;
+      if (!kind || !RELATION_KINDS.has(kind) || !targetId) return undefined;
       return { kind, targetId, ...(summary ? { summary } : {}) };
     })
     .filter((item): item is MemoryRelation => Boolean(item));

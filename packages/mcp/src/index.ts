@@ -82,7 +82,7 @@ function text(value: unknown) {
                   ? ", truncated to budget"
                   : ""
               }.`
-            : `Component Atlas returned structured context (${serialized.length} chars).`,
+            : `Project Atlas returned structured context (${serialized.length} chars).`,
       },
     ],
     structuredContent,
@@ -407,7 +407,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     "find_design_candidates",
-    "Rank a few explainable cached Figma nodes for a task and cross-check them with Component Atlas. Returns a decision/uncertainty gate; it never loads deep node context.",
+    "Rank a few explainable cached Figma nodes for a task and cross-check them with Code Atlas. Returns a decision/uncertainty gate; it never loads deep node context.",
     {
       root_path: z.string(),
       task: z.string().min(1),

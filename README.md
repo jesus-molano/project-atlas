@@ -163,5 +163,6 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 - [Project Memory and write policy](docs/project-memory.md)
 - [Token budgets](docs/token-budgets.md)
 - [Security and validation boundary](docs/validation.md)
+- [Quality audit, stress tests, and performance baseline](docs/quality-audit.md)
 - [`frontend-task` capability routing](docs/frontend-task-integration.md)
 - [Installer internals and recovery options](frontend-codex-kit/README.md)

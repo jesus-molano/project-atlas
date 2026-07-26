@@ -105,6 +105,21 @@ describe.sequential("Project Atlas runtime", () => {
     expect(isolated.metrics.totalMatches).toBe(0);
   });
 
+  it("publishes complete snapshots when two scans target the same project", async () => {
+    const [first, second] = await Promise.all([
+      scanProject(rootPath, { writeArtifacts: false }),
+      scanProject(rootPath, { writeArtifacts: false }),
+    ]);
+    expect(first.components).toHaveLength(second.components.length);
+    const orientation = await orientProject(rootPath, {
+      budgetChars: 1_600,
+    });
+    expect(orientation.codeAtlas).toMatchObject({
+      components: first.components.length,
+      relations: first.edges.length,
+    });
+  });
+
   it("combines memory, code, and optional design under one hard budget", async () => {
     await indexProjectMemory(rootPath);
     const metadata = await readFile(figmaFixture, "utf8");
@@ -240,6 +255,31 @@ describe.sequential("Project Atlas runtime", () => {
         ],
       }),
     ).rejects.toThrow(/secret-like content/);
+
+    await expect(
+      proposeMemoryUpdate({
+        rootPath,
+        rationale: "Malformed boundary fixture",
+        items: [
+          {
+            type: "not-a-memory-type",
+            title: "Invalid",
+            summary: "Must be rejected before persistence.",
+            confidence: 2,
+            authority: "observed",
+          },
+        ] as unknown as Parameters<typeof proposeMemoryUpdate>[0]["items"],
+      }),
+    ).rejects.toThrow(/item 1 is invalid/);
+
+    await expect(
+      recordProjectOutcome({
+        rootPath,
+        task: "",
+        result: "success",
+        summary: "",
+      }),
+    ).rejects.toThrow(/requires a task/);
 
     const proposed = await proposeMemoryUpdate({
       rootPath,

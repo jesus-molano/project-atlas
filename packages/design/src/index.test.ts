@@ -380,6 +380,50 @@ describe("Figma Design Index", () => {
     });
   });
 
+  it("rejects corrupt cyclic parent relationships during inspection", async () => {
+    const original = await checkoutIndex();
+    const nodes = original.nodes.map((node) => ({ ...node }));
+    const first = nodes.find((node) => node.id === "10:1")!;
+    const second = nodes.find((node) => node.id !== first.id)!;
+    first.parentId = second.id;
+    second.parentId = first.id;
+    const corrupt = { ...original, nodes };
+
+    expect(() => inspectDesignNode(corrupt, first.id)).toThrow(
+      /cyclic parent relationship/,
+    );
+  });
+
+  it("bounds corrupt and excessively deep Figma metadata", () => {
+    const document: Record<string, unknown> = {
+      id: "0:0",
+      name: "Document",
+      type: "DOCUMENT",
+      children: [],
+    };
+    (document.children as unknown[]).push(document);
+    expect(() =>
+      buildFigmaDesignIndex({
+        figmaUrl: "https://www.figma.com/design/SafetyFixture/Safety",
+        metadata: { document },
+      }),
+    ).toThrow(/cyclic node/);
+
+    const depth = 130;
+    const opening = Array.from(
+      { length: depth },
+      (_, index) => `<frame id="${index}:1" name="Level ${index}">`,
+    ).join("");
+    const closing = "</frame>".repeat(depth);
+    expect(() =>
+      buildFigmaDesignIndex({
+        figmaUrl: "https://www.figma.com/design/SafetyFixture/Safety",
+        metadata: `${opening}${closing}`,
+        format: "figma-mcp-xml",
+      }),
+    ).toThrow(/128-level safety limit/);
+  });
+
   it("upgrades older cached indexes without treating unknown XML status as absent", async () => {
     const current = await checkoutIndex();
     const legacy = JSON.parse(JSON.stringify(current)) as Record<string, unknown>;
