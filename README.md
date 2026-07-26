@@ -113,7 +113,7 @@ block the task.
 | --- | --- |
 | Product repository | Product code; Atlas does not change it merely by being queried |
 | `<product-repo>/.component-atlas/` | Ignored local artifacts and local memory |
-| Windows LocalAppData | Project-scoped SQLite indexes, reconstructible from allowed sources |
+| Windows LocalAppData | SQLite keyed by logical repository, with checkout-specific code snapshots and shared design/memory evidence |
 | `<product-repo>/project-memory/` | Optional team/canonical Markdown, only when policy allows and a user approves it |
 | `~/.agents/skills/` | Global `frontend-task` and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |

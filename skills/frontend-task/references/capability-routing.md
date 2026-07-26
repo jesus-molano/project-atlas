@@ -9,6 +9,7 @@ sources reduce evidence; they do not invalidate the workflow.
 | Jira task | Connected Jira read/search from supplied issue | Supplied text or conversation |
 | Confluence context | Connected Confluence read/search from supplied page | Supplied text or omit |
 | Refresh component graph | `scan_repository` | `component-atlas scan <root>` then manual search |
+| Observe connector/enrichment state | `report_source_capabilities`, then `get_source_capabilities` | `component-atlas capabilities report/show` |
 | Compact project orientation | `orient_project` | `component-atlas memory orient <root>` |
 | Shared task context | `get_task_context` | `component-atlas memory task <root> <intent>` |
 | Search project knowledge | `search_project_memory` | `component-atlas memory search <root> <query>` |
@@ -17,6 +18,7 @@ sources reduce evidence; they do not invalidate the workflow.
 | Propose durable learning | `propose_memory_update` | `component-atlas memory propose <root> <json>` |
 | Confirm proposed learning | `apply_memory_update` with explicit confirmation | `component-atlas memory apply <root> <id> --confirm` |
 | Record task episode | `record_outcome` | `component-atlas memory outcome <root> <json>` |
+| Opt-in private task metrics | `record_task_evaluation` | `component-atlas evaluation record <root> --input <json>` |
 | Compact reuse candidates | `get_reuse_context` | `component-atlas context <root> <intent>` |
 | Inspect code candidate | `get_component` | `component-atlas show <root> <selector>` |
 | Similarity or usages | `find_similar_components`, `list_component_usages` | `component-atlas similar` or `impact` |

@@ -1,6 +1,7 @@
 import type { ProjectAtlasSnapshot } from "@component-atlas/runtime";
 import { AtlasStore } from "@component-atlas/store";
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 export function projectRootPath(): string {
@@ -23,13 +24,40 @@ export function projectAtlasCliEntry(): string {
 
 export function loadProjectAtlasSnapshot(): ProjectAtlasSnapshot {
   const rootPath = projectRootPath();
-  const id = createHash("sha256")
-    .update(path.resolve(rootPath).toLowerCase())
-    .digest("hex")
-    .slice(0, 20);
+  let artifact:
+    | {
+        project?: {
+          id?: string;
+          rootPath?: string;
+          identity?: { checkoutId?: string };
+        };
+      }
+    | undefined;
+  const artifactPath = path.join(rootPath, ".component-atlas", "project.json");
+  if (existsSync(artifactPath)) {
+    try {
+      artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as typeof artifact;
+    } catch {
+      artifact = undefined;
+    }
+  }
+  const artifactMatches =
+    artifact?.project?.rootPath &&
+    path.resolve(artifact.project.rootPath).toLowerCase() ===
+      path.resolve(rootPath).toLowerCase();
+  const id =
+    process.env.ATLAS_PROJECT_ID ??
+    (artifactMatches ? artifact?.project?.id : undefined) ??
+    createHash("sha256")
+      .update(path.resolve(rootPath).toLowerCase())
+      .digest("hex")
+      .slice(0, 20);
+  const checkoutId =
+    process.env.ATLAS_CHECKOUT_ID ??
+    (artifactMatches ? artifact?.project?.identity?.checkoutId : undefined);
   const store = new AtlasStore(id);
   try {
-    const stored = store.readProjectSnapshot(id);
+    const stored = store.readProjectSnapshot(id, checkoutId);
     const graph = stored.graph;
     if (!graph) {
       throw createError({

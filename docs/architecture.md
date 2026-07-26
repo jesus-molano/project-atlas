@@ -153,8 +153,34 @@ Machine state:
 %LOCALAPPDATA%\ComponentAtlas\projects\<project-id>\atlas.sqlite
 ```
 
-The same database contains one `design_indexes` payload per Figma file key plus
-project-scoped memory items, relations, proposals, and an FTS5 search index.
+`<project-id>` is the logical repository identity, not the checkout path. Atlas
+normalizes the `origin` remote (SSH and HTTPS forms resolve equally), hashes it,
+and keeps a separate checkout ID for every clone/worktree path and branch
+snapshot. Repositories without a remote use their Git common directory; a
+non-Git directory falls back to its canonical path. `PROJECT_ATLAS_PROJECT_KEY`
+or `scan --project-key` provides an explicit override. The ignored
+`project.json` pins that override for later queries.
+
+The same database contains checkout-specific code graph snapshots, one
+`design_indexes` payload per Figma file key, project-scoped memory items,
+relations, proposals, capability observations, content-free evaluation
+metrics, and an FTS5 search index. Different worktrees share declared memory and
+design evidence but never read each other's code snapshot. Changing a remote
+creates a new logical scope unless an explicit override is used; Atlas does not
+silently merge the two repositories.
+
+Older path-keyed databases are copied conservatively into the new logical scope
+only when the target scope is empty and the stored root matches the current
+checkout. The old database is retained for recovery.
+
+Code scans persist a bounded file-hash manifest per checkout. When Git HEAD and
+configuration are compatible, unchanged hashes are reused, changed component
+files are reparsed, deleted nodes are removed, and graph edges are rebuilt.
+Changes to tests, imported TypeScript, framework configuration, or an unknown
+file class fall back to a full scan. `scan --full` disables the incremental
+path. Both paths are cancelable before persistence and update the graph
+atomically.
+
 Version, `lastModified`, scope, and metadata hashes prevent unchanged page
 snapshots from being reprocessed. A changed file version invalidates the old
 map before new page snapshots are merged.
@@ -194,7 +220,7 @@ indexes can be refreshed directly.
 
 Existing component graphs, component decision records, Design Index rows, and
 the GUI keep their contracts. Opening an older per-project database creates the
-memory/FTS/proposal tables with
+current checkout, capability, evaluation, memory/FTS, and proposal tables with
 `CREATE TABLE IF NOT EXISTS` without deleting user files.
 
 New flows should prefer `get_task_context`, but `get_reuse_context` and focused

@@ -1,4 +1,4 @@
-export const GRAPH_SCHEMA_VERSION = 2 as const;
+export const GRAPH_SCHEMA_VERSION = 3 as const;
 
 export type Framework = "vue" | "react";
 export type ComponentVisibility = "public" | "feature" | "private";
@@ -88,6 +88,91 @@ export interface ProjectMetadata {
   packageManager?: string;
   scannedAt: string;
   sourceFiles: number;
+  identity?: ProjectIdentityMetadata;
+  scan?: ProjectScanSummary;
+}
+
+export type ProjectIdentitySource =
+  | "override"
+  | "remote"
+  | "git-common-dir"
+  | "path";
+
+export interface ProjectIdentityMetadata {
+  logicalId: string;
+  repositoryFingerprint: string;
+  source: ProjectIdentitySource;
+  checkoutId: string;
+  worktreePath: string;
+  branch?: string;
+  head?: string;
+}
+
+export interface ProjectScanSummary {
+  mode: "full" | "incremental" | "unchanged";
+  fingerprint: string;
+  checkedAt: string;
+  changedFiles: number;
+  durationMs: number;
+}
+
+export interface ProjectScanState {
+  schemaVersion: 1;
+  projectId: string;
+  checkoutId: string;
+  framework: Framework;
+  head?: string;
+  configurationFingerprint: string;
+  files: Record<string, string>;
+  completedAt: string;
+}
+
+export type CapabilityState =
+  | "connected"
+  | "detected"
+  | "unavailable"
+  | "not-exposed"
+  | "permission-required"
+  | "unknown"
+  | "degraded";
+
+export type ConnectorKind = "figma" | "atlassian-rovo" | "github";
+export type EnrichmentKind =
+  | "ready-for-dev"
+  | "figma-variables"
+  | "code-connect"
+  | "figma-libraries";
+
+export interface CapabilityObservation {
+  id: ConnectorKind | EnrichmentKind;
+  kind: "connector" | "enrichment";
+  state: CapabilityState;
+  provenance: "session-report" | "design-index" | "local-index";
+  checkedAt: string;
+  detail?: string;
+}
+
+export interface ProjectCapabilityReport {
+  schemaVersion: 1;
+  projectId: string;
+  checkedAt: string;
+  observations: CapabilityObservation[];
+}
+
+export interface TaskEvaluationRecord {
+  schemaVersion: 1;
+  id: string;
+  projectId: string;
+  recordedAt: string;
+  taskFingerprint: string;
+  topThreeCorrect?: boolean;
+  falseDuplicateCount: number;
+  necessaryQuestions: number;
+  unnecessaryQuestions: number;
+  contextChars: number;
+  preparationMs: number;
+  conflictCount: number;
+  reworkRequired: boolean;
 }
 
 export interface ComponentGraph {

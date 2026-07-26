@@ -14,6 +14,9 @@ user for links.
    - Figma for design;
    - GitHub for relevant remote repository/issue context;
    - Project Atlas MCP for local code/design/memory context.
+   When Atlas is available, report this session observation with
+   `report_source_capabilities` and read `get_source_capabilities` only if
+   connector health affects the task. Do not probe a login or credential.
 4. Classify each source for this task:
 
 | Source | Required | Recommended/optional | Not applicable |

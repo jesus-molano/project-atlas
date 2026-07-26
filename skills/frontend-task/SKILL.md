@@ -11,29 +11,33 @@ and conversation are the baseline; every external source is optional.
 
 ## Prepare the task
 
-1. Run the cheap source/capability precheck in
+1. Detect whether this is a new task or a continuation/correction. Treat
+   “continue”, “correct”, “finish what is pending”, a dirty worktree, or
+   relevant prior outcome as a continuation signal. Follow
+   `references/continuation-mode.md` before repeating source onboarding.
+2. Run the cheap source/capability precheck in
    `references/source-precheck.md`. Detect the repository, task text, explicit
    source links/IDs, and callable capabilities before asking anything.
-2. Classify repository, Figma, Jira, Confluence, Atlas, and GitHub for this task
+3. Classify repository, Figma, Jira, Confluence, Atlas, and GitHub for this task
    as `required`, `recommended`, `optional`, `unavailable`, or
    `not-applicable`, with one short reason. Atlas is always optional.
-3. Show a compact detected/missing/skip summary. When a material source choice
+4. Show a compact detected/missing/skip summary. When a material source choice
    remains and `request_user_input` is available, use its native selector with
    one question by default (maximum three). Otherwise ask one brief chat
    question. Never create a separate form or ask about every source.
-4. Read repository instructions and determine the target package, framework,
+5. Read repository instructions and determine the target package, framework,
    validation commands, and likely ownership boundary.
-5. Inventory only sources actually present:
+6. Inventory only sources actually present:
    - conversation, pasted text, local files, screenshots, and repository;
    - Jira or Confluence when a link or connected source is available;
    - Figma when a node, selection, page, file, screenshot, or cached Design
      Index exists.
-6. Never require a fixed Jira-to-Confluence-to-Figma chain. Do not block because
+7. Never require a fixed Jira-to-Confluence-to-Figma chain. Do not block because
    a connector, credential, Dev Mode, Ready for dev, or global Variables access
    is absent.
-7. Build the brief defined in `references/brief-contract.md`. Keep unknowns
+8. Build the brief defined in `references/brief-contract.md`. Keep unknowns
    explicit; do not fill them with invented product behavior.
-8. Classify risk:
+9. Classify risk:
    - low: localized visual or copy change with an established pattern;
    - medium: new states, responsive behavior, component API change, or several
      consumers;
@@ -82,23 +86,27 @@ reported with the option to connect/provide evidence or stop.
 
 When Project Atlas is available:
 
-1. Call `scan_repository` with the absolute repository root.
-2. Reduce the brief to one precise implementation intent.
-3. Call `get_task_context` once with a small shared budget. It combines only the
+1. Call `scan_repository` with the absolute repository root. It reuses the
+   checkout snapshot and performs an incremental scan when safe.
+2. Report the current session's connector/enrichment observations through
+   `report_source_capabilities`; never probe credentials merely to populate
+   status. Read `get_source_capabilities` when health affects the task.
+3. Reduce the brief to one precise implementation intent.
+4. Call `get_task_context` once with a small shared budget. It combines only the
    most relevant Project Memory, Code Atlas, and cached Design Atlas signals.
-4. Follow the retrieval ladder only when needed: `orient_project`, then
+5. Follow the retrieval ladder only when needed: `orient_project`, then
    `search_project_memory`, then `get_memory_item` for a confirmed ID. Do not
    expand every result.
-5. If Project Memory is not available, call `get_reuse_context` once and use
+6. If Project Memory is not available, call `get_reuse_context` once and use
    its compact candidates, scopes, APIs, consumers, tests, and impact.
-6. Before editing, call `check_before_change` with the intended files or area.
+7. Before editing, call `check_before_change` with the intended files or area.
    Stop only for `decision-required`; report warnings with their evidence and
    recommendation.
-7. Use focused Atlas tools only for a concrete ambiguity. Never request `raw`
+8. Use focused Atlas tools only for a concrete ambiguity. Never request `raw`
    unless diagnosing an incorrect index.
-8. Before editing a shared API, call `analyze_prop_change_impact`.
-9. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`.
-10. Record the choice with `record_component_decision`; a `create` rationale
+9. Before editing a shared API, call `analyze_prop_change_impact`.
+10. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`.
+11. Record the choice with `record_component_decision`; a `create` rationale
    must name the nearest rejected candidates.
 
 If Atlas is unavailable, perform the equivalent repository search manually and
@@ -150,6 +158,9 @@ global Variables, and library data improve evidence but are optional.
    `apply_memory_update` without explicit user confirmation.
 6. Report outcome, evidence, validation, warnings, and remaining external
    checks. Do not claim that missing corporate data was validated.
+7. Only when the user or local project policy explicitly opts in to evaluation,
+   call `record_task_evaluation`. Store counts, timings, budget, and correctness
+   flags; Atlas hashes the task and never persists its text.
 
 Use `references/capability-routing.md` for source-specific routing and
 `references/brief-contract.md` for the compact input/output contract.

@@ -29,6 +29,7 @@ import {
   findTaskDesignCandidates,
   fitBudgetedResponse,
   getProjectMemoryItem,
+  getProjectCapabilities,
   getTaskContext,
   graphSummary,
   indexProjectMemory,
@@ -42,6 +43,10 @@ import {
   proposeMemoryUpdate,
   recordDecision,
   recordProjectOutcome,
+  recordTaskEvaluation,
+  reportProjectCapabilities,
+  listTaskEvaluations,
+  clearTaskEvaluations,
   scanProject,
   searchProjectMemory,
   type MapFigmaDesignInput,
@@ -187,6 +192,10 @@ async function openViewer(
     env: {
       ...process.env,
       ATLAS_PROJECT_ROOT: graph.project.rootPath,
+      ATLAS_PROJECT_ID: graph.project.id,
+      ...(graph.project.identity?.checkoutId
+        ? { ATLAS_CHECKOUT_ID: graph.project.identity.checkoutId }
+        : {}),
       ATLAS_CLI_ENTRY: currentFile,
       NITRO_HOST: "127.0.0.1",
       NITRO_PORT: options.port,
@@ -239,19 +248,92 @@ export function createProgram(): Command {
     .argument("[path]", "repository root", ".")
     .option("--framework <framework>", "vue or react")
     .option("--json", "print the full graph")
+    .option("--full", "disable the incremental scan path")
+    .option("--project-key <key>", "explicit stable logical project key")
     .description("Scan a repository and refresh its local component graph.")
     .action(
       async (
         rootPath: string,
-        options: { framework?: Framework; json?: boolean },
+        options: {
+          framework?: Framework;
+          json?: boolean;
+          full?: boolean;
+          projectKey?: string;
+        },
       ) => {
         const graph = await scanProject(
           rootPath,
-          options.framework ? { framework: options.framework } : {},
+          {
+            ...(options.framework ? { framework: options.framework } : {}),
+            ...(options.full ? { incremental: false } : {}),
+            ...(options.projectKey ? { projectKey: options.projectKey } : {}),
+          },
         );
         printJson(options.json ? graph : graphSummary(graph));
       },
     );
+
+  const capabilities = program
+    .command("capabilities")
+    .description("Inspect or report connector and enrichment state without probing credentials.");
+
+  capabilities
+    .command("show")
+    .argument("[path]", "repository root", ".")
+    .description("Show observed and locally inferred source capabilities.")
+    .action(async (rootPath: string) => {
+      printJson(await getProjectCapabilities(rootPath));
+    });
+
+  capabilities
+    .command("report")
+    .argument("[path]", "repository root", ".")
+    .requiredOption("--input <json>", "bounded observation JSON file")
+    .description("Record current-session capability observations.")
+    .action(async (rootPath: string, options: { input: string }) => {
+      const observations = JSON.parse(
+        await readFile(path.resolve(options.input), "utf8"),
+      ) as Parameters<typeof reportProjectCapabilities>[1];
+      printJson(await reportProjectCapabilities(rootPath, observations));
+    });
+
+  const evaluation = program
+    .command("evaluation")
+    .description("Opt-in local metrics without task text, code, or source URLs.");
+
+  evaluation
+    .command("record")
+    .argument("[path]", "repository root", ".")
+    .requiredOption("--input <json>", "task evaluation JSON file")
+    .description("Hash the task and store only bounded quality metrics.")
+    .action(async (rootPath: string, options: { input: string }) => {
+      const payload = JSON.parse(
+        await readFile(path.resolve(options.input), "utf8"),
+      ) as Omit<
+        Parameters<typeof recordTaskEvaluation>[0],
+        "rootPath"
+      >;
+      printJson(await recordTaskEvaluation({ rootPath, ...payload }));
+    });
+
+  evaluation
+    .command("list")
+    .argument("[path]", "repository root", ".")
+    .option("--limit <number>", "maximum local records", "20")
+    .description("List recent content-free evaluation metrics.")
+    .action(async (rootPath: string, options: { limit: string }) => {
+      printJson(await listTaskEvaluations(rootPath, parseLimit(options.limit, 50)));
+    });
+
+  evaluation
+    .command("clear")
+    .argument("[path]", "repository root", ".")
+    .requiredOption("--confirm", "confirm deletion of local evaluation metrics")
+    .description("Clear the project-local evaluation history.")
+    .action(async (rootPath: string, options: { confirm: boolean }) => {
+      if (!options.confirm) throw new Error("Use --confirm to clear metrics.");
+      printJson(await clearTaskEvaluations(rootPath));
+    });
 
   program
     .command("search")

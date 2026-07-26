@@ -39,8 +39,12 @@ source is not indexed yet. Use `--port` when the default port is occupied.
 - **Memory Inbox** reviews proposed semantic knowledge. A user can revise typed
   items, combine proposals, approve to local or canonical Markdown, or reject
   with an auditable reason.
-- **Integrations & Health** shows local source health, optional connector state,
-  workspace isolation, explicit repository/memory refresh actions, and a
+- **Integrations & Health** shows local source health, last-check time and
+  provenance separately for connectors (Figma, Rovo, GitHub) and enrichments
+  (Ready for Dev, Variables, Code Connect, libraries). Cached evidence is
+  labeled `detected`; it is never presented as proof that a live connector is
+  currently authenticated. The section also shows workspace isolation,
+  explicit repository/memory refresh actions, and a
   formatter/linter warning when `.component-atlas/` may be traversed. Atlas
   never edits a product repository's formatter ignore files.
 - **Settings** controls browser-local retrieval defaults and explains storage,
@@ -72,12 +76,11 @@ Repository and design facts are reconstructible derived data. Refreshing them
 is a local operation. Canonical decisions and conventions remain Markdown.
 Personal and episodic records stay in ignored local Markdown plus SQLite.
 
-Task Context generation is not persisted as a browsing history. Even a
-metadata-only log can disclose task timing and external handles, and no
-retention/sharing policy has been chosen. The GUI therefore keeps only the
-current browser result. A future history feature must be opt-in, locally
-scoped, capped, clearable, and must never store task text, documents, code,
-raw responses, secrets, or transient asset URLs.
+Task Context generation is not persisted as a browsing history. A separate
+evaluation log is opt-in, local, capped to 50 entries, and clearable through the
+CLI. It stores only a task hash, counts, timing, context size, correctness, and
+rework flags. It never stores task text, external handles, documents, code, raw
+responses, secrets, or transient asset URLs.
 
 Memory Inbox is the only GUI path for semantic durable writes. Applying,
 rejecting, revising, and combining proposals call the same runtime functions as

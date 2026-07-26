@@ -166,6 +166,30 @@
         "customUi": false,
         "gate": "wait-for-material-source"
       }
+    },
+    {
+      "id": "continue-dirty-worktree",
+      "request": "Continúa y termina lo pendiente.",
+      "sources": ["conversation", "repository", "prior-outcome"],
+      "expected": {
+        "mode": "continue",
+        "inspectGitDiff": true,
+        "brief": "delta-only",
+        "preserveExistingChanges": true,
+        "repeatOnboarding": false,
+        "repeatGate": "only-if-behavior-or-material-decision-changed"
+      }
+    },
+    {
+      "id": "correct-after-failed-validation",
+      "request": "Corrige el fallo de validación sin rehacer lo que ya funciona.",
+      "sources": ["conversation", "repository", "prior-outcome"],
+      "expected": {
+        "mode": "correct",
+        "retrieve": "affected-evidence-only",
+        "preserveExistingChanges": true,
+        "repeatOnboarding": false
+      }
     }
   ]
 }

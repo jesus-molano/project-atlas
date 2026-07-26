@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import {
   access,
   mkdir,
@@ -6,19 +7,21 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import fg from "fast-glob";
 import {
   GRAPH_SCHEMA_VERSION,
   buildGraphEdges,
-  projectId,
   searchComponentContext,
   slash,
   type ComponentDecision,
   type ComponentGraph,
+  type ComponentNode,
   type DesignToken,
   type DesignTokenKind,
   type DecisionKind,
   type Framework,
+  type ProjectScanState,
 } from "@component-atlas/core";
 import {
   buildFigmaDesignIndex,
@@ -36,7 +39,13 @@ import {
   type DesignIndexSummary,
   type DesignNodeInspection,
 } from "@component-atlas/design";
-import { AtlasStore } from "@component-atlas/store";
+import {
+  AtlasStore,
+  databaseExists,
+} from "@component-atlas/store";
+import { resolveProjectIdentity } from "./identity.js";
+
+const execFileAsync = promisify(execFile);
 
 interface PackageJson {
   name?: string;
@@ -48,6 +57,9 @@ interface PackageJson {
 export interface ScanProjectOptions {
   framework?: Framework;
   writeArtifacts?: boolean;
+  projectKey?: string;
+  incremental?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface RecordDecisionInput {
@@ -227,30 +239,373 @@ async function writeProjectArtifacts(graph: ComponentGraph): Promise<void> {
   ]);
 }
 
+const SCAN_PATTERNS = [
+  "package.json",
+  "tsconfig*.json",
+  "nuxt.config.*",
+  "vite.config.*",
+  "next.config.*",
+  "app/**/*.{vue,ts,tsx,js,jsx,css,scss,sass}",
+  "src/**/*.{vue,ts,tsx,js,jsx,css,scss,sass}",
+  "components/**/*.{vue,ts,tsx,js,jsx,css,scss,sass}",
+  "pages/**/*.{vue,ts,tsx,js,jsx}",
+  "layouts/**/*.{vue,ts,tsx,js,jsx}",
+  "assets/**/*.{css,scss,sass}",
+  "styles/**/*.{css,scss,sass}",
+  "test/**/*.{ts,tsx,js,jsx}",
+  "tests/**/*.{ts,tsx,js,jsx}",
+  "**/__tests__/**/*.{ts,tsx,js,jsx}",
+];
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Project Atlas scan was aborted.");
+  }
+}
+
+async function scanFileHashes(
+  rootPath: string,
+  previous?: ProjectScanState,
+  currentHead?: string,
+  signal?: AbortSignal,
+): Promise<Record<string, string>> {
+  const files = await fg(SCAN_PATTERNS, {
+    cwd: rootPath,
+    onlyFiles: true,
+    unique: true,
+    ignore: [
+      "**/node_modules/**",
+      "**/.nuxt/**",
+      "**/.next/**",
+      "**/.output/**",
+      "**/.component-atlas/**",
+    ],
+  });
+  let gitChanges: Set<string> | undefined;
+  if (previous?.head && currentHead) {
+    try {
+      const [committed, working] = await Promise.all([
+        previous.head === currentHead
+          ? Promise.resolve("")
+          : execFileAsync(
+              "git",
+              [
+                "-C",
+                rootPath,
+                "diff",
+                "--name-only",
+                "--no-renames",
+                previous.head,
+                currentHead,
+              ],
+              {
+                encoding: "utf8",
+                timeout: 5_000,
+                windowsHide: true,
+                maxBuffer: 1024 * 1024,
+              },
+            ).then((result) => result.stdout),
+        execFileAsync(
+          "git",
+          [
+            "-C",
+            rootPath,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+          ],
+          {
+            encoding: "utf8",
+            timeout: 5_000,
+            windowsHide: true,
+            maxBuffer: 1024 * 1024,
+          },
+        ).then((result) => result.stdout),
+      ]);
+      gitChanges = new Set(
+        [
+          ...committed.split(/\r?\n/),
+          ...working.split(/\r?\n/).flatMap((line) => {
+            const value = line.slice(3).trim();
+            if (!value) return [];
+            return value.includes(" -> ")
+              ? value.split(" -> ").map((item) => item.trim())
+              : [value];
+          }),
+        ]
+          .filter(Boolean)
+          .map(slash),
+      );
+    } catch {
+      gitChanges = undefined;
+    }
+  }
+  const hashes: Record<string, string> = {};
+  for (const relativePath of files.sort()) {
+    throwIfAborted(signal);
+    const normalized = slash(relativePath);
+    const reusable =
+      gitChanges && !gitChanges.has(normalized)
+        ? previous?.files[normalized]
+        : undefined;
+    hashes[normalized] =
+      reusable ??
+      createHash("sha256")
+        .update(await readFile(path.join(rootPath, relativePath)))
+        .digest("hex");
+  }
+  return hashes;
+}
+
+function scanFingerprint(files: Record<string, string>): string {
+  return createHash("sha256")
+    .update(
+      Object.entries(files)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([file, hash]) => `${file}\0${hash}`)
+        .join("\n"),
+    )
+    .digest("hex")
+    .slice(0, 20);
+}
+
+function configurationFingerprint(files: Record<string, string>): string {
+  return createHash("sha256")
+    .update(
+      Object.entries(files)
+        .filter(([file]) =>
+          /(^|\/)(?:package\.json|tsconfig[^/]*\.json|(?:nuxt|vite|next)\.config\.)/i.test(
+            file,
+          ),
+        )
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([file, hash]) => `${file}\0${hash}`)
+        .join("\n"),
+    )
+    .digest("hex")
+    .slice(0, 20);
+}
+
+function changedFilePaths(
+  previous: Record<string, string>,
+  current: Record<string, string>,
+): string[] {
+  return [...new Set([...Object.keys(previous), ...Object.keys(current)])]
+    .filter((file) => previous[file] !== current[file])
+    .sort();
+}
+
+function isComponentSource(file: string, framework: Framework): boolean {
+  if (framework === "vue") {
+    return (
+      /\.vue$/i.test(file) &&
+      /(^|\/)(?:app\/)?(?:components|pages|layouts)\//i.test(file)
+    );
+  }
+  return (
+    /\.(?:tsx|jsx)$/i.test(file) &&
+    /(^|\/)(?:src|app|components)\//i.test(file) &&
+    !/\.(?:test|spec|stories)\./i.test(file)
+  );
+}
+
+function canScanIncrementally(
+  changedFiles: string[],
+  framework: Framework,
+): boolean {
+  return changedFiles.every(
+    (file) =>
+      isComponentSource(file, framework) ||
+      /\.(?:css|scss|sass)$/i.test(file),
+  );
+}
+
+async function scanComponents(
+  framework: Framework,
+  rootPath: string,
+  include?: string[],
+): Promise<ComponentNode[]> {
+  return framework === "vue"
+    ? import("@component-atlas/adapter-vue").then(({ scanVueProject }) =>
+        scanVueProject({ rootPath, ...(include ? { include } : {}) }),
+      )
+    : import("@component-atlas/adapter-react").then(({ scanReactProject }) =>
+        scanReactProject({ rootPath, ...(include ? { include } : {}) }),
+      );
+}
+
+async function migrateLegacyProject(
+  rootPath: string,
+  identity: Awaited<ReturnType<typeof resolveProjectIdentity>>,
+): Promise<void> {
+  if (
+    identity.logicalId === identity.legacyPathId ||
+    !databaseExists(identity.legacyPathId)
+  ) {
+    return;
+  }
+  if (databaseExists(identity.logicalId)) {
+    const current = new AtlasStore(identity.logicalId);
+    try {
+      if (current.loadGraph(identity.logicalId)) return;
+    } finally {
+      current.close();
+    }
+  }
+  const legacy = new AtlasStore(identity.legacyPathId);
+  try {
+    const snapshot = legacy.readProjectSnapshot(identity.legacyPathId);
+    if (
+      !snapshot.graph ||
+      path.resolve(snapshot.graph.project.rootPath).toLowerCase() !==
+        path.resolve(rootPath).toLowerCase()
+    ) {
+      return;
+    }
+    const target = new AtlasStore(identity.logicalId);
+    try {
+      const {
+        legacyPathId: _legacyPathId,
+        ...identityMetadata
+      } = identity;
+      const graph: ComponentGraph = {
+        ...snapshot.graph,
+        project: {
+          ...snapshot.graph.project,
+          id: identity.logicalId,
+          rootPath,
+          identity: identityMetadata,
+        },
+      };
+      target.replaceGraph(graph);
+      for (const index of snapshot.designIndexes) {
+        target.saveDesignIndex(identity.logicalId, index);
+      }
+      for (const item of snapshot.memoryItems) {
+        target.saveMemoryItem(identity.logicalId, {
+          ...item,
+          projectId: identity.logicalId,
+        });
+      }
+      for (const proposal of snapshot.memoryProposals) {
+        target.saveMemoryProposal({
+          ...proposal,
+          projectId: identity.logicalId,
+        });
+      }
+      for (const decision of snapshot.componentDecisions) {
+        target.saveDecision({
+          ...decision,
+          projectId: identity.logicalId,
+        });
+      }
+    } finally {
+      target.close();
+    }
+  } finally {
+    legacy.close();
+  }
+}
+
 export async function scanProject(
   inputPath: string,
   options: ScanProjectOptions = {},
 ): Promise<ComponentGraph> {
-  const rootPath = path.resolve(inputPath);
+  const startedAt = Date.now();
+  const identity = await resolveProjectIdentity(inputPath, {
+    ...(options.projectKey ? { projectKey: options.projectKey } : {}),
+    fresh: true,
+  });
+  const rootPath = identity.worktreePath;
+  await migrateLegacyProject(rootPath, identity);
+  throwIfAborted(options.signal);
   const manifest = await packageJson(rootPath);
   const framework = options.framework ?? (await detectFramework(rootPath));
-  const components =
-    framework === "vue"
-      ? await import("@component-atlas/adapter-vue").then(({ scanVueProject }) =>
-          scanVueProject({ rootPath }),
-        )
-      : await import("@component-atlas/adapter-react").then(
-          ({ scanReactProject }) => scanReactProject({ rootPath }),
-        );
-  const tokens = await scanDesignTokens(rootPath);
+  const store = new AtlasStore(identity.logicalId);
+  let previousGraph: ComponentGraph | undefined;
+  let previousState: ProjectScanState | undefined;
+  try {
+    previousGraph = store.loadGraph(identity.logicalId, identity.checkoutId);
+    previousState = store.loadScanState(
+      identity.logicalId,
+      identity.checkoutId,
+    );
+  } finally {
+    store.close();
+  }
+  const files = await scanFileHashes(
+    rootPath,
+    previousState,
+    identity.head,
+    options.signal,
+  );
+  const configHash = configurationFingerprint(files);
+  const changedFiles = previousState
+    ? changedFilePaths(previousState.files, files)
+    : Object.keys(files);
+  const incremental =
+    options.incremental !== false &&
+    previousGraph &&
+    previousState &&
+    previousState.framework === framework &&
+    previousState.configurationFingerprint === configHash &&
+    canScanIncrementally(changedFiles, framework);
+  let mode: "full" | "incremental" | "unchanged";
+  let components: ComponentNode[];
+  let tokens: DesignToken[];
+  if (incremental && previousGraph && changedFiles.length === 0) {
+    mode = "unchanged";
+    components = previousGraph.components;
+    tokens = previousGraph.tokens;
+  } else if (incremental && previousGraph) {
+    mode = "incremental";
+    const sourceChanges = changedFiles.filter((file) =>
+      isComponentSource(file, framework),
+    );
+    const existingSources = sourceChanges.filter((file) => files[file]);
+    const rescanned = existingSources.length
+      ? await scanComponents(framework, rootPath, existingSources)
+      : [];
+    const changedSet = new Set(sourceChanges.map((file) => slash(file)));
+    components = [
+      ...previousGraph.components.filter(
+        (component) => !changedSet.has(component.relativePath),
+      ),
+      ...rescanned,
+    ].sort((left, right) => left.id.localeCompare(right.id));
+    tokens = changedFiles.some((file) => /\.(?:css|scss|sass)$/i.test(file))
+      ? await scanDesignTokens(rootPath)
+      : previousGraph.tokens;
+  } else {
+    mode = "full";
+    components = await scanComponents(framework, rootPath);
+    tokens = await scanDesignTokens(rootPath);
+  }
+  throwIfAborted(options.signal);
+  const checkedAt = new Date().toISOString();
+  const fingerprint = scanFingerprint(files);
+  const {
+    legacyPathId: _legacyPathId,
+    ...identityMetadata
+  } = identity;
   const metadata = {
-    id: projectId(rootPath),
+    id: identity.logicalId,
     name: manifest.name ?? path.basename(rootPath),
     rootPath,
     framework,
     ...(manifest.packageManager ? { packageManager: manifest.packageManager } : {}),
-    scannedAt: new Date().toISOString(),
+    scannedAt: checkedAt,
     sourceFiles: new Set(components.map((component) => component.relativePath)).size,
+    identity: identityMetadata,
+    scan: {
+      mode,
+      fingerprint,
+      checkedAt,
+      changedFiles: changedFiles.length,
+      durationMs: Date.now() - startedAt,
+    },
   };
   const graph: ComponentGraph = {
     schemaVersion: GRAPH_SCHEMA_VERSION,
@@ -259,11 +614,22 @@ export async function scanProject(
     edges: buildGraphEdges(components),
     tokens,
   };
-  const store = new AtlasStore(metadata.id);
+  const nextState: ProjectScanState = {
+    schemaVersion: 1,
+    projectId: identity.logicalId,
+    checkoutId: identity.checkoutId,
+    framework,
+    ...(identity.head ? { head: identity.head } : {}),
+    configurationFingerprint: configHash,
+    files,
+    completedAt: checkedAt,
+  };
+  const nextStore = new AtlasStore(metadata.id);
   try {
-    store.replaceGraph(graph);
+    nextStore.replaceGraph(graph);
+    nextStore.saveScanState(nextState);
   } finally {
-    store.close();
+    nextStore.close();
   }
   if (options.writeArtifacts !== false) await writeProjectArtifacts(graph);
   return graph;
@@ -271,21 +637,27 @@ export async function scanProject(
 
 export async function loadProjectGraph(
   inputPath: string,
-  options: { scanIfMissing?: boolean } = {},
+  options: { scanIfMissing?: boolean; projectKey?: string } = {},
 ): Promise<ComponentGraph> {
-  const rootPath = path.resolve(inputPath);
-  const id = projectId(rootPath);
-  const store = new AtlasStore(id);
+  const identity = await resolveProjectIdentity(inputPath, {
+    ...(options.projectKey ? { projectKey: options.projectKey } : {}),
+  });
+  await migrateLegacyProject(identity.worktreePath, identity);
+  const store = new AtlasStore(identity.logicalId);
   try {
-    const graph = store.loadGraph(id);
+    const graph = store.loadGraph(identity.logicalId, identity.checkoutId);
     if (graph) return graph;
   } finally {
     store.close();
   }
   if (options.scanIfMissing === false) {
-    throw new Error(`No Project Atlas index exists for ${rootPath}.`);
+    throw new Error(
+      `No Project Atlas index exists for ${identity.worktreePath}.`,
+    );
   }
-  return scanProject(rootPath);
+  return scanProject(identity.worktreePath, {
+    ...(options.projectKey ? { projectKey: options.projectKey } : {}),
+  });
 }
 
 export async function recordDecision(
@@ -370,8 +742,17 @@ export function graphSummary(graph: ComponentGraph): Record<string, unknown> {
     ]),
   );
   return {
+    projectId: graph.project.id,
     project: graph.project.name,
     framework: graph.project.framework,
+    identity: graph.project.identity
+      ? {
+          source: graph.project.identity.source,
+          repositoryFingerprint: graph.project.identity.repositoryFingerprint,
+          checkoutId: graph.project.identity.checkoutId,
+          branch: graph.project.identity.branch,
+        }
+      : undefined,
     components: graph.components.length,
     public: graph.components.filter((item) => item.visibility === "public").length,
     feature: graph.components.filter((item) => item.visibility === "feature").length,
@@ -379,6 +760,7 @@ export function graphSummary(graph: ComponentGraph): Record<string, unknown> {
     edges: edgeCounts,
     tokens: graph.tokens.length,
     scannedAt: graph.project.scannedAt,
+    scan: graph.project.scan,
   };
 }
 
@@ -550,3 +932,5 @@ export async function inspectFigmaDesignNode(
 
 export * from "./memory.js";
 export * from "./view-models.js";
+export * from "./identity.js";
+export * from "./integrations.js";

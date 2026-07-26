@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import type { ComponentGraph } from "@component-atlas/core/browser";
+import type {
+  ComponentGraph,
+  ProjectCapabilityReport,
+  TaskEvaluationRecord,
+} from "@component-atlas/core/browser";
 import type { DesignFileIndex } from "@component-atlas/design";
 import type { MemoryItem, MemoryProposal } from "@component-atlas/memory";
 import type {
@@ -39,6 +43,8 @@ interface WorkspaceSnapshot {
   designIndexes: DesignFileIndex[];
   memoryItems: MemoryItem[];
   memoryProposals: MemoryProposal[];
+  capabilities: ProjectCapabilityReport;
+  evaluations: TaskEvaluationRecord[];
   currentDecisions: Array<{
     id: string;
     type: MemoryItem["type"] | "component-reuse";
@@ -681,6 +687,7 @@ onBeforeUnmount(() => {
           </header>
           <LazyHealthView
             :sources="overview.data.sources"
+            :capabilities="workspace.capabilities"
             :root-path="overview.data.project.rootPath"
             :local-health="workspace.localHealth"
             @refreshed="refreshSnapshot"

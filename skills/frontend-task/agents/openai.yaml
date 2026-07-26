@@ -2,4 +2,4 @@ interface:
   display_name: "Frontend Task"
   short_description: "Preflight sources and prepare frontend work"
   brand_color: "#57D6B6"
-  default_prompt: "Use $frontend-task to detect available capabilities, prepare this frontend task from relevant evidence, and ask only for material missing sources."
+  default_prompt: "Use $frontend-task to prepare or continue this frontend task from the current worktree and relevant evidence, asking only for material decisions."

@@ -5,6 +5,14 @@ material unknowns visible.
 
 ```yaml
 objective: One-sentence user or product outcome
+mode: new | continue | correct | finish
+delta:
+  preserved:
+    - Existing user changes or completed behavior
+  pending:
+    - Only remaining or corrected behavior
+  affected_evidence:
+    - Files, decisions, outcomes, or source handles that changed
 repository:
   root: Absolute path
   target: Package, route, feature, or component area

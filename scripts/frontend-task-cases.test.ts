@@ -31,6 +31,8 @@ describe("frontend-task capability routing fixtures", () => {
       "high-risk-persistence-choice",
       "high-risk-urls-without-decision",
       "high-risk-current-turn-confirmed",
+      "continue-dirty-worktree",
+      "correct-after-failed-validation",
     ];
 
     expect([...byId.keys()]).toEqual(expect.arrayContaining(requiredCases));
@@ -75,6 +77,17 @@ describe("frontend-task capability routing fixtures", () => {
     expect(byId.get("high-risk-current-turn-confirmed")?.expected).toMatchObject({
       checkpoint: "satisfied-by-current-turn-confirmation",
       questionMode: "none-for-confirmed-decision",
+    });
+    expect(byId.get("continue-dirty-worktree")?.expected).toMatchObject({
+      mode: "continue",
+      brief: "delta-only",
+      preserveExistingChanges: true,
+      repeatOnboarding: false,
+    });
+    expect(byId.get("correct-after-failed-validation")?.expected).toMatchObject({
+      mode: "correct",
+      retrieve: "affected-evidence-only",
+      repeatOnboarding: false,
     });
 
     const serialized = JSON.stringify(fixture);

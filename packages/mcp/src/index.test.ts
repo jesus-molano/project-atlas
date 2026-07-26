@@ -36,6 +36,9 @@ describe("Project Atlas MCP surface", () => {
       expect(names).toContain("propose_memory_update");
       expect(names).toContain("apply_memory_update");
       expect(names).toContain("record_outcome");
+      expect(names).toContain("get_source_capabilities");
+      expect(names).toContain("report_source_capabilities");
+      expect(names).toContain("record_task_evaluation");
       for (const name of [
         "search_components",
         "get_component",

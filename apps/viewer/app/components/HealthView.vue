@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { SourceHealthViewModel } from "@component-atlas/runtime";
+import type { ProjectCapabilityReport } from "@component-atlas/core/browser";
 
 defineProps<{
   sources: SourceHealthViewModel[];
+  capabilities: ProjectCapabilityReport;
   rootPath: string;
   localHealth: Array<{
     id: string;
@@ -16,11 +18,15 @@ const emit = defineEmits<{ refreshed: [] }>();
 const pending = ref("");
 const message = ref("");
 const error = ref("");
-const optional = [
-  { id: "jira", label: "Jira", status: "optional", detail: "Detected by frontend-task when a connector or ticket link exists." },
-  { id: "confluence", label: "Confluence", status: "optional", detail: "Used only when the task supplies relevant documentation." },
-  { id: "code-connect", label: "Figma Code Connect", status: "optional", detail: "Adds design-to-code evidence when the organization already maintains mappings." },
-];
+const labels: Record<string, string> = {
+  figma: "Figma",
+  "atlassian-rovo": "Atlassian Rovo",
+  github: "GitHub",
+  "ready-for-dev": "Ready for Dev",
+  "figma-variables": "Figma Variables",
+  "code-connect": "Code Connect",
+  "figma-libraries": "Figma libraries",
+};
 
 async function refresh(source: "repository" | "memory"): Promise<void> {
   pending.value = source;
@@ -71,15 +77,19 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
       </article>
     </section>
     <section>
-      <header class="workspace-toolbar"><div><span class="eyebrow">Optional enrichment</span><h2>Connectors degrade gracefully</h2></div></header>
-      <article v-for="source in optional" :key="source.id" class="health-record optional">
-        <span class="health-orb unavailable" /><div><strong>{{ source.label }}</strong><p>{{ source.detail }}</p></div><span class="status-chip">optional</span>
+      <header class="workspace-toolbar"><div><span class="eyebrow">Observed capabilities</span><h2>Connectors</h2></div></header>
+      <article v-for="source in capabilities.observations.filter((item) => item.kind === 'connector')" :key="source.id" class="health-record optional">
+        <span :class="['health-orb', source.state]" /><div><strong>{{ labels[source.id] ?? source.id }}</strong><p>{{ source.detail }}</p><small>{{ source.provenance }} · {{ source.checkedAt }}</small></div><span class="status-chip">{{ source.state }}</span>
+      </article>
+      <header class="workspace-toolbar"><div><span class="eyebrow">Optional evidence</span><h2>Enrichments</h2></div></header>
+      <article v-for="source in capabilities.observations.filter((item) => item.kind === 'enrichment')" :key="source.id" class="health-record optional">
+        <span :class="['health-orb', source.state]" /><div><strong>{{ labels[source.id] ?? source.id }}</strong><p>{{ source.detail }}</p><small>{{ source.provenance }} · {{ source.checkedAt }}</small></div><span class="status-chip">{{ source.state }}</span>
       </article>
     </section>
     <aside class="health-policy">
       <span class="eyebrow">Workspace isolation</span>
       <h2>{{ rootPath }}</h2>
-      <p>SQLite, design indexes, and memory queries are scoped by the deterministic project ID for this repository.</p>
+      <p>SQLite memory and design evidence use the logical repository identity. Code snapshots remain separate per checkout/worktree.</p>
       <dl class="stacked-facts">
         <div><dt>Network on browse</dt><dd>None</dd></div>
         <div><dt>Credentials stored</dt><dd>None</dd></div>

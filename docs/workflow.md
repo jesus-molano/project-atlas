@@ -43,14 +43,32 @@ The skill performs this sequence:
 
 ## Later tasks
 
-Code Atlas refreshes reconstructible repository facts against the current
-checkout. Existing Project Memory and Design Atlas caches are reused by project
-ID. Memory is reindexed when its source files change or an explicit refresh is
-requested. A Figma file is not remapped blindly; its sparse source/version hash
-and cached scopes are reused until new metadata is supplied.
+Code Atlas resolves a stable logical repository identity and a separate
+checkout/worktree identity. Existing Project Memory and Design Atlas caches are
+reused by logical project ID; code snapshots stay checkout-specific. Scans
+reuse the prior file manifest and reparse only changed component files when
+safe. Test, configuration, imported-type, or ambiguous changes fall back to a
+full scan. Memory is reindexed when its source files change or an explicit
+refresh is requested. A Figma file is not remapped blindly; its sparse
+source/version hash and cached scopes are reused until new metadata is supplied.
 
 Retrieval remains focused on the current intent. Atlas returns top candidates
 and expandable IDs instead of every indexed record.
+
+## Continue or correct an existing task
+
+`$frontend-task` enters continuation mode for requests such as “continue”,
+“correct this”, or “finish what is pending”, and whenever a relevant dirty
+worktree or prior outcome exists. It first inspects Git status, the focused
+diff, current validation failures, and the nearest prior brief/outcome. It then
+builds a delta brief containing only preserved work, remaining behavior,
+affected evidence, and pending validation.
+
+Continuation never resets or broadly rewrites existing changes. It consults
+only affected Atlas handles or external evidence and does not repeat source
+onboarding. A human gate is repeated only when the delta changes behavior,
+introduces a contradiction, changes a shared API, or reopens a material
+decision.
 
 ## What enters agent context
 
@@ -97,6 +115,8 @@ $repo = "C:\path\to\product-repository"
 $cli = Join-Path $atlas "packages\cli\dist\index.js"
 
 node $cli scan $repo
+node $cli scan $repo --full
+node $cli capabilities show $repo
 node $cli context $repo "empty state with retry"
 node $cli memory orient $repo --budget 2400
 node $cli memory task $repo "empty state with retry" --budget 3600
@@ -105,6 +125,38 @@ node $cli show $repo UiEmptyState
 node $cli similar $repo UiModal
 node $cli impact $repo UiModal
 node $cli open $repo
+```
+
+Use `--project-key <stable-key>` on the first scan only when remote/common-Git
+identity is unsuitable. The ignored project artifact pins the resulting ID.
+For automation, `PROJECT_ATLAS_PROJECT_KEY` applies the same override.
+
+Private evaluation is opt-in:
+
+```powershell
+node $cli evaluation record $repo --input "<metrics-only.json>"
+node $cli evaluation list $repo
+node $cli evaluation clear $repo --confirm
+```
+
+Atlas hashes the task text and persists only bounded counts, timing, context
+size, top-three correctness, conflicts, and rework. It never stores the task
+text, code, documents, or source URLs in this log.
+
+The input is transient and uses this shape:
+
+```json
+{
+  "task": "local task description",
+  "topThreeCorrect": true,
+  "falseDuplicateCount": 0,
+  "necessaryQuestions": 1,
+  "unnecessaryQuestions": 0,
+  "contextChars": 2800,
+  "preparationMs": 4200,
+  "conflictCount": 0,
+  "reworkRequired": false
+}
 ```
 
 Add `--raw` only when diagnosing an incorrect index. Normal queries use the

@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -11,6 +11,9 @@ import {
   type Framework,
   type GraphEdge,
   type ProjectMetadata,
+  type ProjectCapabilityReport,
+  type ProjectScanState,
+  type TaskEvaluationRecord,
 } from "@component-atlas/core";
 import {
   normalizeDesignIndex,
@@ -67,6 +70,10 @@ function applicationDataRoot(): string {
 
 export function databasePath(projectId: string): string {
   return path.join(applicationDataRoot(), "projects", projectId, "atlas.sqlite");
+}
+
+export function databaseExists(projectId: string): boolean {
+  return existsSync(databasePath(projectId));
 }
 
 export class AtlasStore {
@@ -187,6 +194,33 @@ export class AtlasStore {
         body,
         tags
       );
+      CREATE TABLE IF NOT EXISTS checkout_graphs (
+        project_id TEXT NOT NULL,
+        checkout_id TEXT NOT NULL,
+        scanned_at TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (project_id, checkout_id)
+      );
+      CREATE TABLE IF NOT EXISTS scan_states (
+        project_id TEXT NOT NULL,
+        checkout_id TEXT NOT NULL,
+        completed_at TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (project_id, checkout_id)
+      );
+      CREATE TABLE IF NOT EXISTS capability_reports (
+        project_id TEXT PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS task_evaluations (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        recorded_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS task_evaluations_project
+        ON task_evaluations(project_id, recorded_at DESC);
     `);
   }
 
@@ -259,6 +293,23 @@ export class AtlasStore {
       for (const token of graph.tokens) {
         tokenStatement.run(graph.project.id, token.name, JSON.stringify(token));
       }
+      if (graph.project.identity?.checkoutId) {
+        this.database
+          .prepare(`
+            INSERT INTO checkout_graphs (
+              project_id, checkout_id, scanned_at, payload
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(project_id, checkout_id) DO UPDATE SET
+              scanned_at = excluded.scanned_at,
+              payload = excluded.payload
+          `)
+          .run(
+            graph.project.id,
+            graph.project.identity.checkoutId,
+            graph.project.scannedAt,
+            JSON.stringify(graph),
+          );
+      }
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
@@ -266,7 +317,17 @@ export class AtlasStore {
     }
   }
 
-  loadGraph(projectId: string): ComponentGraph | undefined {
+  loadGraph(projectId: string, checkoutId?: string): ComponentGraph | undefined {
+    if (checkoutId) {
+      const checkout = this.database
+        .prepare(
+          "SELECT payload FROM checkout_graphs WHERE project_id = ? AND checkout_id = ?",
+        )
+        .get(projectId, checkoutId) as JsonRow | undefined;
+      return checkout
+        ? (JSON.parse(checkout.payload) as ComponentGraph)
+        : undefined;
+    }
     const project = this.database
       .prepare("SELECT * FROM project WHERE id = ?")
       .get(projectId) as ProjectRow | undefined;
@@ -300,6 +361,36 @@ export class AtlasStore {
     };
   }
 
+  saveScanState(state: ProjectScanState): void {
+    this.database
+      .prepare(`
+        INSERT INTO scan_states (
+          project_id, checkout_id, completed_at, payload
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(project_id, checkout_id) DO UPDATE SET
+          completed_at = excluded.completed_at,
+          payload = excluded.payload
+      `)
+      .run(
+        state.projectId,
+        state.checkoutId,
+        state.completedAt,
+        JSON.stringify(state),
+      );
+  }
+
+  loadScanState(
+    projectId: string,
+    checkoutId: string,
+  ): ProjectScanState | undefined {
+    const row = this.database
+      .prepare(
+        "SELECT payload FROM scan_states WHERE project_id = ? AND checkout_id = ?",
+      )
+      .get(projectId, checkoutId) as JsonRow | undefined;
+    return row ? (JSON.parse(row.payload) as ProjectScanState) : undefined;
+  }
+
   saveDecision(decision: ComponentDecision): void {
     this.database
       .prepare(`
@@ -325,11 +416,11 @@ export class AtlasStore {
     return rows.map((row) => JSON.parse(row.payload) as ComponentDecision);
   }
 
-  readProjectSnapshot(projectId: string): AtlasStoredSnapshot {
+  readProjectSnapshot(projectId: string, checkoutId?: string): AtlasStoredSnapshot {
     this.database.exec("BEGIN");
     try {
       const snapshot = {
-        graph: this.loadGraph(projectId),
+        graph: this.loadGraph(projectId, checkoutId),
         designIndexes: this.listDesignIndexes(projectId),
         memoryItems: this.listMemoryItems(projectId),
         memoryProposals: this.listMemoryProposals(projectId),
@@ -341,6 +432,85 @@ export class AtlasStore {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  saveCapabilityReport(report: ProjectCapabilityReport): void {
+    if (
+      report.observations.length > 32 ||
+      report.observations.some((item) => item.checkedAt !== report.checkedAt)
+    ) {
+      throw new Error("Capability report is invalid or exceeds its bounded size.");
+    }
+    this.database
+      .prepare(`
+        INSERT INTO capability_reports (project_id, checked_at, payload)
+        VALUES (?, ?, ?)
+        ON CONFLICT(project_id) DO UPDATE SET
+          checked_at = excluded.checked_at,
+          payload = excluded.payload
+      `)
+      .run(report.projectId, report.checkedAt, JSON.stringify(report));
+  }
+
+  loadCapabilityReport(projectId: string): ProjectCapabilityReport | undefined {
+    const row = this.database
+      .prepare("SELECT payload FROM capability_reports WHERE project_id = ?")
+      .get(projectId) as JsonRow | undefined;
+    return row ? (JSON.parse(row.payload) as ProjectCapabilityReport) : undefined;
+  }
+
+  saveTaskEvaluation(record: TaskEvaluationRecord, retention = 50): void {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database
+        .prepare(`
+          INSERT INTO task_evaluations (
+            id, project_id, recorded_at, payload
+          ) VALUES (?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
+        `)
+        .run(
+          record.id,
+          record.projectId,
+          record.recordedAt,
+          JSON.stringify(record),
+        );
+      this.database
+        .prepare(`
+          DELETE FROM task_evaluations
+          WHERE project_id = ? AND id NOT IN (
+            SELECT id FROM task_evaluations
+            WHERE project_id = ?
+            ORDER BY recorded_at DESC
+            LIMIT ?
+          )
+        `)
+        .run(record.projectId, record.projectId, retention);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listTaskEvaluations(projectId: string, limit = 20): TaskEvaluationRecord[] {
+    const rows = this.database
+      .prepare(`
+        SELECT payload FROM task_evaluations
+        WHERE project_id = ?
+        ORDER BY recorded_at DESC
+        LIMIT ?
+      `)
+      .all(projectId, Math.max(1, Math.min(limit, 50))) as unknown as JsonRow[];
+    return rows.map((row) => JSON.parse(row.payload) as TaskEvaluationRecord);
+  }
+
+  clearTaskEvaluations(projectId: string): number {
+    return Number(
+      this.database
+        .prepare("DELETE FROM task_evaluations WHERE project_id = ?")
+        .run(projectId).changes,
+    );
   }
 
   saveDesignIndex(projectId: string, index: DesignFileIndex): void {
