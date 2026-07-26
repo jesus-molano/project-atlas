@@ -27,7 +27,10 @@ describe("desktop evidence workspace contract", () => {
     expect(page).toContain("Recent projects");
     expect(page).toContain("Open another folder");
     expect(page).toContain('"/api/projects/activate"');
-    expect(page).toContain("Browse is available in the desktop app");
+    expect(page).toContain('"/api/projects/select-directory"');
+    expect(page).toContain("projectPathFromDrop");
+    expect(page).toContain("Choose folder…");
+    expect(page).toContain("Atlas never uploads the project");
     expect(page).toContain("chooseDesktopProjectFolder");
     expect(page).toContain("projectMenuOpen.value = false");
     const css = await source("apps/viewer/app/assets/css/main.css");

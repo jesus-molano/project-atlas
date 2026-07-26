@@ -180,8 +180,7 @@ The loopback shell can activate an existing local repository from a reviewed
 absolute path. The server validates the directory, builds the initial local
 index, and only then changes the active project and records it as recent.
 Cancellation or validation failure retains the current project. This mutation
-uses the same-origin and per-process session checks as the agent bridge, and it
-never launches a shell, Explorer, or another process.
+uses the same-origin and per-process session checks as the agent bridge.
 
 ### Folder selection boundary
 
@@ -205,16 +204,20 @@ dialog and returns only the selected absolute path through constrained IPC.
 Selecting a directory fills the path field; it does not scan, activate a
 project, or start an agent. The user reviews the path and chooses **Open
 project** before the server validates and scans it. Cancelling is a no-op and
-focus returns to the **Browse…** control.
+focus returns to the **Choose folder…** control.
 
-The loopback browser keeps the manual absolute-path field and recent-project
-rows. It displays **Browse is available in the desktop app** when the adapter is
-absent. Atlas intentionally does not use `showDirectoryPicker`,
-`webkitdirectory`, PowerShell, or Explorer as substitutes: a browser file
-handle is not a trustworthy absolute backend path, and a loopback endpoint must
-not become a general process launcher. Cloning remains an explicit CLI or Git
-operation until a future desktop host can expose a separately reviewed,
-allowlisted contract.
+When the adapter is absent on Windows, the loopback browser calls a
+session-protected local endpoint that launches one constant
+`FolderBrowserDialog`. The process, timeout, and output are bounded; the request
+cannot supply a command or arguments. The selected path only fills the field.
+The activation route still performs repository validation and scanning after
+explicit confirmation.
+
+The same field accepts dropped absolute paths when the host exposes them and
+always supports paste as a fallback. Standard HTML directory inputs and
+`showDirectoryPicker` are not used as the activation source because browsers
+intentionally omit the absolute backend path. Atlas never uploads a selected
+repository. Cloning remains an explicit CLI or Git operation.
 
 ## Daily journeys
 

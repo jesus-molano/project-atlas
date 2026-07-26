@@ -235,9 +235,10 @@ instead of Electron, Tauri, or browser APIs. A future desktop host may implement
 its `selectDirectory` method through constrained IPC and a native dialog.
 Selection returns a path for review only; the existing activation route remains
 the single validation and indexing boundary. Without the host capability, the
-loopback shell keeps a manual absolute-path field and says that browsing
-requires the desktop app. There is no endpoint that launches a shell, Explorer,
-or an arbitrary process.
+Windows loopback shell exposes a session-protected endpoint that launches one
+constant, allowlisted directory dialog with bounded time and output. It accepts
+no executable, arguments, or path from the request and cannot become an
+arbitrary process launcher. Paste remains the cross-platform fallback.
 
 Agent runs use a random per-process session token, same-origin mutation checks,
 the selected checkout as `workingDirectory`, one active owner per checkout,

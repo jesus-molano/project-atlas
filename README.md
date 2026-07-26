@@ -84,8 +84,8 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The desktop-shaped local
 workspace lets you:
 
 - see the exact logical project, checkout/worktree, branch, HEAD, and diff state;
-- switch among successfully opened recent projects or open another repository
-  by absolute path without restarting the server;
+- switch among successfully opened recent projects or choose, drop, or paste
+  another repository without restarting the server;
 - search code, design, and memory from one command surface;
 - choose evidence by goal: reuse, impact, tests, design state, or prior decision;
 - send a reviewed, hard-capped package to the Task Workbench;
@@ -98,10 +98,11 @@ Browsing, searching, rescanning, and reviewing local evidence use zero agent
 tokens. Codex starts only after a launch review shows project, permissions,
 sources, budget, and possible writes.
 
-The loopback browser accepts a reviewed absolute folder path. A packaged desktop
-host can additionally provide the active **Browse…** action through a native
-folder-picker adapter; selecting a folder never scans or starts an agent until
-you confirm **Open project**.
+The loopback browser exposes **Choose folder…** through a narrowly scoped local
+directory dialog on Windows. A packaged desktop host can provide the same action
+through its versioned folder-picker adapter. Dropping an absolute folder path is
+also supported when the host exposes it. Atlas fills the path for review and
+never scans, uploads, or starts an agent until you confirm **Open project**.
 
 ## Sources and graceful fallbacks
 

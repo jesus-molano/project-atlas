@@ -35,8 +35,9 @@ The project control always identifies the active logical project, exact
 checkout/worktree, branch, HEAD, and dirty state. It also exposes recent
 projects and **Open another folder**:
 
-- in the loopback browser, enter an absolute repository path and confirm
-  **Open project**;
+- in the Windows loopback browser, **Choose folder…** opens a constrained local
+  directory dialog; dropping or pasting an absolute repository path is also
+  supported;
 - in a packaged desktop host, **Browse…** opens the native directory dialog,
   returns a path through the versioned folder-picker adapter, and still waits
   for **Open project** confirmation;
@@ -45,9 +46,11 @@ projects and **Open another folder**:
 - a project becomes recent only after validation and a successful scan;
 - changing projects is disabled while a Codex run owns the current checkout.
 
-Browser-only directory APIs are not used because they do not provide a stable
-absolute path for the local runtime. The web shell never launches Explorer or a
-shell command. The desktop picker contract and IPC boundary are documented in
+Browser-only directory handles are not used because they do not provide a
+stable absolute path for the local runtime. The loopback fallback launches only
+an allowlisted Windows directory dialog behind same-origin and session checks;
+it cannot execute a user-supplied command. The desktop picker contract and
+boundary are documented in
 [desktop-workspace.md](desktop-workspace.md#folder-selection-boundary).
 
 ## Evidence views

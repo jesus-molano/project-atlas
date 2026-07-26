@@ -504,6 +504,31 @@ p {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
+.project-folder-dropzone {
+  position: relative;
+}
+
+.project-folder-dropzone.is-dragging {
+  outline: 2px solid var(--atlas-focus);
+  outline-offset: 3px;
+}
+
+.project-folder-dropzone.is-dragging::after {
+  content: "Drop repository folder";
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: var(--atlas-dialog);
+  color: var(--atlas-accent-hover);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
 .popover-open-project small,
 .open-project-form > small {
   display: block;

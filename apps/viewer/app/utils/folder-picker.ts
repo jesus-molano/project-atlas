@@ -45,3 +45,40 @@ export async function chooseDesktopProjectFolder(
   }
   return absolutePath;
 }
+
+function normalizeDroppedPath(value: string): string | undefined {
+  let candidate = value.trim().replace(/^["']|["']$/g, "");
+  if (candidate.startsWith("file://")) {
+    try {
+      candidate = decodeURIComponent(new URL(candidate).pathname);
+      if (/^\/[A-Za-z]:\//.test(candidate)) candidate = candidate.slice(1);
+    } catch {
+      return undefined;
+    }
+  }
+  if (
+    !candidate ||
+    candidate.length > 1_024 ||
+    /[\u0000-\u001f]/.test(candidate) ||
+    !/^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+|\/)/.test(candidate)
+  ) {
+    return undefined;
+  }
+  return candidate;
+}
+
+export function projectPathFromDrop(
+  dataTransfer: Pick<DataTransfer, "files" | "getData">,
+): string | undefined {
+  const droppedFile = dataTransfer.files.item(0) as
+    | (File & { path?: string })
+    | null;
+  const filePath = droppedFile?.path
+    ? normalizeDroppedPath(droppedFile.path)
+    : undefined;
+  if (filePath) return filePath;
+  return normalizeDroppedPath(
+    dataTransfer.getData("text/uri-list") ||
+      dataTransfer.getData("text/plain"),
+  );
+}

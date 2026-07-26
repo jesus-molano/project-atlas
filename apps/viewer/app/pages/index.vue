@@ -18,6 +18,7 @@ import type { AtlasIconName } from "~/components/AtlasIcon.vue";
 import {
   chooseDesktopProjectFolder,
   desktopFolderPicker,
+  projectPathFromDrop,
   type AtlasDesktopFolderPicker,
 } from "~/utils/folder-picker";
 
@@ -131,6 +132,7 @@ const projectSwitchPending = ref(false);
 const projectSwitchError = ref("");
 const folderPicker = shallowRef<AtlasDesktopFolderPicker>();
 const folderPickerPending = ref(false);
+const folderDropActive = ref(false);
 const launcherBrowse = ref<HTMLButtonElement>();
 const popoverBrowse = ref<HTMLButtonElement>();
 const selectedComponentId = ref<string>();
@@ -444,11 +446,25 @@ async function activateProject(rootPath = projectPath.value): Promise<void> {
 }
 
 async function browseForProject(trigger: HTMLButtonElement | undefined): Promise<void> {
-  if (!folderPicker.value || folderPickerPending.value) return;
+  if (folderPickerPending.value) return;
   folderPickerPending.value = true;
   projectSwitchError.value = "";
   try {
-    const selectedPath = await chooseDesktopProjectFolder(folderPicker.value);
+    let selectedPath: string | undefined;
+    if (folderPicker.value) {
+      selectedPath = await chooseDesktopProjectFolder(folderPicker.value);
+    } else {
+      const session = await $fetch<{ token: string }>("/api/agent/session");
+      const result = await $fetch<{
+        status: "selected" | "cancelled";
+        absolutePath?: string;
+      }>("/api/projects/select-directory", {
+        method: "POST",
+        headers: { "x-atlas-session": session.token },
+      });
+      selectedPath =
+        result.status === "selected" ? result.absolutePath : undefined;
+    }
     if (selectedPath) projectPath.value = selectedPath;
   } catch (caught) {
     projectSwitchError.value =
@@ -457,6 +473,31 @@ async function browseForProject(trigger: HTMLButtonElement | undefined): Promise
     folderPickerPending.value = false;
     nextTick(() => trigger?.focus());
   }
+}
+
+function handleProjectDragLeave(event: DragEvent): void {
+  const current = event.currentTarget as HTMLElement | null;
+  if (
+    current &&
+    event.relatedTarget instanceof Node &&
+    current.contains(event.relatedTarget)
+  ) {
+    return;
+  }
+  folderDropActive.value = false;
+}
+
+function handleProjectDrop(event: DragEvent): void {
+  folderDropActive.value = false;
+  if (!event.dataTransfer) return;
+  const droppedPath = projectPathFromDrop(event.dataTransfer);
+  if (droppedPath) {
+    projectPath.value = droppedPath;
+    projectSwitchError.value = "";
+    return;
+  }
+  projectSwitchError.value =
+    "This browser hid the dropped folder path. Use Choose folder instead.";
 }
 
 async function refreshSnapshot(): Promise<void> {
@@ -561,7 +602,14 @@ onBeforeUnmount(() => {
         </p>
         <form class="open-project-form" @submit.prevent="activateProject()">
           <label for="launcher-project-path">Project folder</label>
-          <div :class="{ 'has-folder-picker': Boolean(folderPicker) }">
+          <div
+            class="project-folder-dropzone has-folder-picker"
+            :class="{ 'is-dragging': folderDropActive }"
+            @dragenter.prevent="folderDropActive = true"
+            @dragover.prevent="folderDropActive = true"
+            @dragleave="handleProjectDragLeave"
+            @drop.prevent="handleProjectDrop"
+          >
             <AtlasIcon name="folder" />
             <input
               id="launcher-project-path"
@@ -571,28 +619,21 @@ onBeforeUnmount(() => {
               placeholder="C:\work\my-frontend"
             >
             <button
-              v-if="folderPicker"
               ref="launcherBrowse"
               type="button"
               class="secondary-button browse-button"
               :disabled="folderPickerPending"
               @click="browseForProject(launcherBrowse)"
             >
-              {{ folderPickerPending ? "Choosing…" : "Browse…" }}
+              {{ folderPickerPending ? "Choosing…" : "Choose folder…" }}
             </button>
             <button class="primary-button" :disabled="projectSwitchPending">
               {{ projectSwitchPending ? "Opening…" : "Open project" }}
             </button>
           </div>
           <small>
-            <template v-if="folderPicker">
-              Browse uses the desktop host. Review the selected path, then
-              choose Open project to scan it.
-            </template>
-            <template v-else>
-              Browser mode accepts an absolute path. Browse is available in the
-              desktop app.
-            </template>
+            Choose or drop a repository folder, review its path, then open it.
+            Atlas never uploads the project.
           </small>
         </form>
         <p v-if="projectSwitchError" class="inline-error">{{ projectSwitchError }}</p>
@@ -664,21 +705,27 @@ onBeforeUnmount(() => {
             </div>
             <form class="popover-open-project" @submit.prevent="activateProject()">
               <label for="project-path">Open another folder</label>
-              <div :class="{ 'has-folder-picker': Boolean(folderPicker) }">
+              <div
+                class="project-folder-dropzone has-folder-picker"
+                :class="{ 'is-dragging': folderDropActive }"
+                @dragenter.prevent="folderDropActive = true"
+                @dragover.prevent="folderDropActive = true"
+                @dragleave="handleProjectDragLeave"
+                @drop.prevent="handleProjectDrop"
+              >
                 <input id="project-path" v-model="projectPath" type="text" autocomplete="off" placeholder="Absolute project path">
                 <button
-                  v-if="folderPicker"
                   ref="popoverBrowse"
                   type="button"
                   class="secondary-button"
                   :disabled="folderPickerPending"
                   @click="browseForProject(popoverBrowse)"
                 >
-                  {{ folderPickerPending ? "Choosing…" : "Browse…" }}
+                  {{ folderPickerPending ? "Choosing…" : "Choose folder…" }}
                 </button>
                 <button class="primary-button" :disabled="projectSwitchPending">Open</button>
               </div>
-              <small>{{ folderPicker ? "Select a folder, review its path, then open it." : "Browser mode uses a path field. Browse is available in the desktop app." }}</small>
+              <small>Choose or drop a repository folder, review its path, then open it.</small>
             </form>
             <p v-if="projectSwitchError" class="inline-error">{{ projectSwitchError }}</p>
             <button class="text-button" @click="copyProjectPath">Copy active path</button>

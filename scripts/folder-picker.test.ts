@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   chooseDesktopProjectFolder,
   desktopFolderPicker,
+  projectPathFromDrop,
 } from "../apps/viewer/app/utils/folder-picker";
 
 describe("desktop folder picker boundary", () => {
@@ -40,5 +41,34 @@ describe("desktop folder picker boundary", () => {
         }),
       }),
     ).rejects.toThrow("invalid folder path");
+  });
+
+  it("accepts absolute paths from desktop drops and dropped text", () => {
+    expect(
+      projectPathFromDrop({
+        files: {
+          item: () => ({ path: "C:\\work\\frontend" }),
+        } as unknown as FileList,
+        getData: () => "",
+      }),
+    ).toBe("C:\\work\\frontend");
+    expect(
+      projectPathFromDrop({
+        files: { item: () => null } as unknown as FileList,
+        getData: (kind) =>
+          kind === "text/uri-list" ? "file:///C:/work/frontend" : "",
+      }),
+    ).toBe("C:/work/frontend");
+  });
+
+  it("does not invent a path when the browser hides folder locations", () => {
+    expect(
+      projectPathFromDrop({
+        files: {
+          item: () => ({ name: "frontend" }),
+        } as unknown as FileList,
+        getData: () => "",
+      }),
+    ).toBeUndefined();
   });
 });
