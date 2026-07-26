@@ -489,20 +489,37 @@ onBeforeUnmount(() => {
         <div class="graph-actions" aria-label="Graph viewport">
           <button
             ref="inspectorTrigger"
-            class="text-button"
+            :class="['icon-button', 'graph-icon-button', { active: inspectorOpen }]"
             :disabled="!selected"
+            aria-label="Inspect selected component"
+            title="Inspect selected component"
             @click="toggleInspector"
           >
-            {{ inspectorOpen ? "Hide component details" : "Inspect selected component" }}
+            <AtlasIcon name="inspect" />
           </button>
-          <button class="text-button" @click="graphView?.fitSelection()">
-            Fit selection
+          <button
+            class="icon-button graph-icon-button"
+            aria-label="Fit selection"
+            title="Fit selection"
+            @click="graphView?.fitSelection()"
+          >
+            <AtlasIcon name="focus" />
           </button>
-          <button class="text-button" @click="graphView?.fitGraph()">
-            Fit graph
+          <button
+            class="icon-button graph-icon-button"
+            aria-label="Fit graph"
+            title="Fit graph"
+            @click="graphView?.fitGraph()"
+          >
+            <AtlasIcon name="maximize" />
           </button>
-          <button class="text-button" @click="graphView?.resetView()">
-            Reset
+          <button
+            class="icon-button graph-icon-button"
+            aria-label="Reset graph view"
+            title="Reset graph view"
+            @click="graphView?.resetView()"
+          >
+            <AtlasIcon name="refresh" />
           </button>
         </div>
       </div>

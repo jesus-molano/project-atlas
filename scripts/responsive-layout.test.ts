@@ -8,6 +8,12 @@ const css = readFileSync(
   ),
   "utf8",
 );
+const codeAtlas = readFileSync(
+  fileURLToPath(
+    new URL("../apps/viewer/app/components/CodeAtlasView.vue", import.meta.url),
+  ),
+  "utf8",
+);
 
 function usefulWidth(viewport: number, scale = 1): number {
   const cssViewport = Math.floor(viewport / scale);
@@ -32,6 +38,26 @@ describe("evidence workspace responsive layout", () => {
     expect(css).toContain("container-name: atlas-workspace");
     expect(css).toContain("@container atlas-workspace (max-width: 1100px)");
     expect(css).toContain("@container atlas-workspace (max-width: 900px)");
+  });
+
+  it("lets the Code graph introduction use the full toolbar width", () => {
+    expect(css).toMatch(
+      /\.map-toolbar\s*>\s*div:first-child\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/s,
+    );
+  });
+
+  it("uses compact, accessible icon controls for the graph viewport", () => {
+    for (const label of [
+      "Inspect selected component",
+      "Fit selection",
+      "Fit graph",
+      "Reset graph view",
+    ]) {
+      expect(codeAtlas).toContain(`aria-label="${label}"`);
+      expect(codeAtlas).toContain(`title="${label}"`);
+    }
+    expect(codeAtlas).not.toContain(">Fit selection<");
+    expect(codeAtlas).not.toContain(">Fit graph<");
   });
 
   it.each([

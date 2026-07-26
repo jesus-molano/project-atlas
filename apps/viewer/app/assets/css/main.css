@@ -1501,7 +1501,17 @@ textarea::placeholder {
 .graph-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
+}
+
+.graph-icon-button {
+  border: 1px solid transparent;
+}
+
+.graph-icon-button.active {
+  border-color: var(--atlas-selection);
+  background: var(--atlas-selection-soft);
+  color: var(--atlas-accent);
 }
 
 .atlas-workspace.three-pane,
@@ -1717,6 +1727,10 @@ textarea::placeholder {
   align-items: start;
   gap: 12px 18px;
   padding-bottom: 14px;
+}
+
+.map-toolbar > div:first-child {
+  grid-column: 1 / -1;
 }
 
 .map-toolbar > div:first-child p {

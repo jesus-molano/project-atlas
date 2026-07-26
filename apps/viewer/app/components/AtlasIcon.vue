@@ -8,8 +8,11 @@ export type AtlasIconName =
   | "code"
   | "design"
   | "folder"
+  | "focus"
   | "home"
   | "inbox"
+  | "inspect"
+  | "maximize"
   | "memory"
   | "menu"
   | "plug"
@@ -43,6 +46,18 @@ defineProps<{
     <g v-else-if="name === 'search'">
       <circle cx="10.5" cy="10.5" r="6.5" />
       <path d="m15.5 15.5 4.5 4.5" />
+    </g>
+    <g v-else-if="name === 'inspect'">
+      <rect x="3.5" y="4" width="17" height="16" rx="2" />
+      <path d="M14.5 4v16M17.5 8h.01M17.5 12h.01" />
+    </g>
+    <g v-else-if="name === 'focus'">
+      <path d="M8 4H4v4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
+      <circle cx="12" cy="12" r="2.5" />
+    </g>
+    <g v-else-if="name === 'maximize'">
+      <path d="M9 4H4v5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
+      <path d="m4 9 5-5M15 4l5 5M20 15l-5 5M9 20l-5-5" />
     </g>
     <g v-else-if="name === 'code'">
       <path d="m9 6-5 6 5 6M15 6l5 6-5 6M13.5 4 10.5 20" />
