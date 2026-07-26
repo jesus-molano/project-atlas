@@ -1,101 +1,127 @@
 # Project Atlas GUI
 
-The local GUI is the human observation and control plane over Code Atlas,
-Design Atlas, and Project Memory. It reads the same SQLite database and
-Markdown sources used by CLI and MCP. Opening sections, searching, filtering,
-and inspecting evidence never invokes an LLM.
+The GUI is a desktop-shaped evidence workspace over the same runtime, SQLite
+indexes, and Markdown used by CLI and MCP. It is designed for repeated daily
+work: orient, select evidence, prepare or continue a task, review decisions, and
+recover from stale or incorrect results. Browsing never invokes an LLM.
 
-After installation, start it from the Project Atlas clone for any product
-repository:
+Start it from the Project Atlas clone:
 
 ```powershell
 node .\packages\cli\dist\index.js open "C:\path\to\product-repository"
 ```
 
-The server binds to `127.0.0.1:4173` by default. The normal `$frontend-task`
-flow creates/refreshes the code index; an empty repository view explains which
-source is not indexed yet. Use `--port` when the default port is occupied.
+The server binds only to `127.0.0.1:4173` by default.
 
-## Sections
+## Desktop shell
 
-- **Overview** exposes index freshness, counts with labels, source health,
-  warnings, recent evidence, and the current context contract.
-- **Code Atlas** provides component search, scope filters, composition and
-  similarity relations, public API, consumers, change impact, and reuse
-  candidates.
-- **Design Atlas** provides files, pages, sparse nodes, dev status, annotations,
-  resources, components, variants, Code Connect evidence, variable collections,
-  viewport/flow families, and provenance. Ready for dev raises confidence but
-  is not required; unavailable connector metadata is labeled separately from
-  an observed missing state.
-- **Project Memory** provides typed search, active and historical states,
-  authority, confidence, freshness, body, relations, backlinks, and provenance.
-- **Decisions & Risks** separates decisions required, warnings, and resolved
-  findings, always with evidence and a recommendation. It composes Code Atlas
-  reuse decisions and active Project Memory decisions without duplicating them,
-  and labels their provenance.
-- **Task Context** combines a task with a few relevant code, design, and memory
-  candidates under one hard response budget.
-- **Memory Inbox** reviews proposed semantic knowledge. A user can revise typed
-  items, combine proposals, approve to local or canonical Markdown, or reject
-  with an auditable reason.
-- **Integrations & Health** shows local source health, last-check time and
-  provenance separately for connectors (Figma, Rovo, GitHub) and enrichments
-  (Ready for Dev, Variables, Code Connect, libraries). Cached evidence is
-  labeled `detected`; it is never presented as proof that a live connector is
-  currently authenticated. The section also shows workspace isolation,
-  explicit repository/memory refresh actions, and a
-  formatter/linter warning when `.component-atlas/` may be traversed. Atlas
-  never edits a product repository's formatter ignore files.
-- **Settings** controls browser-local retrieval defaults and explains storage,
-  authority, privacy, and write policy.
+The top bar always shows the logical project, checkout/worktree, branch, HEAD,
+dirty state, source health, and global search. Navigation is limited to two
+levels:
 
-## Context Inspector
+- **Project:** Home and actionable changes since the current snapshot.
+- **Explore:** Code, Design, and Memory.
+- **Work:** Task Workbench and compact local activity.
+- **Review:** Decisions & Risks and Memory Inbox.
+- **System:** Connections and Settings.
 
-Human browsing is not agent context. Task Context is the only GUI action that
-composes a package for Codex or Claude. The inspector reports:
+The workspace uses a navigator, a wide evidence area, and a contextual inspector
+only where it helps a decision. Exact data uses lists and ledgers; maps are
+focused, searchable, and actionable rather than ornamental.
 
-- hard character cap;
-- actual characters and estimated tokens;
-- total matches;
-- whether trimming occurred;
-- IDs that can be expanded deliberately.
+## Projects and folders
 
-The runtime clamps every package to 800–12,000 characters. The default remains
-3,600 characters, roughly 900 tokens. Copying the result copies only that
-bounded package.
+The project control always identifies the active logical project, exact
+checkout/worktree, branch, HEAD, and dirty state. It also exposes recent
+projects and **Open another folder**:
 
-The workspace endpoint reads Code, Design, Memory, proposals, and component
-decisions in one SQLite read transaction. It returns a snapshot fingerprint
-and timestamp; refresh replaces the whole GUI revision atomically instead of
-mixing counts from separate requests.
+- in the loopback browser, enter an absolute repository path and confirm
+  **Open project**;
+- in a packaged desktop host, **Browse…** opens the native directory dialog,
+  returns a path through the versioned folder-picker adapter, and still waits
+  for **Open project** confirmation;
+- cancelling, an invalid folder, or a failed scan leaves the active project
+  unchanged;
+- a project becomes recent only after validation and a successful scan;
+- changing projects is disabled while a Codex run owns the current checkout.
 
-## Data and write boundaries
+Browser-only directory APIs are not used because they do not provide a stable
+absolute path for the local runtime. The web shell never launches Explorer or a
+shell command. The desktop picker contract and IPC boundary are documented in
+[desktop-workspace.md](desktop-workspace.md#folder-selection-boundary).
 
-Repository and design facts are reconstructible derived data. Refreshing them
-is a local operation. Canonical decisions and conventions remain Markdown.
-Personal and episodic records stay in ignored local Markdown plus SQLite.
+## Evidence views
 
-Task Context generation is not persisted as a browsing history. A separate
-evaluation log is opt-in, local, capped to 50 entries, and clearable through the
-CLI. It stores only a task hash, counts, timing, context size, correctness, and
-rework flags. It never stores task text, external handles, documents, code, raw
-responses, secrets, or transient asset URLs.
+**Code** answers three common questions directly: what can I reuse, what could
+break, and where is it tested. Composition edges are derived relations;
+similarity is labeled as inference. A component, route, layout, consumer, or
+test path can be copied or pinned into a task. The component catalog, graph
+canvas, and detail inspector own independent scrolling. Selecting an item does
+not scroll the page or refit the full graph. Explicit controls reset the view,
+fit the selection, or fit the graph. At laptop and tablet widths the inspector
+becomes a drawer with a sticky close control; `Escape` closes it and restores
+focus.
 
-Memory Inbox is the only GUI path for semantic durable writes. Applying,
-rejecting, revising, and combining proposals call the same runtime functions as
-CLI/MCP. Secret-like content is rejected before storage. Existing active
-knowledge is superseded explicitly rather than overwritten.
+**Design** orients from cached file/page hierarchy to sparse frames, families,
+states, responsive variants, tokens, and code links. Ready for Dev shows
+`observed`, `user-confirmed`, `source-unavailable`, or `absent` provenance.
+Transient localhost assets are never opened or retained as durable evidence.
+Sync and deep inspection are agent-assisted actions because they may access a
+connected Figma source.
 
-## Keyboard, responsive, and failure states
+**Memory** provides a bounded concept map and a chronological view over domains,
+decisions, constraints, conventions, attempts, and outcomes. Each item exposes
+authority, scope, confidence, freshness, provenance, relations, and backlinks.
+Proposed or superseded knowledge is visually distinct from active canonical
+knowledge.
 
-- `Ctrl/Cmd + K` opens transversal code/design/memory search.
-- `Escape` closes search.
-- Every control has a visible focus treatment and an accessible name.
-- At compact widths the navigation becomes a coded rail while retaining full
-  labels for assistive technology and tooltips.
-- Secondary provenance and budget inspectors move below the main detail instead
-  of disappearing.
-- Missing design or memory data produces an actionable cold-start state.
-- API errors remain in the affected section and can be retried without losing
-  the rest of the workspace.
+## Task Workbench and Codex
+
+The Workbench supports new, continue, and correct modes. It autodetects explicit
+source links, allows them to be excluded, and accepts pinned Atlas handles.
+Before launch it shows:
+
+- exact project, worktree, branch, and snapshot fingerprint;
+- read-only or workspace-write permission;
+- connected and unavailable capabilities;
+- selected sources and possible writes;
+- hard character cap, actual characters, estimated tokens, and truncation.
+
+After review, the server regenerates the package from trusted local state and
+starts the provider-neutral Agent Adapter. The first implementation uses the
+official `@openai/codex-sdk`. Progress is translated into human phases; raw
+commands and external documents are not copied into the activity log. One run
+owns a checkout at a time. Runs can be cancelled, material questions answered,
+and completed work corrected or continued using the same Codex thread.
+
+External writes are prohibited by the initial run contract. Jira, Confluence,
+Figma, GitHub, commit/push, and canonical memory require a separate explicit
+approval.
+
+## Privacy and local metrics
+
+The persistent run audit is capped and contains only IDs generated by Atlas,
+timestamps, modes, states, source kinds, selected evidence kinds, budgets,
+counts, truncation, and outcome status. It does not contain task text, source
+URLs, code, documents, raw prompts, raw responses, or credentials.
+
+Optional product metrics are disabled by default. When enabled they add a
+one-way task fingerprint plus preparation time, context size, question count,
+conflicts, and correction state. Both audit and metrics are local and clearable
+from Settings. There is no telemetry.
+
+## Keyboard, accessibility, and recovery
+
+- `Ctrl/Cmd + K` opens universal evidence search.
+- `Ctrl/Cmd + 1`, `2`, and `3` open Home, Code, and Task Workbench.
+- `Escape` closes transient surfaces.
+- All controls have visible focus, accessible names, non-color labels, and
+  reduced-motion support.
+- Wide, normal, and compact desktop widths keep core actions visible. Secondary
+  inspectors become a controlled drawer or overlay rather than covering their
+  own open/close action.
+- Empty, stale, permission, conflict, and error states explain the next safe
+  action instead of showing dead text.
+
+The full product contract, human questions, journeys, action/risk matrix, and
+wireframes live in [desktop-workspace.md](desktop-workspace.md).

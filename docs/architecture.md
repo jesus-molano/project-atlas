@@ -20,6 +20,8 @@ flowchart LR
   C[CLI context query]
   M[MCP context query]
   W[Complete local Project Atlas GUI]
+  Q[Agent Adapter and action manifest]
+  Z[Codex SDK]
   T[frontend-task orchestrator]
   K[reuse-first workflow module]
 
@@ -37,6 +39,8 @@ flowchart LR
   S --> C
   S --> M
   S --> W
+  W --> Q
+  Q --> Z
   T --> M
   T -. optional Figma .-> D
   T --> K
@@ -65,6 +69,9 @@ flowchart LR
 - `viewer`: complete local Nuxt control plane over the same runtime and indexes.
   Browsing is read-only; refresh and memory-review actions call explicit runtime
   policies.
+- `agent`: provider-neutral run, progress, question, cancellation, resumption,
+  and compact-result contracts. The first adapter uses the official Codex SDK;
+  the GUI depends on the interface rather than Codex-specific UI state.
 
 ## Agent context contract
 
@@ -209,12 +216,36 @@ The complete Project Atlas GUI is a local observation and control plane over
 the same runtime, SQLite indexes, and Markdown used by CLI and MCP. Stable
 view-model contracts in `packages/runtime/src/view-models.ts` prevent a second
 persistence or business-logic layer. Navigation never invokes an LLM; only an
-explicit reviewed Task Context action creates a hard-capped agent package.
+explicit reviewed Task Workbench action creates a hard-capped agent package.
 
-Its sections are Overview, Code Atlas, Design Atlas, Project Memory,
-Decisions & Risks, Task Context, Memory Inbox, Integrations & Health, and
-Settings. Semantic memory writes pass through the proposal gate; derived local
+The shell keeps project/worktree/branch context persistent and groups Home,
+Explore, Work, Review, and System in at most two navigation levels. Code,
+Design, and Memory selections become explicit handles in the bounded task
+package. Semantic memory writes pass through the proposal gate; derived local
 indexes can be refreshed directly.
+
+Project activation is an explicit local mutation. The server validates an
+absolute directory, completes the initial scan, atomically switches the active
+checkout, and only then updates the capped recent-project list. Same-origin and
+per-process session checks protect the loopback route, and active agent runs
+block a switch. Validation or scan failure cannot change the active project.
+
+The renderer depends on a versioned `AtlasDesktopFolderPicker` capability
+instead of Electron, Tauri, or browser APIs. A future desktop host may implement
+its `selectDirectory` method through constrained IPC and a native dialog.
+Selection returns a path for review only; the existing activation route remains
+the single validation and indexing boundary. Without the host capability, the
+loopback shell keeps a manual absolute-path field and says that browsing
+requires the desktop app. There is no endpoint that launches a shell, Explorer,
+or an arbitrary process.
+
+Agent runs use a random per-process session token, same-origin mutation checks,
+the selected checkout as `workingDirectory`, one active owner per checkout,
+timeouts, output limits, and explicit cancellation. Atlas regenerates context
+server-side from reviewed parameters rather than accepting raw client context.
+The local audit stores only run state, source/selection kinds, budgets, counts,
+and status. It excludes task text, source URLs, code, documents, and raw model
+output.
 
 ## Compatibility
 

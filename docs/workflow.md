@@ -86,7 +86,26 @@ all project query tools enforce hard limits, small top-k defaults, and explicit
 expansion.
 
 Human browsing in the GUI does not add anything to agent context. Only an
-explicit Task Context package is meant to be copied or sent.
+explicit Task Workbench package is meant to be copied or sent.
+
+## Daily flow from the GUI
+
+The GUI is an alternative entry point to the same workflow:
+
+1. Open the exact product checkout with `project-atlas open`.
+2. Use global search or Code, Design, and Memory goal views to select evidence.
+3. Choose **Use in task**. The selected handles are pinned and guaranteed to
+   enter the bounded package even when task wording alone ranks them lower.
+4. Review sources, findings, estimated tokens, snapshot, branch, and checkout.
+5. Choose read-only preparation or workspace-write implementation.
+6. Review the launch boundary, then start Codex. Atlas shows compact progress,
+   supports cancellation, and renders material questions in place.
+7. Correct or continue the same Codex task without rebuilding onboarding.
+
+Local navigation and index actions consume zero agent tokens. Agent execution
+uses the official SDK and never authorizes external writes. Jira, Confluence,
+Figma, GitHub mutations, commit/push, and canonical memory still require their
+own explicit approval.
 
 ## Source behavior
 

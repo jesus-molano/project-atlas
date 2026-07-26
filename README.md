@@ -80,16 +80,28 @@ From the Project Atlas clone:
 node .\packages\cli\dist\index.js open "C:\path\to\product-repository"
 ```
 
-Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The GUI lets you review:
+Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The desktop-shaped local
+workspace lets you:
 
-- project and index health;
-- code components, routes, layouts, relations, consumers, and impact;
-- cached Figma structure, status provenance, variables, and candidates;
-- project memory, decisions, risks, failed attempts, and freshness;
-- bounded task packages before copying them to an agent;
-- proposed memory changes before approving or rejecting them.
+- see the exact logical project, checkout/worktree, branch, HEAD, and diff state;
+- switch among successfully opened recent projects or open another repository
+  by absolute path without restarting the server;
+- search code, design, and memory from one command surface;
+- choose evidence by goal: reuse, impact, tests, design state, or prior decision;
+- send a reviewed, hard-capped package to the Task Workbench;
+- prepare, implement, cancel, correct, and continue a Codex task in the same
+  checkout through the official SDK;
+- review agent progress, material questions, compact outcomes, and memory
+  proposals without storing raw external documents.
 
-Browsing the GUI does not call an LLM or consume agent context.
+Browsing, searching, rescanning, and reviewing local evidence use zero agent
+tokens. Codex starts only after a launch review shows project, permissions,
+sources, budget, and possible writes.
+
+The loopback browser accepts a reviewed absolute folder path. A packaged desktop
+host can additionally provide the active **Browse…** action through a native
+folder-picker adapter; selecting a folder never scans or starts an agent until
+you confirm **Open project**.
 
 ## Sources and graceful fallbacks
 
@@ -158,6 +170,7 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 - [Automatic task workflow and advanced CLI](docs/workflow.md)
 - [First-run checklist](frontend-codex-kit/FIRST-RUN-CHECKLIST.md)
 - [GUI](docs/gui.md)
+- [Desktop workspace contract and Agent Adapter](docs/desktop-workspace.md)
 - [Architecture](docs/architecture.md)
 - [Figma Design Index](docs/design-index.md)
 - [Project Memory and write policy](docs/project-memory.md)
