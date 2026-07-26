@@ -50,6 +50,7 @@ for (const name of dependencies.keys()) visit(name);
 const allowed = {
   "@component-atlas/core": [],
   "@component-atlas/memory": [],
+  "@component-atlas/agent": [],
   "@component-atlas/design": ["@component-atlas/core"],
   "@component-atlas/adapter-react": ["@component-atlas/core"],
   "@component-atlas/adapter-vue": ["@component-atlas/core"],
@@ -78,6 +79,7 @@ const allowed = {
     "@component-atlas/runtime",
   ],
   "@component-atlas/viewer": [
+    "@component-atlas/agent",
     "@component-atlas/core",
     "@component-atlas/design",
     "@component-atlas/memory",
