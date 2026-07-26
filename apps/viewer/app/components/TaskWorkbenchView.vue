@@ -8,6 +8,7 @@ import type {
   AgentSourceReference,
 } from "@component-atlas/agent";
 import type {
+  ActionResolution,
   AgentRunAuditRecord,
   ProjectCapabilityReport,
   ProjectIdentityMetadata,
@@ -76,6 +77,7 @@ const props = defineProps<{
   pinnedHandles?: string[];
   localMetricsEnabled?: boolean;
   recentRuns?: AgentRunAuditRecord[];
+  recentActions?: ActionResolution[];
 }>();
 
 const task = ref(props.initialTask ?? "");
@@ -517,13 +519,24 @@ onBeforeUnmount(() => {
           <li>Review the compact evidence and any material question.</li>
           <li>Prepare read-only or implement in the selected checkout.</li>
         </ol>
-        <section v-if="recentRuns?.length" class="recent-runs">
+        <section v-if="recentRuns?.length || recentActions?.length" class="recent-runs">
           <header>
             <strong>Recent local activity</strong>
             <span>metadata only · no task text</span>
           </header>
           <div
-            v-for="run in recentRuns.slice(0, 5)"
+            v-for="action in recentActions?.slice(0, 4)"
+            :key="action.id"
+            class="recent-run-row"
+          >
+            <time :datetime="action.resolvedAt">
+              {{ new Date(action.resolvedAt).toLocaleString() }}
+            </time>
+            <strong>{{ action.command }} · {{ action.state }}</strong>
+            <span>{{ action.scope }} scope · {{ action.itemId }}</span>
+          </div>
+          <div
+            v-for="run in recentRuns?.slice(0, 5)"
             :key="run.id"
             class="recent-run-row"
           >

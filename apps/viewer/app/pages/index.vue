@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {
+  ActionResolution,
   ComponentGraph,
   AgentRunAuditRecord,
   ProjectCapabilityReport,
@@ -77,6 +78,12 @@ interface WorkspaceSnapshot {
   agent: AgentAdapterStatus;
   evaluations: TaskEvaluationRecord[];
   agentRuns: AgentRunAuditRecord[];
+  actionResolutions: ActionResolution[];
+  actionCenterCounts: {
+    materialBlockers: number;
+    open: number;
+    stale: number;
+  };
   git: {
     branch?: string;
     head?: string;
@@ -209,10 +216,9 @@ const navigationGroups = computed<NavigationGroup[]>(() => [
       {
         id: "decisions",
         icon: "risk",
-        label: "Decisions & risks",
-        count: workspace.value?.risks.filter((item) => item.level !== "resolved")
-          .length,
-        hint: "Evidence-backed queue",
+        label: "Action Center",
+        count: workspace.value?.actionCenterCounts.open,
+        hint: "Decisions, risks, and warnings",
       },
       {
         id: "inbox",
@@ -395,6 +401,32 @@ function useEvidenceInTask(handle: string, intent: string): void {
 function prepareTask(intent: string): void {
   taskSeed.value = intent;
   activeSection.value = "task";
+}
+
+function prepareActionTask(payload: { intent: string; handles: string[] }): void {
+  taskSeed.value = payload.intent;
+  pinnedHandles.value = [
+    ...new Set([...pinnedHandles.value, ...payload.handles]),
+  ].slice(0, 8);
+  activeSection.value = "task";
+}
+
+function openActionEvidence(handle: string): void {
+  const [source, ...segments] = handle.split(":");
+  if (source === "code") {
+    selectedComponentId.value = segments.join(":");
+    activeSection.value = "code";
+  } else if (source === "design") {
+    selectedDesignNodeId.value = segments.at(-1);
+    activeSection.value = "design";
+  } else if (source === "memory") {
+    selectedMemoryItemId.value = segments.join(":");
+    activeSection.value = "memory";
+  } else if (source === "integration") {
+    activeSection.value = "connections";
+  } else {
+    activeSection.value = "task";
+  }
 }
 
 function formatDate(value: string | undefined): string {
@@ -871,12 +903,12 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'task'" class="section-workspace task-section">
           <header class="workspace-heading compact"><div><span class="eyebrow">Work / Task Workbench</span><h1>Prepare the next move.</h1><p>Describe the outcome first. Sources and context controls appear only when useful.</p></div><span :class="['heading-count', { warning: workspace.git.dirty }]">{{ workspace.git.dirty ? `${workspace.git.changedFiles} changed` : "Clean checkout" }}</span></header>
-          <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" />
+          <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" />
         </section>
 
         <section v-else-if="activeSection === 'decisions'" class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Review / Decisions & risks</span><h1>What needs a human decision?</h1><p>Review only evidence that can change implementation or repeat a known failure.</p></div><span class="heading-count">{{ openRisks.length }} open</span></header>
-          <LazyRisksView :risks="workspace.risks" :decisions="workspace.currentDecisions" />
+          <header class="workspace-heading compact"><div><span class="eyebrow">Review / Action Center</span><h1>What needs action, and why?</h1><p>Resolve decisions, contradictions, risks, warnings, and missing evidence without losing provenance.</p></div><span class="heading-count">{{ workspace.actionCenterCounts.open }} open</span></header>
+          <LazyRisksView @prepare-task="prepareActionTask" @open-evidence="openActionEvidence" @changed="refreshSnapshot" />
         </section>
 
         <section v-else-if="activeSection === 'inbox'" class="section-workspace">

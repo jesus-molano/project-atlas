@@ -14,7 +14,7 @@ describe("desktop evidence workspace contract", () => {
       "Design",
       "Memory",
       "Task Workbench",
-      "Decisions & risks",
+      "Action Center",
       "Memory Inbox",
       "Connections",
       "Settings",
@@ -72,6 +72,39 @@ describe("desktop evidence workspace contract", () => {
     expect(workbench).toContain("Cancel safely");
     expect(workbench).toContain("Continue same Codex task");
     expect(workbench).toContain("Context inspector");
+  });
+
+  it("keeps Action Center resolutions evidence-bound and human-gated", async () => {
+    const [view, domain, server, actionRoute, bulkRoute, workbench] =
+      await Promise.all([
+        source("apps/viewer/app/components/RisksView.vue"),
+        source("packages/core/src/action-center.ts"),
+        source("apps/viewer/server/utils/action-center.ts"),
+        source("apps/viewer/server/api/action-center/actions.post.ts"),
+        source("apps/viewer/server/api/action-center/bulk.post.ts"),
+        source("apps/viewer/app/components/TaskWorkbenchView.vue"),
+      ]);
+    for (const label of [
+      "What Atlas detected",
+      "Why it matters",
+      "Affected task",
+      "If you do nothing",
+      "Evidence changed",
+      "Resolve next",
+    ]) {
+      expect(view).toContain(label);
+    }
+    expect(view).toContain("Choose authority & resolve");
+    expect(view).toContain("Accept risk");
+    expect(view).toContain("Ignore warning");
+    expect(domain).toContain("expectedEvidenceFingerprint");
+    expect(domain).toContain("resolutionInvalidated");
+    expect(domain).toContain("compactActionDelta");
+    expect(server).toContain("The originating run is unavailable");
+    expect(server).toContain("executeBulkActionMutations");
+    expect(actionRoute).toContain("assertAgentSession(event)");
+    expect(bulkRoute).toContain("assertAgentSession(event)");
+    expect(workbench).toContain("recentActions");
   });
 
   it("gives the catalog, graph, and inspector independent scroll ownership", async () => {
