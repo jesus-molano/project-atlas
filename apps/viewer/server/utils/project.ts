@@ -15,12 +15,20 @@ import { createError } from "h3";
 import os from "node:os";
 import path from "node:path";
 
-let activeProjectRoot = process.env.ATLAS_PROJECT_ROOT
+const launchProjectRoot = process.env.ATLAS_PROJECT_ROOT
   ? path.resolve(process.env.ATLAS_PROJECT_ROOT)
   : undefined;
+let activeProjectRoot = launchProjectRoot;
 
 export function projectRootPath(): string {
-  const rootPath = activeProjectRoot;
+  // Embedded hosts and tests may assign the launch root after module loading.
+  // An explicit project switch remains authoritative; otherwise resolve the
+  // environment lazily so imports do not freeze an empty launch state.
+  const rootPath =
+    activeProjectRoot ??
+    (process.env.ATLAS_PROJECT_ROOT
+      ? path.resolve(process.env.ATLAS_PROJECT_ROOT)
+      : undefined);
   if (!rootPath) {
     throw createError({
       statusCode: 503,
@@ -265,15 +273,18 @@ export function loadProjectAtlasSnapshot(): ProjectAtlasSnapshot {
     artifact?.project?.rootPath &&
     path.resolve(artifact.project.rootPath).toLowerCase() ===
       path.resolve(rootPath).toLowerCase();
+  const launchIdentityMatches =
+    launchProjectRoot &&
+    normalizedPathKey(launchProjectRoot) === normalizedPathKey(rootPath);
   const id =
-    process.env.ATLAS_PROJECT_ID ??
+    (launchIdentityMatches ? process.env.ATLAS_PROJECT_ID : undefined) ??
     (artifactMatches ? artifact?.project?.id : undefined) ??
     createHash("sha256")
       .update(path.resolve(rootPath).toLowerCase())
       .digest("hex")
       .slice(0, 20);
   const checkoutId =
-    process.env.ATLAS_CHECKOUT_ID ??
+    (launchIdentityMatches ? process.env.ATLAS_CHECKOUT_ID : undefined) ??
     (artifactMatches ? artifact?.project?.identity?.checkoutId : undefined);
   const store = new AtlasStore(id);
   try {

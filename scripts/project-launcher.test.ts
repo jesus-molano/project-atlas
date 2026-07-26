@@ -8,8 +8,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { scanProject } from "../packages/runtime/src/index";
 import {
   listRecentProjects,
+  loadProjectAtlasSnapshot,
   rememberRecentProject,
   setActiveProjectRoot,
   validateProjectRoot,
@@ -19,6 +21,8 @@ const temporaryRoots: string[] = [];
 
 afterEach(async () => {
   delete process.env.ATLAS_RECENT_PROJECTS_PATH;
+  delete process.env.ATLAS_PROJECT_ID;
+  delete process.env.ATLAS_CHECKOUT_ID;
   await Promise.all(
     temporaryRoots.splice(0).map((root) =>
       rm(root, { recursive: true, force: true }),
@@ -31,7 +35,7 @@ async function projectFixture(name: string): Promise<string> {
   temporaryRoots.push(root);
   await writeFile(
     path.join(root, "package.json"),
-    `${JSON.stringify({ name }, null, 2)}\n`,
+    `${JSON.stringify({ name, dependencies: { react: "^19.0.0" } }, null, 2)}\n`,
     "utf8",
   );
   return root;
@@ -81,6 +85,22 @@ describe("local project launcher", () => {
     await expect(validateProjectRoot("relative/project")).rejects.toMatchObject({
       statusCode: 400,
     });
+  });
+
+  it("does not reuse launch identity after switching to another project", async () => {
+    const first = await projectFixture("launch-app");
+    const second = await projectFixture("switched-app");
+    const firstGraph = await scanProject(first);
+    const secondGraph = await scanProject(second);
+
+    process.env.ATLAS_PROJECT_ID = firstGraph.project.id;
+    process.env.ATLAS_CHECKOUT_ID = firstGraph.project.identity?.checkoutId;
+    setActiveProjectRoot(second);
+
+    const snapshot = loadProjectAtlasSnapshot();
+    expect(snapshot.graph.project.id).toBe(secondGraph.project.id);
+    expect(snapshot.graph.project.name).toBe("switched-app");
+    expect(snapshot.graph.project.rootPath).toBe(second);
   });
 });
 

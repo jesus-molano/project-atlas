@@ -143,7 +143,6 @@ const searchResults = ref<ProjectSearchViewModel>();
 const searchPending = ref(false);
 const searchError = ref("");
 const searchOpen = ref(false);
-const searchTrigger = ref<HTMLButtonElement>();
 const searchInput = ref<HTMLInputElement>();
 const localAction = ref("");
 const localActionMessage = ref("");
@@ -155,7 +154,6 @@ const preferences = ref({
   localMetrics: false,
 });
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
-let searchReturnFocus: HTMLElement | undefined;
 
 const navigationGroups = computed<NavigationGroup[]>(() => [
   {
@@ -362,29 +360,6 @@ function selectSection(section: string): void {
   }
 }
 
-function openSearch(): void {
-  searchReturnFocus =
-    document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : searchTrigger.value;
-  searchOpen.value = true;
-  nextTick(() => searchInput.value?.focus());
-}
-
-function closeSearch(restoreFocus = true): void {
-  if (!searchOpen.value) return;
-  searchOpen.value = false;
-  if (restoreFocus) {
-    nextTick(() => {
-      const target =
-        searchReturnFocus?.isConnected === true
-          ? searchReturnFocus
-          : searchTrigger.value;
-      target?.focus();
-    });
-  }
-}
-
 function selectSearchResult(result: ProjectSearchResultViewModel): void {
   if (result.target.section === "code") {
     activeSection.value = "code";
@@ -396,7 +371,7 @@ function selectSearchResult(result: ProjectSearchResultViewModel): void {
     activeSection.value = "memory";
     selectedMemoryItemId.value = result.target.id;
   }
-  closeSearch(false);
+  searchOpen.value = false;
 }
 
 function pinSearchResult(result: ProjectSearchResultViewModel): void {
@@ -404,7 +379,7 @@ function pinSearchResult(result: ProjectSearchResultViewModel): void {
   if (!pinnedHandles.value.includes(handle)) pinnedHandles.value.push(handle);
   taskSeed.value = searchQuery.value.trim();
   activeSection.value = "task";
-  closeSearch(false);
+  searchOpen.value = false;
 }
 
 function useEvidenceInTask(handle: string, intent: string): void {
@@ -521,7 +496,8 @@ async function copyProjectPath(): Promise<void> {
 function handleKeyboard(event: KeyboardEvent): void {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    openSearch();
+    searchOpen.value = true;
+    nextTick(() => searchInput.value?.focus());
   }
   if ((event.ctrlKey || event.metaKey) && event.key === "1") {
     event.preventDefault();
@@ -536,7 +512,7 @@ function handleKeyboard(event: KeyboardEvent): void {
     activeSection.value = "task";
   }
   if (event.key === "Escape") {
-    closeSearch();
+    searchOpen.value = false;
     projectMenuOpen.value = false;
   }
 }
@@ -752,7 +728,7 @@ onBeforeUnmount(() => {
       </nav>
 
       <header class="project-bar">
-        <button ref="searchTrigger" class="global-search-trigger" aria-label="Search code, design, memory, and tasks" @click="openSearch">
+        <button class="global-search-trigger" aria-label="Search code, design, memory, and tasks" @click="searchOpen = true; nextTick(() => searchInput?.focus())">
           <AtlasIcon name="search" />
           <span>Search components, designs, decisions…</span>
           <kbd>Ctrl K</kbd>
@@ -890,7 +866,7 @@ onBeforeUnmount(() => {
         </section>
       </section>
 
-      <div v-if="searchOpen" class="search-backdrop" role="presentation" @click.self="closeSearch()">
+      <div v-if="searchOpen" class="search-backdrop" role="presentation" @click.self="searchOpen = false">
         <section class="search-palette command-palette" role="dialog" aria-modal="true" aria-label="Search Project Atlas">
           <label class="palette-input">
             <AtlasIcon name="search" />

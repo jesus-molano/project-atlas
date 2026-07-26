@@ -10,8 +10,9 @@
   "scripts": {
     "build": "pnpm --filter \"./packages/*\" -r build && pnpm --filter @component-atlas/viewer build",
     "build:packages": "pnpm --filter \"./packages/*\" -r build",
+    "prepare:viewer": "pnpm --filter @component-atlas/viewer exec nuxt prepare",
     "dev:viewer": "pnpm --filter @component-atlas/viewer dev",
-    "test": "pnpm build:packages && vitest run",
+    "test": "pnpm build:packages && pnpm prepare:viewer && vitest run",
     "test:watch": "vitest",
     "typecheck": "pnpm build:packages && pnpm -r typecheck",
     "audit:product": "node scripts/audit-product-surface.mjs",

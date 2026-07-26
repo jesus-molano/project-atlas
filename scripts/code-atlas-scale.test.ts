@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  activateCodeInspectorGoal,
   CODE_ATLAS_PAGE_SIZE,
   codeAtlasPageCount,
   codeAtlasPageForIndex,
@@ -7,6 +8,23 @@ import {
 } from "../apps/viewer/app/utils/code-atlas";
 
 describe("Code Atlas large catalog navigation", () => {
+  it("makes every inspector view visible when it is activated", () => {
+    expect(
+      activateCodeInspectorGoal(
+        { goal: "reuse", open: false },
+        "tests",
+        true,
+      ),
+    ).toEqual({ goal: "tests", open: true });
+    expect(
+      activateCodeInspectorGoal(
+        { goal: "impact", open: false },
+        "tests",
+        false,
+      ),
+    ).toEqual({ goal: "impact", open: false });
+  });
+
   it("keeps hundreds of components bounded and makes edge selections addressable", () => {
     const components = Array.from({ length: 487 }, (_, index) => ({
       id: `component-${index}`,

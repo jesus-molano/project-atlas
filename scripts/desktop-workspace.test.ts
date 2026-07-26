@@ -30,11 +30,6 @@ describe("desktop evidence workspace contract", () => {
     expect(page).toContain("Browse is available in the desktop app");
     expect(page).toContain("chooseDesktopProjectFolder");
     expect(page).toContain("projectMenuOpen.value = false");
-    expect(page).toContain("searchReturnFocus");
-    expect(page).toContain("target?.focus()");
-    const css = await source("apps/viewer/app/assets/css/main.css");
-    expect(css).toContain(".nav-group > button > .atlas-icon");
-    expect(css).toContain("transform: translateY(-1px)");
   });
 
   it("turns each Atlas evidence plane into an action for the Workbench", async () => {
@@ -48,12 +43,16 @@ describe("desktop evidence workspace contract", () => {
       expect(view).toContain("useInTask");
       expect(view).toContain("Use in task");
     }
-    expect(code).toContain("What can I reuse?");
-    expect(code).toContain("What could break?");
-    expect(code).toContain("Where is it tested?");
+    expect(code).toContain("Reuse");
+    expect(code).toContain("Change impact");
+    expect(code).toContain("Associated tests");
     expect(design).toContain("Status unavailable from source");
+    expect(design).toContain("indexed metadata");
+    expect(design).toContain("fixture claims, not live Figma verification");
+    expect(design).toContain("Indexed code mappings");
     expect(memory).toContain("Concept map");
     expect(memory).toContain("Timeline");
+    expect(memory).toContain("Active by default");
     expect(workbench).toContain("Review before Codex starts");
     expect(workbench).toContain("Cancel safely");
     expect(workbench).toContain("Continue same Codex task");
@@ -71,6 +70,14 @@ describe("desktop evidence workspace contract", () => {
     expect(code).toContain("Fit selection");
     expect(code).toContain("Fit graph");
     expect(code).toContain("Reset");
+    expect(code).toContain('role="tablist"');
+    expect(code).toContain('role="tabpanel"');
+    expect(code).toContain("activateCodeInspectorGoal");
+    expect(code.indexOf("inspector-goal-nav")).toBeGreaterThan(
+      code.indexOf('aria-label="Component details"'),
+    );
+    expect(code).toContain('"Inspect selected component"');
+    expect(code).toContain('"Hide component details"');
     expect(code).toContain('aria-label="Close component details"');
     expect(code).toContain('event.key === "Escape"');
     expect(code).toContain("inspectorReturnFocus");
@@ -83,6 +90,14 @@ describe("desktop evidence workspace contract", () => {
     );
     expect(css).toMatch(/\.detail-panel-bar\s*\{[^}]*position:\s*sticky/s);
     expect(css).toContain(".inspector-backdrop");
+    expect(css).toContain("@media (max-width: 1360px)");
+    expect(css).toContain("container-name: atlas-workspace");
+    expect(css).toContain(
+      "@container atlas-workspace (max-width: 1100px)",
+    );
+    expect(css).toContain(
+      "grid-template-columns: minmax(250px, 320px) minmax(420px, 1fr)",
+    );
     const selectionBody = graph.slice(
       graph.indexOf("function selectCurrent"),
       graph.indexOf("function fitGraph"),

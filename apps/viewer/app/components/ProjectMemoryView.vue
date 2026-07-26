@@ -124,7 +124,7 @@ function useSelectedInTask(): void {
           <option v-for="value in types" :key="value" :value="value">{{ value }}</option>
         </select>
         <select v-model="status" aria-label="Memory status">
-          <option value="all">All states</option>
+          <option value="all">Active by default</option>
           <option v-for="value in statuses" :key="value" :value="value">{{ value }}</option>
         </select>
       </div>

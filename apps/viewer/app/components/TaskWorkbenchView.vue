@@ -13,6 +13,10 @@ import type {
   ProjectIdentityMetadata,
 } from "@component-atlas/core/browser";
 import type { DesignFileIndex } from "@component-atlas/design";
+import {
+  capabilityDisplayState,
+  isSimulatedCapability,
+} from "~/utils/capabilities";
 
 interface CompactContext {
   task: string;
@@ -446,9 +450,9 @@ onBeforeUnmount(() => {
           v-for="capability in capabilitySummary"
           :key="capability.id"
           :class="['capability-pill', capability.state]"
-          :title="`${capability.detail ?? ''} · ${capability.provenance}`"
+          :title="`${capability.detail ?? ''} · ${capability.provenance}${isSimulatedCapability(capability) ? ' · fixture claim, not a live connection' : ''}`"
         >
-          {{ capability.id }} · {{ capability.state }}
+          {{ capability.id }} · {{ capabilityDisplayState(capability) }}
         </span>
         <span v-if="!capabilitySummary.length" class="capability-pill unknown">
           Repository only

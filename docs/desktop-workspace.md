@@ -63,7 +63,7 @@ Every action is labeled by its execution boundary:
 | Class | Examples | Agent/tokens | Approval |
 | --- | --- | ---: | --- |
 | Local | Rescan code, Reindex memory, inspect graph, approve a local proposal | No | Semantic writes only |
-| Agent-assisted | Prepare task, continue task, ask Codex to inspect connected sources | Yes | Preview before launch; questions remain gated |
+| Agent-assisted | Prepare task, continue task, ask Codex to inspect connected sources | Yes | Review before launch; questions remain gated |
 | External write | Update a ticket, publish docs, commit, push | Yes or external | Always explicit |
 
 The interface does not use a generic **Refresh** label. Activity copy states the
@@ -113,7 +113,7 @@ is the explicit fallback. A future `codex exec --json` adapter can fit the same
 boundary, but is not silently invoked today. Experimental app-server APIs do
 not cross the adapter boundary.
 
-The default prepare run uses `workspace-write` only after the user previews the
+The default prepare run uses `workspace-write` only after the user reviews the
 payload and explicitly starts implementation. Read-only preparation can use
 `read-only`. External writes are never preapproved by Atlas.
 

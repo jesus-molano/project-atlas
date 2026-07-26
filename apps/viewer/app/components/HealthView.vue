@@ -2,6 +2,10 @@
 import type { SourceHealthViewModel } from "@component-atlas/runtime";
 import type { ProjectCapabilityReport } from "@component-atlas/core/browser";
 import type { AgentAdapterStatus } from "@component-atlas/agent";
+import {
+  capabilityDisplayState,
+  isSimulatedCapability,
+} from "~/utils/capabilities";
 
 defineProps<{
   sources: SourceHealthViewModel[];
@@ -116,11 +120,11 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
       </article>
       <header class="workspace-toolbar"><div><span class="eyebrow">Observed capabilities</span><h2>Connectors</h2></div></header>
       <article v-for="source in capabilities.observations.filter((item) => item.kind === 'connector')" :key="source.id" class="health-record optional">
-        <span :class="['health-orb', source.state]" /><div><strong>{{ labels[source.id] ?? source.id }}</strong><p>{{ source.detail }}</p><small>{{ source.provenance }} · {{ formatFreshness(source.checkedAt) }}</small></div><span class="status-chip">{{ source.state }}</span>
+        <span :class="['health-orb', source.state]" /><div><strong>{{ labels[source.id] ?? source.id }}</strong><p>{{ source.detail }}</p><small>{{ source.provenance }}<template v-if="isSimulatedCapability(source)"> · fixture claim</template> · {{ formatFreshness(source.checkedAt) }}</small></div><span :class="['status-chip', { simulated: isSimulatedCapability(source) }]">{{ capabilityDisplayState(source) }}</span>
       </article>
       <header class="workspace-toolbar"><div><span class="eyebrow">Optional evidence</span><h2>Enrichments</h2></div></header>
       <article v-for="source in capabilities.observations.filter((item) => item.kind === 'enrichment')" :key="source.id" class="health-record optional">
-        <span :class="['health-orb', source.state]" /><div><strong>{{ labels[source.id] ?? source.id }}</strong><p>{{ source.detail }}</p><small>{{ source.provenance }} · {{ formatFreshness(source.checkedAt) }}</small></div><span class="status-chip">{{ source.state }}</span>
+        <span :class="['health-orb', source.state]" /><div><strong>{{ labels[source.id] ?? source.id }}</strong><p>{{ source.detail }}</p><small>{{ source.provenance }}<template v-if="isSimulatedCapability(source)"> · fixture claim</template> · {{ formatFreshness(source.checkedAt) }}</small></div><span :class="['status-chip', { simulated: isSimulatedCapability(source) }]">{{ capabilityDisplayState(source) }}</span>
       </article>
     </section>
     <aside class="health-policy">

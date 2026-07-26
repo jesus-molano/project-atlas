@@ -21,6 +21,21 @@ const selectedNodeId = ref<string>();
 const activeFile = computed(
   () => props.indexes.find((index) => index.file.key === fileKey.value) ?? props.indexes[0],
 );
+const activeFileIsSimulated = computed(() => {
+  const index = activeFile.value;
+  if (!index) return false;
+  return /\b(?:synthetic|simulated|fake|fixture)\b/i.test(
+    [
+      index.file.key,
+      index.file.name,
+      index.file.version,
+      index.devStatus.note,
+      ...index.nodes.slice(0, 12).map((node) => node.devStatusDescription),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+});
 const activeSummary = computed(() =>
   activeFile.value ? designIndexSummary(activeFile.value) : undefined,
 );
@@ -95,7 +110,7 @@ function nodeStatusLabel(node: DesignIndexNode): string {
     return "Status unavailable from source";
   }
   if (node.devStatusProvenance === "absent") return "No dev status observed";
-  return `${statusLabel(node.devStatus)} · observed`;
+  return `${statusLabel(node.devStatus)} · indexed metadata`;
 }
 
 function statusClass(node: DesignIndexNode): string {
@@ -112,11 +127,11 @@ function pageStatusLabel(page: DesignIndexPage): string {
     return "status unavailable";
   }
   if (page.devStatusProvenance === "absent") return "no dev status observed";
-  return `${statusLabel(page.devStatus)} · observed`;
+  return `${statusLabel(page.devStatus)} · indexed metadata`;
 }
 
 function durableFigmaUrl(value: string | undefined): string | undefined {
-  if (!value) return undefined;
+  if (!value || activeFileIsSimulated.value) return undefined;
   try {
     const parsed = new URL(value);
     if (
@@ -181,7 +196,7 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
       <div class="index-summary">
         <span>{{ activeFile?.stats.pages }} pages</span>
         <span>{{ activeFile?.stats.nodes }} nodes</span>
-        <span>{{ activeFile?.stats.readyForDev }} ready</span>
+        <span>{{ activeFile?.stats.readyForDev }} ready claims</span>
       </div>
       <div class="entity-list">
         <button
@@ -228,6 +243,10 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
           </span>
           <span>Indexed evidence only</span>
         </div>
+        <p v-if="activeFileIsSimulated" class="evidence-note">
+          Synthetic lab evidence. Ready for Dev, Code Connect, variables, and
+          connector states below are fixture claims, not live Figma verification.
+        </p>
         <p v-if="selectedNode.devStatusDescription" class="evidence-note">
           {{ selectedNode.devStatusDescription }}
         </p>
@@ -244,8 +263,11 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
               <dd>{{ selectedNode.variantProperties.join(", ") || "None indexed" }}</dd>
             </div>
             <div>
-              <dt>Code connections</dt>
-              <dd>{{ selectedNode.codeConnections.length }}</dd>
+              <dt>Indexed code mappings</dt>
+              <dd>
+                {{ selectedNode.codeConnections.length }}
+                <template v-if="activeFileIsSimulated"> · simulated</template>
+              </dd>
             </div>
             <div>
               <dt>Children</dt>
@@ -280,17 +302,17 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
         <span class="eyebrow">File provenance</span>
         <h3>{{ activeFile?.file.name ?? activeFile?.file.key }}</h3>
         <button class="secondary-button" @click="useSelectedInTask('sync')">
-          Sync Figma map with Codex
+          Prepare design refresh
         </button>
         <p class="muted-copy">
-          Agent-assisted · reads the connected source only after launch review.
+          Adds a reviewed task. It does not claim a live Figma connection.
         </p>
         <dl class="stacked-facts">
           <div><dt>Indexed</dt><dd>{{ activeFile?.indexedAt }}</dd></div>
           <div><dt>Modified</dt><dd>{{ activeFile?.file.lastModified ?? "Unknown" }}</dd></div>
           <div><dt>Version</dt><dd>{{ activeFile?.file.version ?? "Unknown" }}</dd></div>
           <div>
-            <dt>Dev status</dt>
+            <dt>Indexed status availability</dt>
             <dd>{{ activeFile?.devStatus.availability ?? "source-unavailable" }}</dd>
           </div>
         </dl>

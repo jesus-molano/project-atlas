@@ -1,4 +1,14 @@
 export const CODE_ATLAS_PAGE_SIZE = 80;
+export type CodeInspectorGoal = "reuse" | "impact" | "tests";
+
+export function activateCodeInspectorGoal(
+  current: { goal: CodeInspectorGoal; open: boolean },
+  nextGoal: CodeInspectorGoal,
+  hasSelection: boolean,
+): { goal: CodeInspectorGoal; open: boolean } {
+  if (!hasSelection) return current;
+  return { goal: nextGoal, open: true };
+}
 
 export function codeAtlasPageCount(total: number): number {
   return Math.max(1, Math.ceil(Math.max(0, total) / CODE_ATLAS_PAGE_SIZE));

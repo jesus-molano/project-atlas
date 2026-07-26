@@ -7,10 +7,12 @@ import {
   type ComponentNode,
 } from "@component-atlas/core/browser";
 import {
+  activateCodeInspectorGoal,
   CODE_ATLAS_PAGE_SIZE,
   codeAtlasPageCount,
   codeAtlasPageForIndex,
   codeAtlasPageSlice,
+  type CodeInspectorGoal,
 } from "~/utils/code-atlas";
 
 const props = defineProps<{
@@ -26,7 +28,7 @@ const scope = ref<"all" | ComponentNode["visibility"]>("all");
 const selectedId = ref<string>();
 const showSimilar = ref(true);
 const showComposition = ref(true);
-const goal = ref<"reuse" | "impact" | "tests">("reuse");
+const goal = ref<CodeInspectorGoal>("reuse");
 const page = ref(0);
 const componentList = ref<HTMLElement>();
 const inspectorTrigger = ref<HTMLButtonElement>();
@@ -49,6 +51,27 @@ const scopeOptions = [
   { value: "feature", label: "Feature", description: "Owned by one product area" },
   { value: "private", label: "Internal", description: "Local implementation detail" },
 ] as const;
+const goalOptions: Array<{
+  value: CodeInspectorGoal;
+  label: string;
+  help: string;
+}> = [
+  {
+    value: "reuse",
+    label: "Reuse",
+    help: "Compare the selected component with explainable structural matches.",
+  },
+  {
+    value: "impact",
+    label: "Change impact",
+    help: "Trace direct and transitive consumers that could be affected.",
+  },
+  {
+    value: "tests",
+    label: "Associated tests",
+    help: "Review test files linked by indexed imports or mounts.",
+  },
+];
 
 const filteredComponents = computed(() => {
   const term = query.value.trim().toLowerCase();
@@ -244,6 +267,37 @@ function toggleInspector(): void {
   });
 }
 
+function activateGoal(nextGoal: CodeInspectorGoal): void {
+  const next = activateCodeInspectorGoal(
+    { goal: goal.value, open: inspectorOpen.value },
+    nextGoal,
+    Boolean(selected.value),
+  );
+  goal.value = next.goal;
+  inspectorOpen.value = next.open;
+}
+
+function handleGoalKeydown(event: KeyboardEvent, index: number): void {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const last = goalOptions.length - 1;
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? last
+        : event.key === "ArrowRight"
+          ? (index + 1) % goalOptions.length
+          : (index - 1 + goalOptions.length) % goalOptions.length;
+  activateGoal(goalOptions[nextIndex]!.value);
+  nextTick(() => {
+    const tabs = inspectorPanel.value?.querySelectorAll<HTMLElement>(
+      '[role="tab"]',
+    );
+    tabs?.[nextIndex]?.focus();
+  });
+}
+
 function closeInspector(restoreFocus = true): void {
   inspectorOpen.value = false;
   nextTick(() => {
@@ -323,7 +377,7 @@ async function copyTestPath(testPath: string): Promise<void> {
 }
 
 onMounted(() => {
-  inspectorMedia = window.matchMedia("(max-width: 1180px)");
+  inspectorMedia = window.matchMedia("(max-width: 1360px)");
   updateInspectorMode();
   inspectorMedia.addEventListener("change", updateInspectorMode);
   window.addEventListener("keydown", handleInspectorKeyboard);
@@ -417,18 +471,7 @@ onBeforeUnmount(() => {
       <div class="map-toolbar">
         <div>
           <span class="eyebrow">Dependency field</span>
-          <p>Choose a question; Atlas keeps evidence and inference separate.</p>
-        </div>
-        <div class="goal-switch" aria-label="Code exploration goal">
-          <button :class="{ active: goal === 'reuse' }" @click="goal = 'reuse'">
-            What can I reuse?
-          </button>
-          <button :class="{ active: goal === 'impact' }" @click="goal = 'impact'">
-            What could break?
-          </button>
-          <button :class="{ active: goal === 'tests' }" @click="goal = 'tests'">
-            Where is it tested?
-          </button>
+          <p>Explore exact relationships in the graph, then inspect evidence for the selected component.</p>
         </div>
         <details class="graph-options">
           <summary>Relations</summary>
@@ -444,8 +487,13 @@ onBeforeUnmount(() => {
           </div>
         </details>
         <div class="graph-actions" aria-label="Graph viewport">
-          <button ref="inspectorTrigger" class="text-button" @click="toggleInspector">
-            {{ inspectorOpen ? "Hide details" : "Show details" }}
+          <button
+            ref="inspectorTrigger"
+            class="text-button"
+            :disabled="!selected"
+            @click="toggleInspector"
+          >
+            {{ inspectorOpen ? "Hide component details" : "Inspect selected component" }}
           </button>
           <button class="text-button" @click="graphView?.fitSelection()">
             Fit selection
@@ -521,6 +569,32 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <nav class="inspector-goal-nav" role="tablist" aria-label="Component evidence view">
+        <button
+          v-for="(item, index) in goalOptions"
+          :id="`component-goal-${item.value}`"
+          :key="item.value"
+          role="tab"
+          :aria-selected="goal === item.value"
+          aria-controls="component-goal-panel"
+          :tabindex="goal === item.value ? 0 : -1"
+          :class="{ active: goal === item.value }"
+          @click="activateGoal(item.value)"
+          @keydown="handleGoalKeydown($event, index)"
+        >
+          {{ item.label }}
+        </button>
+      </nav>
+      <p class="inspector-goal-help">
+        {{ goalOptions.find((item) => item.value === goal)?.help }}
+      </p>
+
+      <div
+        id="component-goal-panel"
+        role="tabpanel"
+        :aria-labelledby="`component-goal-${goal}`"
+        class="inspector-goal-panel"
+      >
       <section v-if="goal === 'impact' || goal === 'reuse'" class="detail-section">
         <div class="section-title">
           <h3>Public API</h3>
@@ -543,7 +617,7 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="detail-section">
+      <section v-if="goal === 'impact'" class="detail-section">
         <div class="section-title">
           <h3>Change impact</h3>
           <span>{{ details?.impact.transitiveConsumers.length ?? 0 }} consumers</span>
@@ -593,7 +667,7 @@ onBeforeUnmount(() => {
         </p>
       </section>
 
-      <section v-if="goal === 'tests' || selected.testPaths.length" class="detail-section">
+      <section v-if="goal === 'tests'" class="detail-section">
         <div class="section-title">
           <h3>Test evidence</h3>
           <span>{{ selected.testPaths.length }} linked</span>
@@ -615,6 +689,7 @@ onBeforeUnmount(() => {
           not treated as evidence.
         </p>
       </section>
+      </div>
     </aside>
   </section>
 </template>
