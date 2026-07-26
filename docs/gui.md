@@ -22,7 +22,7 @@ levels:
 - **Project:** Home and actionable changes since the current snapshot.
 - **Explore:** Code, Design, and Memory.
 - **Work:** Task Workbench and compact local activity.
-- **Review:** Decisions & Risks and Memory Inbox.
+- **Review:** Action Center and Memory Inbox.
 - **System:** Connections and Settings.
 
 The workspace uses a navigator, a wide evidence area, and a contextual inspector
@@ -77,6 +77,13 @@ decisions, constraints, conventions, attempts, and outcomes. Each item exposes
 authority, scope, confidence, freshness, provenance, relations, and backlinks.
 Proposed or superseded knowledge is visually distinct from active canonical
 knowledge.
+
+**Action Center** projects decisions, contradictions, risks, warnings, missing
+evidence, and paused-run questions into one queue. The inspector explains the
+detection, consequence, affected task, evidence fingerprint, and allowed human
+actions. Safe review actions can be triaged together; authority choices, risk
+acceptance, and agent continuation remain individual gates. See
+[action-center.md](action-center.md) for the mutation and Codex boundaries.
 
 ## Task Workbench and Codex
 

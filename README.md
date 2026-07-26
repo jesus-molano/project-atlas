@@ -171,6 +171,7 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 - [Automatic task workflow and advanced CLI](docs/workflow.md)
 - [First-run checklist](frontend-codex-kit/FIRST-RUN-CHECKLIST.md)
 - [GUI](docs/gui.md)
+- [Action Center decisions and risks](docs/action-center.md)
 - [Desktop workspace contract and Agent Adapter](docs/desktop-workspace.md)
 - [Architecture](docs/architecture.md)
 - [Figma Design Index](docs/design-index.md)

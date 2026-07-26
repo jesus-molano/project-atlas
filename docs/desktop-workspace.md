@@ -14,7 +14,7 @@ The shell has four persistent zones:
    - Project: Overview
    - Explore: Code, Design, Memory
    - Work: Task Workbench
-   - Review: Decisions & Risks, Memory Inbox
+   - Review: Action Center, Memory Inbox
    - System: Connections, Settings
 3. **Workspace** — the selected evidence or work surface. It owns the page
    title, purpose, local actions, loading, empty, and error state.

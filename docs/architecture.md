@@ -51,7 +51,7 @@ flowchart LR
 ## Package boundaries
 
 - `core`: graph schema, search, compact reuse context, explainable similarity,
-  and impact traversal.
+  impact traversal, and provider-neutral Action Center contracts.
 - `adapter-vue`: Vue SFC macros, templates, Nuxt runtime names, autoimports,
   and mirrored tests.
 - `adapter-react`: exported and file-local React components, props, JSX
@@ -68,7 +68,8 @@ flowchart LR
 - `mcp`: Codex/Claude tools over stdio.
 - `viewer`: complete local Nuxt control plane over the same runtime and indexes.
   Browsing is read-only; refresh and memory-review actions call explicit runtime
-  policies.
+  policies. The Action Center projects findings and persists checkout-scoped
+  resolutions without changing canonical evidence.
 - `agent`: provider-neutral run, progress, question, cancellation, resumption,
   and compact-result contracts. The first adapter uses the official Codex SDK;
   the GUI depends on the interface rather than Codex-specific UI state.
