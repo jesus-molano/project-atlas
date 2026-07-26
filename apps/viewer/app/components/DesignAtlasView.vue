@@ -10,6 +10,10 @@ const props = defineProps<{
   indexes: DesignFileIndex[];
   initialNodeId?: string;
 }>();
+const emit = defineEmits<{
+  useInTask: [handle: string, intent: string];
+  prepareTask: [intent: string];
+}>();
 
 const query = ref("");
 const fileKey = ref(props.indexes[0]?.file.key ?? "");
@@ -43,6 +47,19 @@ const selectedNode = computed<DesignIndexNode | undefined>(
   () =>
     filteredNodes.value.find((node) => node.id === selectedNodeId.value) ??
     filteredNodes.value[0],
+);
+const durableResources = computed(() =>
+  (selectedNode.value?.resources ?? []).filter((resource) => {
+    try {
+      const parsed = new URL(resource.url);
+      return (
+        ["https:", "http:"].includes(parsed.protocol) &&
+        !["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)
+      );
+    } catch {
+      return false;
+    }
+  }),
 );
 
 function selectInitialNode(value: string | undefined): void {
@@ -97,17 +114,50 @@ function pageStatusLabel(page: DesignIndexPage): string {
   if (page.devStatusProvenance === "absent") return "no dev status observed";
   return `${statusLabel(page.devStatus)} · observed`;
 }
+
+function durableFigmaUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.protocol === "https:" &&
+      /(^|\.)figma\.com$/i.test(parsed.hostname)
+    ) {
+      return value;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
+  if (!activeFile.value) return;
+  const handle = selectedNode.value
+    ? `design:${activeFile.value.file.key}::${selectedNode.value.id}`
+    : `design:${activeFile.value.file.key}`;
+  const intent =
+    action === "sync"
+      ? `Refresh the sparse Figma map for ${activeFile.value.file.name ?? "this design file"} and preserve provenance.`
+      : `Inspect ${selectedNode.value?.name ?? "the selected design evidence"} and relate it to code for this task.`;
+  emit("useInTask", handle, intent);
+}
 </script>
 
 <template>
   <div v-if="!indexes.length" class="section-empty">
-    <span class="empty-code">DE / 00</span>
+    <AtlasIcon name="design" />
     <h2>No design metadata is indexed</h2>
     <p>
-      Map sparse Figma metadata from the CLI or MCP. Ready for dev improves
-      ranking, but it is never required.
+      Add a Figma file or page in the Task Workbench. Atlas builds a sparse map
+      first and uses Ready for Dev only as an optional confidence signal.
     </p>
-    <code>project-atlas design map --figma-url &lt;url&gt; --metadata &lt;file&gt;</code>
+    <button
+      class="primary-button"
+      @click="emit('prepareTask', 'Map a Figma file or page for this project.')"
+    >
+      Map a Figma file
+    </button>
   </div>
 
   <div v-else class="atlas-workspace three-pane">
@@ -158,9 +208,19 @@ function pageStatusLabel(page: DesignIndexPage): string {
             <h2>{{ selectedNode.name }}</h2>
             <p>{{ selectedNode.path.join(" / ") }}</p>
           </div>
-          <a :href="selectedNode.url" target="_blank" rel="noreferrer">
-            Open in Figma ↗
-          </a>
+          <div class="entity-actions">
+            <button class="primary-button" @click="useSelectedInTask('inspect')">
+              Use in task
+            </button>
+            <a
+              v-if="durableFigmaUrl(selectedNode.url)"
+              :href="durableFigmaUrl(selectedNode.url)"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open source ↗
+            </a>
+          </div>
         </header>
         <div class="status-line">
           <span :class="['status-chip', statusClass(selectedNode)]">
@@ -196,12 +256,12 @@ function pageStatusLabel(page: DesignIndexPage): string {
 
         <section class="detail-block">
           <header><h3>Annotations & resources</h3></header>
-          <div v-if="selectedNode.annotations.length || selectedNode.resources.length" class="evidence-stack">
+          <div v-if="selectedNode.annotations.length || durableResources.length" class="evidence-stack">
             <p v-for="(annotation, index) in selectedNode.annotations" :key="`a:${index}`">
               {{ annotation.label ? `${annotation.label}: ${annotation.text}` : annotation.text }}
             </p>
             <a
-              v-for="resource in selectedNode.resources"
+              v-for="resource in durableResources"
               :key="resource.url"
               :href="resource.url"
               target="_blank"
@@ -219,6 +279,12 @@ function pageStatusLabel(page: DesignIndexPage): string {
       <section>
         <span class="eyebrow">File provenance</span>
         <h3>{{ activeFile?.file.name ?? activeFile?.file.key }}</h3>
+        <button class="secondary-button" @click="useSelectedInTask('sync')">
+          Sync Figma map with Codex
+        </button>
+        <p class="muted-copy">
+          Agent-assisted · reads the connected source only after launch review.
+        </p>
         <dl class="stacked-facts">
           <div><dt>Indexed</dt><dd>{{ activeFile?.indexedAt }}</dd></div>
           <div><dt>Modified</dt><dd>{{ activeFile?.file.lastModified ?? "Unknown" }}</dd></div>

@@ -6,10 +6,19 @@ import {
   type ComponentGraph,
   type ComponentNode,
 } from "@component-atlas/core/browser";
+import {
+  CODE_ATLAS_PAGE_SIZE,
+  codeAtlasPageCount,
+  codeAtlasPageForIndex,
+  codeAtlasPageSlice,
+} from "~/utils/code-atlas";
 
 const props = defineProps<{
   graph: ComponentGraph;
   initialComponentId?: string;
+}>();
+const emit = defineEmits<{
+  useInTask: [handle: string, intent: string];
 }>();
 
 const query = ref("");
@@ -17,6 +26,22 @@ const scope = ref<"all" | ComponentNode["visibility"]>("all");
 const selectedId = ref<string>();
 const showSimilar = ref(true);
 const showComposition = ref(true);
+const goal = ref<"reuse" | "impact" | "tests">("reuse");
+const page = ref(0);
+const componentList = ref<HTMLElement>();
+const inspectorTrigger = ref<HTMLButtonElement>();
+const inspectorClose = ref<HTMLButtonElement>();
+const inspectorPanel = ref<HTMLElement>();
+const graphView = ref<{
+  fitGraph: () => void;
+  fitSelection: () => void;
+  resetView: () => void;
+  resize: () => void;
+}>();
+const inspectorOpen = ref(true);
+const inspectorIsDrawer = ref(false);
+let inspectorMedia: MediaQueryList | undefined;
+let inspectorReturnFocus: HTMLElement | undefined;
 
 const scopeOptions = [
   { value: "all", label: "All", description: "Every indexed code node" },
@@ -61,6 +86,21 @@ const filteredComponents = computed(() => {
 const filteredIds = computed(
   () => new Set(filteredComponents.value.map((component) => component.id)),
 );
+const totalPages = computed(() =>
+  codeAtlasPageCount(filteredComponents.value.length),
+);
+const visibleComponents = computed(() =>
+  codeAtlasPageSlice(filteredComponents.value, page.value),
+);
+const visibleRange = computed(() => {
+  if (filteredComponents.value.length === 0) return "0";
+  const start = page.value * CODE_ATLAS_PAGE_SIZE + 1;
+  const end = Math.min(
+    filteredComponents.value.length,
+    (page.value + 1) * CODE_ATLAS_PAGE_SIZE,
+  );
+  return `${start}–${end} of ${filteredComponents.value.length}`;
+});
 
 const filteredEdges = computed(() =>
   props.graph.edges.filter(
@@ -102,6 +142,29 @@ watch(
   { immediate: true },
 );
 
+watch([query, scope], () => {
+  page.value = 0;
+  if (componentList.value) componentList.value.scrollTop = 0;
+});
+
+watch(
+  () => selectedId.value,
+  (id) => {
+    if (!id) return;
+    const index = filteredComponents.value.findIndex(
+      (component) => component.id === id,
+    );
+    if (index < 0) return;
+    const nextPage = codeAtlasPageForIndex(index);
+    if (nextPage !== page.value) {
+      page.value = nextPage;
+      nextTick(() => {
+        if (componentList.value) componentList.value.scrollTop = 0;
+      });
+    }
+  },
+);
+
 const details = computed(() => {
   if (!selected.value) return undefined;
   return {
@@ -139,6 +202,13 @@ function scopeLabel(visibility: ComponentNode["visibility"]): string {
   );
 }
 
+function apiLabel(component: ComponentNode): string {
+  if (component.kind === "route") return "route";
+  if (component.kind === "layout") return "layout";
+  const count = component.props.length;
+  return `${count} ${count === 1 ? "prop" : "props"}`;
+}
+
 function scopeCount(value: (typeof scopeOptions)[number]["value"]): number {
   if (value === "all") return props.graph.components.length;
   return counts.value[value];
@@ -146,11 +216,127 @@ function scopeCount(value: (typeof scopeOptions)[number]["value"]): number {
 
 function selectComponent(component: ComponentNode): void {
   selectedId.value = component.id;
+  if (!inspectorOpen.value) {
+    inspectorReturnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : inspectorTrigger.value;
+    inspectorOpen.value = true;
+    if (inspectorIsDrawer.value) nextTick(() => inspectorClose.value?.focus());
+  }
 }
+
+function selectById(id: string): void {
+  const component = props.graph.components.find((item) => item.id === id);
+  if (component) selectComponent(component);
+}
+
+function toggleInspector(): void {
+  if (inspectorOpen.value) {
+    closeInspector();
+    return;
+  }
+  inspectorReturnFocus = inspectorTrigger.value;
+  inspectorOpen.value = true;
+  nextTick(() => {
+    graphView.value?.resize();
+    if (inspectorIsDrawer.value) inspectorClose.value?.focus();
+  });
+}
+
+function closeInspector(restoreFocus = true): void {
+  inspectorOpen.value = false;
+  nextTick(() => {
+    graphView.value?.resize();
+    if (restoreFocus) {
+      (inspectorReturnFocus ?? inspectorTrigger.value)?.focus();
+    }
+  });
+}
+
+function updateInspectorMode(event?: MediaQueryListEvent): void {
+  inspectorIsDrawer.value = event?.matches ?? inspectorMedia?.matches ?? false;
+}
+
+function handleInspectorKeyboard(event: KeyboardEvent): void {
+  if (
+    event.key === "Escape" &&
+    inspectorOpen.value &&
+    inspectorIsDrawer.value
+  ) {
+    event.preventDefault();
+    closeInspector();
+    return;
+  }
+  if (
+    event.key === "Tab" &&
+    inspectorOpen.value &&
+    inspectorIsDrawer.value &&
+    inspectorPanel.value
+  ) {
+    const focusable = [
+      ...inspectorPanel.value.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ];
+    if (!focusable.length) return;
+    const first = focusable[0]!;
+    const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+}
+
+function previousPage(): void {
+  page.value = Math.max(0, page.value - 1);
+  if (componentList.value) componentList.value.scrollTop = 0;
+}
+
+function nextPage(): void {
+  page.value = Math.min(totalPages.value - 1, page.value + 1);
+  if (componentList.value) componentList.value.scrollTop = 0;
+}
+
+function useSelectedInTask(): void {
+  if (!selected.value) return;
+  const intent =
+    goal.value === "impact"
+      ? `Assess the impact of changing ${selected.value.effectiveName}.`
+      : goal.value === "tests"
+        ? `Review or extend the tests for ${selected.value.effectiveName}.`
+        : `Evaluate whether ${selected.value.effectiveName} should be reused for this task.`;
+  emit("useInTask", `code:${selected.value.id}`, intent);
+}
+
+async function copySelectedPath(): Promise<void> {
+  if (!selected.value) return;
+  await navigator.clipboard.writeText(selected.value.relativePath);
+}
+
+async function copyTestPath(testPath: string): Promise<void> {
+  await navigator.clipboard.writeText(testPath);
+}
+
+onMounted(() => {
+  inspectorMedia = window.matchMedia("(max-width: 1180px)");
+  updateInspectorMode();
+  inspectorMedia.addEventListener("change", updateInspectorMode);
+  window.addEventListener("keydown", handleInspectorKeyboard);
+});
+
+onBeforeUnmount(() => {
+  inspectorMedia?.removeEventListener("change", updateInspectorMode);
+  window.removeEventListener("keydown", handleInspectorKeyboard);
+});
 </script>
 
 <template>
-  <section class="code-atlas">
+  <section :class="['code-atlas', { 'inspector-open': inspectorOpen }]">
     <aside class="catalog-panel">
       <div class="panel-heading">
         <div>
@@ -161,7 +347,7 @@ function selectComponent(component: ComponentNode): void {
       </div>
 
       <label class="local-search">
-        <span aria-hidden="true">⌕</span>
+        <AtlasIcon name="search" />
         <input
           v-model="query"
           type="search"
@@ -185,9 +371,9 @@ function selectComponent(component: ComponentNode): void {
         </button>
       </div>
 
-      <div class="component-list">
+      <div ref="componentList" class="component-list">
         <button
-          v-for="component in filteredComponents"
+          v-for="component in visibleComponents"
           :key="component.id"
           class="component-row"
           :class="{ selected: selected?.id === component.id }"
@@ -199,39 +385,85 @@ function selectComponent(component: ComponentNode): void {
             <small>{{ component.relativePath }}</small>
           </span>
           <span class="api-count">
-            {{ component.kind === "route" ? "route" : component.kind === "layout" ? "layout" : `${component.props.length}p` }}
+            {{ apiLabel(component) }}
           </span>
         </button>
         <div v-if="filteredComponents.length === 0" class="empty-results">
           No code node matches this evidence.
         </div>
       </div>
+      <footer v-if="filteredComponents.length > CODE_ATLAS_PAGE_SIZE" class="catalog-pagination">
+        <button
+          class="icon-button"
+          :disabled="page === 0"
+          aria-label="Previous component page"
+          @click="previousPage"
+        >
+          <AtlasIcon name="arrow-right" />
+        </button>
+        <span>{{ visibleRange }}</span>
+        <button
+          class="icon-button"
+          :disabled="page >= totalPages - 1"
+          aria-label="Next component page"
+          @click="nextPage"
+        >
+          <AtlasIcon name="arrow-right" />
+        </button>
+      </footer>
     </aside>
 
     <section class="map-panel">
       <div class="map-toolbar">
         <div>
           <span class="eyebrow">Dependency field</span>
-          <p>Composition, similarity, and change surface</p>
+          <p>Choose a question; Atlas keeps evidence and inference separate.</p>
         </div>
-        <div class="edge-toggles">
-          <label>
-            <input v-model="showComposition" type="checkbox">
-            <i class="line solid" />
-            composition
-          </label>
-          <label>
-            <input v-model="showSimilar" type="checkbox">
-            <i class="line dashed" />
-            similarity
-          </label>
+        <div class="goal-switch" aria-label="Code exploration goal">
+          <button :class="{ active: goal === 'reuse' }" @click="goal = 'reuse'">
+            What can I reuse?
+          </button>
+          <button :class="{ active: goal === 'impact' }" @click="goal = 'impact'">
+            What could break?
+          </button>
+          <button :class="{ active: goal === 'tests' }" @click="goal = 'tests'">
+            Where is it tested?
+          </button>
+        </div>
+        <details class="graph-options">
+          <summary>Relations</summary>
+          <div class="edge-toggles">
+            <label>
+              <input v-model="showComposition" type="checkbox">
+              composition
+            </label>
+            <label>
+              <input v-model="showSimilar" type="checkbox">
+              similarity
+            </label>
+          </div>
+        </details>
+        <div class="graph-actions" aria-label="Graph viewport">
+          <button ref="inspectorTrigger" class="text-button" @click="toggleInspector">
+            {{ inspectorOpen ? "Hide details" : "Show details" }}
+          </button>
+          <button class="text-button" @click="graphView?.fitSelection()">
+            Fit selection
+          </button>
+          <button class="text-button" @click="graphView?.fitGraph()">
+            Fit graph
+          </button>
+          <button class="text-button" @click="graphView?.resetView()">
+            Reset
+          </button>
         </div>
       </div>
       <AtlasGraph
+        ref="graphView"
         :components="filteredComponents"
         :edges="filteredEdges"
         :selected-id="selected?.id"
-        @select="selectedId = $event"
+        @select="selectById"
       />
       <div class="map-legend">
         <span><i class="scope-dot public" /> shared</span>
@@ -241,7 +473,29 @@ function selectComponent(component: ComponentNode): void {
       </div>
     </section>
 
-    <aside v-if="selected" class="detail-panel">
+    <button
+      v-if="selected && inspectorOpen"
+      class="inspector-backdrop"
+      aria-label="Close component details"
+      @click="closeInspector()"
+    />
+    <aside
+      v-if="selected && inspectorOpen"
+      ref="inspectorPanel"
+      class="detail-panel"
+      aria-label="Component details"
+    >
+      <div class="detail-panel-bar">
+        <span>Component details</span>
+        <button
+          ref="inspectorClose"
+          class="icon-button"
+          aria-label="Close component details"
+          @click="closeInspector()"
+        >
+          <AtlasIcon name="x" />
+        </button>
+      </div>
       <div class="detail-header">
         <div class="detail-kicker">
           <span :class="['scope-badge', selected.visibility]">
@@ -257,9 +511,17 @@ function selectComponent(component: ComponentNode): void {
             {{ impactSignal.label }} · {{ impactSignal.consumers }}
           </span>
         </div>
+        <div class="entity-actions">
+          <button class="primary-button" @click="useSelectedInTask">
+            Use in task
+          </button>
+          <button class="text-button" @click="copySelectedPath">
+            Copy path
+          </button>
+        </div>
       </div>
 
-      <section class="detail-section">
+      <section v-if="goal === 'impact' || goal === 'reuse'" class="detail-section">
         <div class="section-title">
           <h3>Public API</h3>
           <span>{{ selected.props.length }} props</span>
@@ -292,7 +554,7 @@ function selectComponent(component: ComponentNode): void {
           class="relation-row"
           @click="selectComponent(consumer)"
         >
-          <span>↳</span>
+          <AtlasIcon name="arrow-right" />
           <strong>{{ consumer.effectiveName }}</strong>
           <small>direct</small>
         </button>
@@ -301,7 +563,10 @@ function selectComponent(component: ComponentNode): void {
         </p>
       </section>
 
-      <section v-if="(selected.kind ?? 'component') === 'component'" class="detail-section">
+      <section
+        v-if="goal === 'reuse' && (selected.kind ?? 'component') === 'component'"
+        class="detail-section"
+      >
         <div class="section-title">
           <h3>Reuse candidates</h3>
           <span>explainable</span>
@@ -325,6 +590,29 @@ function selectComponent(component: ComponentNode): void {
         </button>
         <p v-if="details?.similar.length === 0" class="muted">
           No strong structural match yet.
+        </p>
+      </section>
+
+      <section v-if="goal === 'tests' || selected.testPaths.length" class="detail-section">
+        <div class="section-title">
+          <h3>Test evidence</h3>
+          <span>{{ selected.testPaths.length }} linked</span>
+        </div>
+        <div v-if="selected.testPaths.length" class="test-paths">
+          <button
+            v-for="testPath in selected.testPaths"
+            :key="testPath"
+            class="relation-row"
+            @click="copyTestPath(testPath)"
+          >
+            <AtlasIcon name="check" />
+            <strong>{{ testPath }}</strong>
+            <small>copy path</small>
+          </button>
+        </div>
+        <p v-else class="muted">
+          No test import or mount relation is indexed. Name similarity alone is
+          not treated as evidence.
         </p>
       </section>
     </aside>

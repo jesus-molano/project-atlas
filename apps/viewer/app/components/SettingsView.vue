@@ -1,6 +1,19 @@
 <script setup lang="ts">
-const props = defineProps<{ modelValue: { budgetChars: number; topK: number; includeInactive: boolean } }>();
-const emit = defineEmits<{ "update:modelValue": [value: { budgetChars: number; topK: number; includeInactive: boolean }] }>();
+interface SettingsModel {
+  budgetChars: number;
+  topK: number;
+  includeInactive: boolean;
+  localMetrics: boolean;
+}
+
+const props = defineProps<{
+  modelValue: SettingsModel;
+  evaluationCount?: number;
+}>();
+const emit = defineEmits<{
+  "update:modelValue": [value: SettingsModel];
+  clearMetrics: [];
+}>();
 const local = reactive({ ...props.modelValue });
 watch(local, (value) => emit("update:modelValue", { ...value }), { deep: true });
 </script>
@@ -20,6 +33,26 @@ watch(local, (value) => emit("update:modelValue", { ...value }), { deep: true })
         <input v-model.number="local.topK" type="range" min="1" max="10" step="1">
       </label>
       <label class="toggle-setting"><span><strong>Include inactive memory in diagnostics</strong><small>Superseded and archived knowledge stays excluded from normal task retrieval.</small></span><input v-model="local.includeInactive" type="checkbox"></label>
+      <label class="toggle-setting">
+        <span>
+          <strong>Local product metrics</strong>
+          <small>
+            Opt in to content-free aggregates: time, context size, gates, and
+            correction state. Task text is stored only as a one-way fingerprint.
+          </small>
+        </span>
+        <input v-model="local.localMetrics" type="checkbox">
+      </label>
+      <div class="settings-inline-action">
+        <span>{{ evaluationCount ?? 0 }} local records · no telemetry</span>
+        <button
+          class="text-button"
+          :disabled="!evaluationCount"
+          @click="emit('clearMetrics')"
+        >
+          Clear local metrics
+        </button>
+      </div>
     </section>
     <section class="settings-panel">
       <header><span class="eyebrow">Storage & privacy</span><h2>One core, explicit authority</h2></header>
@@ -34,7 +67,7 @@ watch(local, (value) => emit("update:modelValue", { ...value }), { deep: true })
     <section class="settings-panel">
       <header><span class="eyebrow">Write policy</span><h2>Human control points</h2></header>
       <div class="policy-flow">
-        <span>Agent proposes</span><i>→</i><span>Evidence reviewed</span><i>→</i><span>Approve / revise / reject</span><i>→</i><span>Durable memory</span>
+        <span>Agent proposes</span><AtlasIcon name="arrow-right" /><span>Evidence reviewed</span><AtlasIcon name="arrow-right" /><span>Approve / revise / reject</span><AtlasIcon name="arrow-right" /><span>Durable memory</span>
       </div>
       <p class="muted-copy">Project Atlas does not confirm decisions, conventions, or conclusions automatically.</p>
     </section>

@@ -12,7 +12,7 @@ describe("Project Atlas brand mark", () => {
       "utf8",
     );
     const mark = page.slice(
-      page.indexOf('<svg\n            class="atlas-mark"'),
+      page.indexOf('<svg class="atlas-mark"'),
       page.indexOf("</svg>") + "</svg>".length,
     );
 

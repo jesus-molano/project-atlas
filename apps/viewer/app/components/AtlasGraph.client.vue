@@ -17,6 +17,7 @@ const emit = defineEmits<{
 
 const container = ref<HTMLElement>();
 let cy: Core | undefined;
+let resizeObserver: ResizeObserver | undefined;
 
 function graphElements(): ElementDefinition[] {
   const componentIds = new Set(props.components.map((component) => component.id));
@@ -69,38 +70,38 @@ function renderGraph(): void {
           height: "mapData(degree, 0, 12, 22, 42)",
           label: "data(label)",
           "font-family": "Inter, ui-sans-serif, system-ui",
-          "font-size": 9,
+          "font-size": 10,
           "font-weight": 600,
-          color: "#aab5c4",
+          color: "#c1bbab",
           "text-valign": "bottom",
           "text-margin-y": 7,
-          "text-background-color": "#0b0f15",
+          "text-background-color": "#201f1a",
           "text-background-opacity": 0.9,
           "text-background-padding": "3px",
-          "background-color": "#657386",
+          "background-color": "#8fb9b2",
           "border-width": 2,
-          "border-color": "#111923",
+          "border-color": "#2a2821",
         },
       },
       {
         selector: 'node[visibility = "public"]',
         style: {
-          "background-color": "#4de2b8",
-          "border-color": "#173f38",
+          "background-color": "#92bb98",
+          "border-color": "#465a49",
         },
       },
       {
         selector: 'node[visibility = "feature"]',
         style: {
-          "background-color": "#7aa2ff",
-          "border-color": "#26385f",
+          "background-color": "#d2a45e",
+          "border-color": "#5d4930",
         },
       },
       {
         selector: 'node[visibility = "private"]',
         style: {
-          "background-color": "#718096",
-          "border-color": "#2c3643",
+          "background-color": "#c28f91",
+          "border-color": "#593f41",
         },
       },
       {
@@ -108,8 +109,8 @@ function renderGraph(): void {
         style: {
           width: 1,
           opacity: 0.42,
-          "line-color": "#526174",
-          "target-arrow-color": "#526174",
+          "line-color": "#756d5c",
+          "target-arrow-color": "#756d5c",
           "target-arrow-shape": "triangle",
           "curve-style": "bezier",
         },
@@ -118,7 +119,7 @@ function renderGraph(): void {
         selector: 'edge[kind = "similar_to"]',
         style: {
           "line-style": "dashed",
-          "line-color": "#78dce8",
+          "line-color": "#8fb1aa",
           "target-arrow-shape": "none",
           opacity: 0.35,
         },
@@ -129,11 +130,11 @@ function renderGraph(): void {
           width: 39,
           height: 39,
           "border-width": 4,
-          "border-color": "#eef4ff",
-          "overlay-color": "#7aa2ff",
+          "border-color": "#f0ebdd",
+          "overlay-color": "#d89a68",
           "overlay-opacity": 0.1,
-          color: "#f8fafc",
-          "font-size": 11,
+          color: "#f0ebdd",
+          "font-size": 12,
         },
       },
       {
@@ -175,8 +176,38 @@ function selectCurrent(): void {
   if (node.nonempty()) {
     cy.elements().unselect();
     node.select();
-    cy.animate({ center: { eles: node }, duration: 180 });
+    cy.stop();
+    cy.animate({
+      center: { eles: node },
+      zoom: Math.min(1.15, Math.max(0.68, cy.zoom())),
+      duration: 160,
+    });
   }
+}
+
+function fitGraph(): void {
+  if (!cy) return;
+  cy.stop();
+  cy.animate({ fit: { eles: cy.nodes(), padding: 42 }, duration: 180 });
+}
+
+function fitSelection(): void {
+  if (!cy || !props.selectedId) return;
+  const node = cy.getElementById(props.selectedId);
+  if (node.empty()) return;
+  cy.stop();
+  cy.animate({
+    center: { eles: node },
+    zoom: Math.min(1.25, Math.max(0.7, cy.zoom())),
+    duration: 180,
+  });
+}
+
+function resetView(): void {
+  if (!cy) return;
+  cy.stop();
+  cy.zoom(1);
+  cy.center(cy.nodes());
 }
 
 watch(
@@ -188,10 +219,26 @@ watch(() => props.selectedId, selectCurrent);
 onMounted(async () => {
   await nextTick();
   renderGraph();
+  if (container.value) {
+    resizeObserver = new ResizeObserver(() => {
+      cy?.resize();
+    });
+    resizeObserver.observe(container.value);
+  }
 });
-onBeforeUnmount(() => cy?.destroy());
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  cy?.destroy();
+});
+
+defineExpose({ fitGraph, fitSelection, resetView, resize: () => cy?.resize() });
 </script>
 
 <template>
-  <div ref="container" class="atlas-graph" />
+  <div
+    ref="container"
+    class="atlas-graph"
+    role="application"
+    aria-label="Interactive component relationship map"
+  />
 </template>

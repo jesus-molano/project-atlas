@@ -54,7 +54,7 @@ const filter = ref<"open" | "all" | "resolved">("open");
       v-if="!risks.some((risk) => filter === 'all' || (filter === 'open' ? risk.level !== 'resolved' : risk.level === 'resolved'))"
       class="section-empty compact"
     >
-      <span class="empty-code">DR / CLEAR</span>
+      <AtlasIcon name="check" />
       <h2>No findings in this view</h2>
       <p>The gate will surface contradictions, stale decisions, fragile areas, and failed attempts as evidence appears.</p>
     </div>

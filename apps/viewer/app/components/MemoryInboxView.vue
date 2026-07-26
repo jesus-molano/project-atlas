@@ -102,7 +102,7 @@ function combineSelected(): void {
 
 <template>
   <div v-if="!proposals.length" class="section-empty">
-    <span class="empty-code">MI / CLEAR</span>
+    <AtlasIcon name="inbox" />
     <h2>No memory proposals</h2>
     <p>Agents can read automatically, but durable semantic knowledge enters this inbox before it becomes active.</p>
   </div>

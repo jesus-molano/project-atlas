@@ -6,10 +6,15 @@ const props = defineProps<{
   initialItemId?: string;
   includeInactive?: boolean;
 }>();
+const emit = defineEmits<{
+  useInTask: [handle: string, intent: string];
+  prepareTask: [intent: string];
+}>();
 
 const query = ref("");
 const type = ref<MemoryType | "all">("all");
 const status = ref<MemoryStatus | "all">("all");
+const view = ref<"map" | "timeline">("map");
 const selectedId = ref(props.initialItemId);
 const types = computed(() => [...new Set(props.items.map((item) => item.type))].sort());
 const statuses = computed(() => [...new Set(props.items.map((item) => item.status))].sort());
@@ -39,6 +44,41 @@ const backlinks = computed(() =>
       )
     : [],
 );
+const conceptualGroups = computed(() => {
+  const groups = [
+    {
+      id: "orientation",
+      label: "Domains & systems",
+      types: new Set<MemoryType>(["project", "domain", "subsystem", "module", "integration"]),
+    },
+    {
+      id: "guardrails",
+      label: "Decisions & guardrails",
+      types: new Set<MemoryType>(["decision", "constraint", "convention", "fragile-area"]),
+    },
+    {
+      id: "learning",
+      label: "Attempts & outcomes",
+      types: new Set<MemoryType>(["attempt", "outcome", "known-issue", "debt"]),
+    },
+    {
+      id: "language",
+      label: "Plans & project language",
+      types: new Set<MemoryType>(["plan", "glossary-term", "note"]),
+    },
+  ];
+  return groups
+    .map((group) => ({
+      ...group,
+      items: filtered.value.filter((item) => group.types.has(item.type)).slice(0, 8),
+    }))
+    .filter((group) => group.items.length > 0);
+});
+const timeline = computed(() =>
+  [...filtered.value]
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, 30),
+);
 
 watch(
   () => props.initialItemId,
@@ -46,16 +86,31 @@ watch(
     if (value) selectedId.value = value;
   },
 );
+
+function useSelectedInTask(): void {
+  if (!selected.value) return;
+  emit(
+    "useInTask",
+    `memory:${selected.value.id}`,
+    `Use the project knowledge "${selected.value.title}" as reviewed evidence for this task.`,
+  );
+}
 </script>
 
 <template>
   <div v-if="!items.length" class="section-empty">
-    <span class="empty-code">ME / 00</span>
+    <AtlasIcon name="memory" />
     <h2>Project Memory is at cold start</h2>
     <p>
       Code Atlas remains usable. Add canonical Markdown when the project has a
       durable decision, convention, or domain concept worth recalling.
     </p>
+    <button
+      class="primary-button"
+      @click="emit('prepareTask', 'Propose a reviewed Project Memory bootstrap from this repository.')"
+    >
+      Propose a memory bootstrap
+    </button>
   </div>
   <div v-else class="atlas-workspace memory-layout">
     <aside class="index-pane">
@@ -72,6 +127,14 @@ watch(
           <option value="all">All states</option>
           <option v-for="value in statuses" :key="value" :value="value">{{ value }}</option>
         </select>
+      </div>
+      <div class="mode-switch" aria-label="Memory orientation">
+        <button :class="{ active: view === 'map' }" @click="view = 'map'">
+          Concept map
+        </button>
+        <button :class="{ active: view === 'timeline' }" @click="view = 'timeline'">
+          Timeline
+        </button>
       </div>
       <div class="entity-list">
         <button
@@ -96,8 +159,48 @@ watch(
           <h2>{{ selected.title }}</h2>
           <p>{{ selected.summary }}</p>
         </div>
-        <span :class="['status-chip', selected.status]">{{ selected.status }}</span>
+        <div class="entity-actions">
+          <span :class="['status-chip', selected.status]">{{ selected.status }}</span>
+          <button class="primary-button" @click="useSelectedInTask">
+            Use in task
+          </button>
+        </div>
       </header>
+      <section v-if="view === 'map'" class="memory-concept-map" aria-label="Project knowledge map">
+        <div v-for="group in conceptualGroups" :key="group.id" class="memory-lane">
+          <header>
+            <strong>{{ group.label }}</strong>
+            <span>{{ group.items.length }}</span>
+          </header>
+          <button
+            v-for="item in group.items"
+            :key="item.id"
+            :class="{ active: selected.id === item.id }"
+            @click="selectedId = item.id"
+          >
+            <span :class="['entity-mark', item.authority]" />
+            <span>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.type }} · {{ item.scope }}</small>
+            </span>
+          </button>
+        </div>
+      </section>
+      <section v-else class="memory-timeline" aria-label="Project memory timeline">
+        <button
+          v-for="item in timeline"
+          :key="item.id"
+          :class="{ active: selected.id === item.id }"
+          @click="selectedId = item.id"
+        >
+          <time :datetime="item.updatedAt">{{ new Date(item.updatedAt).toLocaleDateString() }}</time>
+          <span>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.type }} · {{ item.provenance.kind }}</small>
+          </span>
+          <em>{{ item.status }}</em>
+        </button>
+      </section>
       <section class="detail-block">
         <header><h3>Declared knowledge</h3></header>
         <p class="memory-body">{{ selected.body ?? "No extended body. The compact summary is canonical." }}</p>
