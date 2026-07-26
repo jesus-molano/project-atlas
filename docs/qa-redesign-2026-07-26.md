@@ -5,9 +5,9 @@
 This QA used the inherited, uncommitted working tree and the three isolated
 synthetic repositories:
 
-- Full signal: `C:\Users\jessu\dev\atlas-trail-admin`
-- Partial signal: `C:\Users\jessu\dev\atlas-pulse-storefront`
-- Repository and memory only: `C:\Users\jessu\dev\atlas-local-ledger`
+- Full signal: `<dev>/atlas-trail-admin`
+- Partial signal: `<dev>/atlas-pulse-storefront`
+- Repository and memory only: `<dev>/atlas-local-ledger`
 
 The laboratory's Jira, Confluence, GitHub, Figma capability, Ready for Dev, and
 Code Connect observations are simulated fixture evidence. They are not claims
@@ -16,9 +16,9 @@ or secret was written.
 
 Reproducible harness evidence is in:
 
-- `C:\Users\jessu\Documents\Codex\2026-07-26\atlas-e2e-validation-lab\outputs\report.md`
-- `C:\Users\jessu\Documents\Codex\2026-07-26\atlas-e2e-validation-lab\outputs\report.json`
-- `C:\Users\jessu\Documents\Codex\2026-07-26\atlas-e2e-validation-lab\outputs\gui-qa\memory-1280x800-after.png`
+- `<validation-lab>/outputs/report.md`
+- `<validation-lab>/outputs/report.json`
+- `<validation-lab>/outputs/gui-qa/memory-1280x800-after.png`
 
 The pre-fix 1280×800 capture was recorded in the interactive QA task. It showed
 the inherited three-column Memory layout with all regions compressed. The saved
