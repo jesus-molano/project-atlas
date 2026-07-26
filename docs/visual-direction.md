@@ -3,19 +3,19 @@
 This document is the visual source of truth for the desktop workspace. It is
 specific to Project Atlas and should not be copied into a generic design skill.
 
-## Concept: Surveyor Ink
+## Concept: Waypoint Signal
 
 Atlas is a calm working surface for navigating a project, assembling evidence,
 and deciding what to change. Its cartographic character comes from orientation,
 routes, provenance, and layers—not from ornamental maps or free-form graphs.
 
-The interface should feel like a precise contemporary surveyor's instrument:
+The interface should feel like a precise contemporary route-finding instrument:
 
-- warm ink and graphite rather than blue-black;
-- parchment-white text rather than pure white;
-- aged copper for primary actions and orientation;
-- sage only for local/safe state, ochre for design evidence, and coral only for
-  decisions that require attention;
+- neutral black and graphite working planes without blue, green, or sepia tint;
+- soft high-contrast text rather than pure white;
+- coral vermilion for primary action, active location, selection, and focus;
+- green only for success, with distinct error, warning, information, and
+  evidence-category colors;
 - open working planes separated by alignment and quiet rules, not nested cards;
 - readable language first, metadata second;
 - one obvious next action in each context.
@@ -55,26 +55,28 @@ The default theme is a low-glare dark theme for sustained desktop use.
 
 | Role | Token | Reference |
 | --- | --- | --- |
-| App ground | `--atlas-ground` | warm ink `#151512` |
-| Navigation | `--atlas-rail` | charcoal umber `#1a1915` |
-| Workspace | `--atlas-canvas` | graphite `#201f1a` |
-| Raised control | `--atlas-raised` | `#2a2821` |
-| Divider | `--atlas-rule` | `#403c32` |
-| Primary text | `--atlas-ink` | natural paper `#f0ebdd` |
-| Secondary text | `--atlas-ink-muted` | `#c1bbab` |
-| Quiet text | `--atlas-ink-faint` | `#928b7d` |
-| Primary action | `--atlas-accent` | aged copper `#d89a68` |
-| Local/safe | `--atlas-local` | mineral sage `#92bb98` |
-| Design evidence | `--atlas-design` | survey amber `#d2a45e` |
-| Memory | `--atlas-memory` | clay rose `#c28f91` |
-| Information | `--atlas-info` | weathered mineral `#8fb1aa` |
-| Decision required | `--atlas-danger` | coral `#e87968` |
-| Focus | `--atlas-focus` | pale copper `#f0c89a` |
+| App ground | `--atlas-ground` | neutral black `#090a0d` |
+| Navigation | `--atlas-rail` | neutral graphite `#0e1014` |
+| Workspace | `--atlas-canvas` | neutral graphite `#14171c` |
+| Raised control | `--atlas-raised` | `#1b1f26` |
+| Divider | `--atlas-rule` | `#303540` |
+| Primary text | `--atlas-ink` | soft white `#f1f3f5` |
+| Secondary text | `--atlas-ink-muted` | `#a8afba` |
+| Quiet text | `--atlas-ink-faint` | `#7f8794` |
+| Primary action | `--atlas-accent` | waypoint coral `#ff5b4d` |
+| Success | `--atlas-success` | `#73bd8a` |
+| Code/local evidence | `--atlas-local` | steel `#83a7c4` |
+| Design evidence | `--atlas-design` | brass `#c4a663` |
+| Memory | `--atlas-memory` | muted mauve `#b98eaa` |
+| Information | `--atlas-info` | steel blue `#7fa4c0` |
+| Error | `--atlas-danger` | berry `#d86f91` |
+| Warning | `--atlas-warning` | amber `#d8aa5d` |
+| Focus | `--atlas-focus` | signal coral `#ff7469` |
 
 Muted text and controls must meet WCAG AA against their actual backgrounds.
-Status is always communicated by icon and text, never by color alone. Copper
-means navigation or intentional action; it does not replace semantic state
-colors.
+Status is always communicated by icon and text, never by color alone. Coral
+means location, selection, focus, or intentional action; it does not replace
+semantic state colors.
 
 ## Iconography
 
@@ -82,7 +84,15 @@ Use one 20px, 1.7px-stroke, round-cap inline SVG family. Icons are semantic:
 home, folder, search, code, layers, memory, task, shield, inbox, plug, settings,
 refresh, play, chevron, Git branch, warning, and check. Navigation always pairs
 an icon with a text label when the rail is expanded. Tooltips name icon-only
-controls. The three-node Atlas mark is branding only.
+controls. The Waypoint A mark is branding only.
+
+The Atlas brand mark is **Waypoint A**: a continuous route that bends into an
+abstract `A` through exactly four unlabeled map nodes. The curved cross-route
+passes through the coral waypoint; the remaining route and nodes use interface
+ink. This softer construction is preferred over the basic angular and denser
+constellation alternatives because it feels drawn from a mapped path while
+remaining recognizable at 16 and 20px. The SVG is decorative beside the
+accessible `Project Atlas` name.
 
 Do not use arbitrary triangles, circles, squares, letter sigils, or Unicode
 glyphs as functional icons.

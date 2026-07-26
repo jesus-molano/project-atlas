@@ -40,16 +40,18 @@ Atlas uses four surface roles only:
 
 Data rows, ledgers, timelines, graph selections, and split panes are preferred
 over stacks of decorative cards. Borders express topology and boundaries.
-The [Surveyor Ink](visual-direction.md) system uses warm graphite working
-planes, natural-paper text, and aged copper for orientation and primary action.
+The [Waypoint Signal](visual-direction.md) system uses neutral graphite working
+planes, soft high-contrast text, and coral route signals for orientation and
+primary action.
 Semantic colors remain deliberately separate:
 
-- local/safe and Code evidence: mineral sage;
-- Design evidence: survey amber;
-- Memory evidence: clay rose;
-- information: weathered mineral;
+- success: green;
+- Code evidence: steel;
+- Design evidence: brass;
+- Memory evidence: muted mauve;
+- information: steel blue;
 - attention: amber;
-- blocked/destructive: coral.
+- blocked/destructive: berry.
 
 Every relevant claim exposes provenance and freshness in its row or inspector.
 Counts always have a noun. Confidence and authority are written as labels, not

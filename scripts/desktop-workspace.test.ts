@@ -30,6 +30,9 @@ describe("desktop evidence workspace contract", () => {
     expect(page).toContain("Browse is available in the desktop app");
     expect(page).toContain("chooseDesktopProjectFolder");
     expect(page).toContain("projectMenuOpen.value = false");
+    const css = await source("apps/viewer/app/assets/css/main.css");
+    expect(css).toContain(".nav-group > button > .atlas-icon");
+    expect(css).toContain("transform: translateY(-1px)");
   });
 
   it("turns each Atlas evidence plane into an action for the Workbench", async () => {
@@ -113,10 +116,12 @@ describe("desktop evidence workspace contract", () => {
       source("apps/viewer/app/assets/css/main.css"),
       source("docs/visual-direction.md"),
     ]);
-    expect(brief).toContain("Concept: Surveyor Ink");
+    expect(brief).toContain("Concept: Waypoint Signal");
     expect(brief).toContain("Base text: 14px");
-    expect(css).toContain("--atlas-accent: #d89a68");
-    expect(css).toContain("--atlas-local: #92bb98");
+    expect(css).toContain("--atlas-neutral-1000: #090a0d");
+    expect(css).toContain("--atlas-signal-500: #ff5b4d");
+    expect(css).toContain("--atlas-success-400: #73bd8a");
+    expect(css).toContain("--atlas-selection: var(--atlas-signal-500)");
     expect(css).toContain("font-size: 14px");
     expect(page).toContain("<AtlasIcon");
     expect(page).not.toMatch(/glyph:\s*["']/);

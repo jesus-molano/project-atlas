@@ -1,4 +1,21 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+
+const css = await readFile(
+  new URL("../apps/viewer/app/assets/css/main.css", import.meta.url),
+  "utf8",
+);
+
+function tokenValue(name: string): string {
+  const declaration = css.match(
+    new RegExp(`--${name}:\\s*([^;]+);`),
+  )?.[1]?.trim();
+  if (!declaration) {
+    throw new Error(`Missing color token --${name}`);
+  }
+  const alias = declaration.match(/^var\(--([^)]+)\)$/)?.[1];
+  return alias ? tokenValue(alias) : declaration;
+}
 
 function luminance(hex: string): number {
   const channels = hex
@@ -24,18 +41,26 @@ function contrast(left: string, right: string): number {
   return (values[0]! + 0.05) / (values[1]! + 0.05);
 }
 
-describe("Surveyor Ink contrast", () => {
+describe("Waypoint Signal contrast", () => {
   it.each([
-    ["primary text", "#f0ebdd", "#201f1a", 7],
-    ["secondary text", "#c1bbab", "#201f1a", 4.5],
-    ["quiet text", "#928b7d", "#201f1a", 4.5],
-    ["copper action", "#d89a68", "#201f1a", 4.5],
-    ["local state", "#92bb98", "#201f1a", 4.5],
-    ["design evidence", "#d2a45e", "#201f1a", 4.5],
-    ["memory evidence", "#c28f91", "#201f1a", 4.5],
-    ["decision state", "#e87968", "#201f1a", 4.5],
-    ["primary button label", "#24170f", "#d89a68", 4.5],
+    ["primary text", "atlas-ink", "atlas-canvas", 7],
+    ["secondary text", "atlas-ink-muted", "atlas-canvas", 4.5],
+    ["quiet and disabled text", "atlas-ink-faint", "atlas-canvas", 4.5],
+    ["coral action", "atlas-accent", "atlas-canvas", 4.5],
+    ["selected control", "atlas-selection", "atlas-canvas", 4.5],
+    ["focus indicator", "atlas-focus", "atlas-canvas", 3],
+    ["success state", "atlas-success", "atlas-canvas", 4.5],
+    ["code and local category", "atlas-local", "atlas-canvas", 4.5],
+    ["design category", "atlas-design", "atlas-canvas", 4.5],
+    ["memory category", "atlas-memory", "atlas-canvas", 4.5],
+    ["information state", "atlas-info", "atlas-canvas", 4.5],
+    ["error state", "atlas-danger", "atlas-canvas", 4.5],
+    ["warning state", "atlas-warning", "atlas-canvas", 4.5],
+    ["essential control border", "atlas-control-border", "atlas-canvas", 3],
+    ["primary button label", "atlas-accent-ink", "atlas-accent", 4.5],
   ])("%s meets its target", (_label, foreground, background, minimum) => {
-    expect(contrast(foreground, background)).toBeGreaterThanOrEqual(minimum);
+    expect(
+      contrast(tokenValue(foreground), tokenValue(background)),
+    ).toBeGreaterThanOrEqual(minimum);
   });
 });

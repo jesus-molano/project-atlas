@@ -54,9 +54,31 @@ function graphElements(): ElementDefinition[] {
   return [...nodes, ...edges];
 }
 
+function graphToken(name: string): string {
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+}
+
 function renderGraph(): void {
   if (!container.value) return;
   cy?.destroy();
+  const graphColors = {
+    label: graphToken("--atlas-graph-label"),
+    labelBackground: graphToken("--atlas-graph-label-background"),
+    node: graphToken("--atlas-graph-node"),
+    nodeBorder: graphToken("--atlas-graph-node-border"),
+    publicNode: graphToken("--atlas-graph-public"),
+    publicBorder: graphToken("--atlas-graph-public-border"),
+    featureNode: graphToken("--atlas-graph-feature"),
+    featureBorder: graphToken("--atlas-graph-feature-border"),
+    privateNode: graphToken("--atlas-graph-private"),
+    privateBorder: graphToken("--atlas-graph-private-border"),
+    edge: graphToken("--atlas-graph-edge"),
+    similarEdge: graphToken("--atlas-graph-similar-edge"),
+    selected: graphToken("--atlas-graph-selected"),
+    selectedOverlay: graphToken("--atlas-graph-selected-overlay"),
+  };
   cy = cytoscape({
     container: container.value,
     elements: graphElements(),
@@ -72,36 +94,36 @@ function renderGraph(): void {
           "font-family": "Inter, ui-sans-serif, system-ui",
           "font-size": 10,
           "font-weight": 600,
-          color: "#c1bbab",
+          color: graphColors.label,
           "text-valign": "bottom",
           "text-margin-y": 7,
-          "text-background-color": "#201f1a",
+          "text-background-color": graphColors.labelBackground,
           "text-background-opacity": 0.9,
           "text-background-padding": "3px",
-          "background-color": "#8fb9b2",
+          "background-color": graphColors.node,
           "border-width": 2,
-          "border-color": "#2a2821",
+          "border-color": graphColors.nodeBorder,
         },
       },
       {
         selector: 'node[visibility = "public"]',
         style: {
-          "background-color": "#92bb98",
-          "border-color": "#465a49",
+          "background-color": graphColors.publicNode,
+          "border-color": graphColors.publicBorder,
         },
       },
       {
         selector: 'node[visibility = "feature"]',
         style: {
-          "background-color": "#d2a45e",
-          "border-color": "#5d4930",
+          "background-color": graphColors.featureNode,
+          "border-color": graphColors.featureBorder,
         },
       },
       {
         selector: 'node[visibility = "private"]',
         style: {
-          "background-color": "#c28f91",
-          "border-color": "#593f41",
+          "background-color": graphColors.privateNode,
+          "border-color": graphColors.privateBorder,
         },
       },
       {
@@ -109,8 +131,8 @@ function renderGraph(): void {
         style: {
           width: 1,
           opacity: 0.42,
-          "line-color": "#756d5c",
-          "target-arrow-color": "#756d5c",
+          "line-color": graphColors.edge,
+          "target-arrow-color": graphColors.edge,
           "target-arrow-shape": "triangle",
           "curve-style": "bezier",
         },
@@ -119,7 +141,7 @@ function renderGraph(): void {
         selector: 'edge[kind = "similar_to"]',
         style: {
           "line-style": "dashed",
-          "line-color": "#8fb1aa",
+          "line-color": graphColors.similarEdge,
           "target-arrow-shape": "none",
           opacity: 0.35,
         },
@@ -130,10 +152,10 @@ function renderGraph(): void {
           width: 39,
           height: 39,
           "border-width": 4,
-          "border-color": "#f0ebdd",
-          "overlay-color": "#d89a68",
+          "border-color": graphColors.selected,
+          "overlay-color": graphColors.selectedOverlay,
           "overlay-opacity": 0.1,
-          color: "#f0ebdd",
+          color: graphColors.selected,
           "font-size": 12,
         },
       },

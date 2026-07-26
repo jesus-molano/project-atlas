@@ -549,16 +549,7 @@ onBeforeUnmount(() => {
   <main :class="['desktop-shell', { 'nav-collapsed': navCollapsed }]">
     <section v-if="workspaceError" class="project-launcher">
       <header class="launcher-brand">
-        <svg class="atlas-mark" viewBox="0 0 31 31" aria-hidden="true">
-          <g class="atlas-mark-edges">
-            <line x1="5.5" y1="6" x2="25.5" y2="12" />
-            <line x1="25.5" y1="12" x2="18" y2="25.5" />
-            <line x1="18" y1="25.5" x2="5.5" y2="6" />
-          </g>
-          <circle class="atlas-mark-code" cx="5.5" cy="6" r="4" />
-          <circle class="atlas-mark-design" cx="25.5" cy="12" r="4" />
-          <circle class="atlas-mark-memory" cx="18" cy="25.5" r="4" />
-        </svg>
+        <AtlasMark />
         <span><strong>Project Atlas</strong><small>Local evidence workspace</small></span>
       </header>
       <div class="launcher-content">
@@ -630,16 +621,7 @@ onBeforeUnmount(() => {
     <template v-else-if="overview && graph && workspace">
       <nav class="desktop-navigator" aria-label="Project Atlas navigation">
         <div class="navigator-brand">
-          <svg class="atlas-mark" viewBox="0 0 31 31" aria-hidden="true">
-            <g class="atlas-mark-edges">
-              <line x1="5.5" y1="6" x2="25.5" y2="12" />
-              <line x1="25.5" y1="12" x2="18" y2="25.5" />
-              <line x1="18" y1="25.5" x2="5.5" y2="6" />
-            </g>
-            <circle class="atlas-mark-code" cx="5.5" cy="6" r="4" />
-            <circle class="atlas-mark-design" cx="25.5" cy="12" r="4" />
-            <circle class="atlas-mark-memory" cx="18" cy="25.5" r="4" />
-          </svg>
+          <AtlasMark />
           <span><strong>Project Atlas</strong><small>Evidence workspace</small></span>
         </div>
 

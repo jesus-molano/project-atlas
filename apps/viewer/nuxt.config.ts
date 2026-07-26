@@ -12,6 +12,14 @@ export default defineNuxtConfig({
             "A local evidence and decision workspace for code, design, and project memory.",
         },
       ],
+      link: [
+        {
+          rel: "icon",
+          type: "image/svg+xml",
+          sizes: "any",
+          href: "/favicon.svg",
+        },
+      ],
     },
   },
   nitro: {
