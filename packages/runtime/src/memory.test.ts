@@ -166,6 +166,25 @@ describe.sequential("Project Atlas runtime", () => {
     expect(narrow.code.length).toBeLessThanOrEqual(1);
     expect(narrow.design.candidates.length).toBeLessThanOrEqual(1);
 
+    const graph = await scanProject(rootPath, { writeArtifacts: false });
+    const selectedComponent = graph.components[0]!;
+    const selectedDesignNodeId = context.design.candidates[0]!.id;
+    const selected = await getTaskContext(rootPath, "unrelated copy update", {
+      figmaFile: "PersonalShop",
+      budgetChars: 3_200,
+      topK: 3,
+      selectedHandles: [
+        `code:${selectedComponent.id}`,
+        "memory:decision-search-url-v2",
+        `design:PersonalShop::${selectedDesignNodeId}`,
+      ],
+    });
+    expect(selected.selections).toHaveLength(3);
+    expect(selected.code[0]?.id).toBe(selectedComponent.id);
+    expect(selected.memory[0]?.id).toBe("decision-search-url-v2");
+    expect(selected.design.candidates[0]?.id).toBe(selectedDesignNodeId);
+    expect(JSON.stringify(selected).length).toBeLessThanOrEqual(3_200);
+
     const withoutDesign = await getTaskContext(
       emptyRoot,
       "confirmation dialog",

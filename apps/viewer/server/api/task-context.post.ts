@@ -6,6 +6,7 @@ interface TaskContextBody {
   figmaFile?: string;
   budgetChars?: number;
   topK?: number;
+  selectedHandles?: string[];
 }
 
 export default defineEventHandler(async (event) => {
@@ -24,5 +25,6 @@ export default defineEventHandler(async (event) => {
     ...(body.figmaFile ? { figmaFile: body.figmaFile } : {}),
     ...(body.budgetChars ? { budgetChars: body.budgetChars } : {}),
     ...(body.topK ? { topK: body.topK } : {}),
+    ...(body.selectedHandles ? { selectedHandles: body.selectedHandles } : {}),
   });
 });

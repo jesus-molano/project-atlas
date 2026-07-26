@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   access,
   appendFile,
   mkdir,
   readFile,
+  readdir,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -166,6 +168,99 @@ function requireFound<T>(value: T | undefined, selector: string): T {
   return value;
 }
 
+export async function resolveBundledCodexBinary(
+  repositoryRoot: string,
+): Promise<string | undefined> {
+  const target =
+    process.platform === "win32" && process.arch === "x64"
+      ? {
+          packageSuffix: "-win32-x64",
+          binary: path.join(
+            "vendor",
+            "x86_64-pc-windows-msvc",
+            "bin",
+            "codex.exe",
+          ),
+        }
+      : process.platform === "win32" && process.arch === "arm64"
+        ? {
+            packageSuffix: "-win32-arm64",
+            binary: path.join(
+              "vendor",
+              "aarch64-pc-windows-msvc",
+              "bin",
+              "codex.exe",
+            ),
+          }
+        : process.platform === "linux" && process.arch === "x64"
+          ? {
+              packageSuffix: "-linux-x64",
+              binary: path.join(
+                "vendor",
+                "x86_64-unknown-linux-musl",
+                "bin",
+                "codex",
+              ),
+            }
+          : process.platform === "linux" && process.arch === "arm64"
+            ? {
+                packageSuffix: "-linux-arm64",
+                binary: path.join(
+                  "vendor",
+                  "aarch64-unknown-linux-musl",
+                  "bin",
+                  "codex",
+                ),
+              }
+            : process.platform === "darwin" && process.arch === "x64"
+              ? {
+                  packageSuffix: "-darwin-x64",
+                  binary: path.join(
+                    "vendor",
+                    "x86_64-apple-darwin",
+                    "bin",
+                    "codex",
+                  ),
+                }
+              : process.platform === "darwin" && process.arch === "arm64"
+                ? {
+                    packageSuffix: "-darwin-arm64",
+                    binary: path.join(
+                      "vendor",
+                      "aarch64-apple-darwin",
+                      "bin",
+                      "codex",
+                    ),
+                  }
+                : undefined;
+  if (!target) return undefined;
+  const pnpmRoot = path.join(repositoryRoot, "node_modules", ".pnpm");
+  let entries: string[];
+  try {
+    entries = await readdir(pnpmRoot);
+  } catch {
+    return undefined;
+  }
+  const packageDirectory = entries
+    .filter(
+      (entry) =>
+        entry.startsWith("@openai+codex@") &&
+        entry.endsWith(target.packageSuffix),
+    )
+    .sort()
+    .at(-1);
+  if (!packageDirectory) return undefined;
+  const candidate = path.join(
+    pnpmRoot,
+    packageDirectory,
+    "node_modules",
+    "@openai",
+    "codex",
+    target.binary,
+  );
+  return (await fileExists(candidate)) ? candidate : undefined;
+}
+
 async function openViewer(
   rootPath: string,
   options: { port: string; browser: boolean },
@@ -187,6 +282,7 @@ async function openViewer(
     );
   }
   const url = `http://127.0.0.1:${options.port}`;
+  const codexPath = await resolveBundledCodexBinary(repositoryRoot);
   const child = spawn(process.execPath, [serverEntry], {
     stdio: "inherit",
     env: {
@@ -196,8 +292,10 @@ async function openViewer(
       ...(graph.project.identity?.checkoutId
         ? { ATLAS_CHECKOUT_ID: graph.project.identity.checkoutId }
         : {}),
-      ATLAS_CLI_ENTRY: currentFile,
-      NITRO_HOST: "127.0.0.1",
+        ATLAS_CLI_ENTRY: currentFile,
+        ATLAS_GUI_SESSION_TOKEN: randomBytes(32).toString("base64url"),
+        ...(codexPath ? { ATLAS_CODEX_PATH: codexPath } : {}),
+        NITRO_HOST: "127.0.0.1",
       NITRO_PORT: options.port,
     },
   });

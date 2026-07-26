@@ -175,6 +175,34 @@ export interface TaskEvaluationRecord {
   reworkRequired: boolean;
 }
 
+export interface AgentRunAuditRecord {
+  schemaVersion: 1;
+  id: string;
+  projectId: string;
+  checkoutId?: string;
+  startedAt: string;
+  updatedAt: string;
+  mode: "prepare" | "implement" | "continue" | "correct";
+  state:
+    | "queued"
+    | "running"
+    | "awaiting-input"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  sourceKinds: Array<"jira" | "confluence" | "figma" | "other">;
+  selectedKinds: Array<"code" | "design" | "memory">;
+  sandbox: "read-only" | "workspace-write";
+  budgetChars: number;
+  contextChars: number;
+  estimatedTokens: number;
+  truncated: boolean;
+  eventCount: number;
+  questionCount: number;
+  stale: boolean;
+  resultStatus?: "completed" | "needs-input";
+}
+
 export interface ComponentGraph {
   schemaVersion: typeof GRAPH_SCHEMA_VERSION;
   project: ProjectMetadata;

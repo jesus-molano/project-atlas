@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import {
+  buildComponentContext,
   buildReuseContext,
   searchComponentContext,
   type ComponentGraph,
@@ -576,6 +577,7 @@ export async function getTaskContext(
     budgetChars?: number;
     refreshMemory?: boolean;
     topK?: number;
+    selectedHandles?: string[];
   } = {},
 ) {
   const graph = await loadProjectGraph(rootPath);
@@ -584,12 +586,46 @@ export async function getTaskContext(
   const store = memoryStore(graph);
   try {
     const topK = boundedLimit(options.topK, 3);
+    const selectedHandles = [...new Set(options.selectedHandles ?? [])]
+      .filter((handle) => /^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/.test(handle))
+      .slice(0, 8);
+    const selectedCodeIds = selectedHandles
+      .filter((handle) => handle.startsWith("code:"))
+      .map((handle) => handle.slice("code:".length));
+    const selectedMemoryIds = selectedHandles
+      .filter((handle) => handle.startsWith("memory:"))
+      .map((handle) => handle.slice("memory:".length));
+    const selectedDesign = selectedHandles
+      .filter((handle) => handle.startsWith("design:"))
+      .map((handle) => handle.slice("design:".length))
+      .map((handle) => {
+        const separator = handle.indexOf("::");
+        return separator > 0
+          ? { fileKey: handle.slice(0, separator), nodeId: handle.slice(separator + 2) }
+          : { fileKey: handle };
+      })[0];
     const memoryCandidates = store.searchMemoryCandidates(
       graph.project.id,
       task,
       100,
     );
-    const rankedMemory = rankMemoryItems(memoryCandidates, task).slice(0, topK);
+    const selectedMemory = store
+      .listMemoryItems(graph.project.id)
+      .filter((item) => selectedMemoryIds.includes(item.id))
+      .map((item) => ({
+        item,
+        score: 1,
+        reasons: ["Selected in Project Atlas"],
+      }));
+    const rankedMemory = [
+      ...selectedMemory,
+      ...rankMemoryItems(memoryCandidates, task),
+    ]
+      .filter(
+        (candidate, index, collection) =>
+          collection.findIndex((item) => item.item.id === candidate.item.id) === index,
+      )
+      .slice(0, topK);
     const reuse = buildReuseContext(graph, task, topK);
     const indexes = store.listDesignIndexes(graph.project.id);
     const selectedIndex = options.figmaFile
@@ -598,6 +634,8 @@ export async function getTaskContext(
             index.file.key === options.figmaFile ||
             index.file.url === options.figmaFile,
         )
+      : selectedDesign
+        ? indexes.find((index) => index.file.key === selectedDesign.fileKey)
       : indexes.length === 1
         ? indexes[0]
         : undefined;
@@ -635,6 +673,78 @@ export async function getTaskContext(
             : ("clear" as const),
       questions: [...gate.memory.questions, ...gate.design.questions],
     };
+    const selectedCode = selectedCodeIds
+      .filter((id) => graph.components.some((component) => component.id === id))
+      .map((id) => buildComponentContext(graph, id))
+      .map((item) => ({
+        id: item.component.id,
+        name: item.component.name,
+        path: item.component.path,
+        scope: item.component.scope,
+        reasons: ["Selected in Project Atlas"],
+        directConsumers: item.impact.directConsumers,
+        transitiveConsumers: item.impact.transitiveConsumers,
+      }));
+    const codeCandidates = [
+      ...selectedCode,
+      ...reuse.candidates.map((candidate) => ({
+        id: candidate.component.id,
+        name: candidate.component.name,
+        path: candidate.component.path,
+        scope: candidate.component.scope,
+        reasons: candidate.match.reasons.slice(0, 2),
+        directConsumers: candidate.impact.directConsumers,
+        transitiveConsumers: candidate.impact.transitiveConsumers,
+      })),
+    ]
+      .filter(
+        (candidate, index, collection) =>
+          collection.findIndex((item) => item.id === candidate.id) === index,
+      )
+      .slice(0, topK);
+    const rankedDesignCandidates =
+      design?.candidates.map((candidate) => ({
+        id: candidate.node.id,
+        name: candidate.node.name,
+        url: candidate.node.url,
+        status: candidate.node.status,
+        statusAvailability: candidate.node.statusAvailability,
+        pageStatus: candidate.node.pageStatus,
+        pageStatusAvailability: candidate.node.pageStatusAvailability,
+        confidence: candidate.confidence,
+        reasons: candidate.reasons.slice(0, 3),
+      })) ?? [];
+    const selectedDesignNode =
+      selectedIndex && selectedDesign?.nodeId
+        ? selectedIndex.nodes.find((node) => node.id === selectedDesign.nodeId)
+        : undefined;
+    const selectedDesignPage = selectedDesignNode
+      ? selectedIndex?.pages.find((page) => page.id === selectedDesignNode.pageId)
+      : undefined;
+    const designCandidates = [
+      ...(selectedDesignNode
+        ? [
+            {
+              id: selectedDesignNode.id,
+              name: selectedDesignNode.name,
+              url: selectedDesignNode.url,
+              status: selectedDesignNode.devStatus,
+              statusAvailability: selectedDesignNode.devStatusAvailability,
+              pageStatus: selectedDesignPage?.devStatus ?? "none",
+              pageStatusAvailability:
+                selectedDesignPage?.devStatusAvailability ?? "source-unavailable",
+              confidence: "high" as const,
+              reasons: ["Selected in Project Atlas"],
+            },
+          ]
+        : []),
+      ...rankedDesignCandidates,
+    ]
+      .filter(
+        (candidate, index, collection) =>
+          collection.findIndex((item) => item.id === candidate.id) === index,
+      )
+      .slice(0, topK);
     const payload = {
       schemaVersion: 1,
       task: task.trim(),
@@ -653,15 +763,8 @@ export async function getTaskContext(
         score,
         reasons: reasons.slice(0, 2),
       })),
-      code: reuse.candidates.slice(0, topK).map((candidate) => ({
-        id: candidate.component.id,
-        name: candidate.component.name,
-        path: candidate.component.path,
-        scope: candidate.component.scope,
-        reasons: candidate.match.reasons.slice(0, 2),
-        directConsumers: candidate.impact.directConsumers,
-        transitiveConsumers: candidate.impact.transitiveConsumers,
-      })),
+      selections: selectedHandles,
+      code: codeCandidates,
       design: {
         available: Boolean(selectedIndex),
         ...(indexes.length > 1 && !selectedIndex
@@ -673,18 +776,7 @@ export async function getTaskContext(
               })),
             }
           : {}),
-        candidates:
-          design?.candidates.slice(0, topK).map((candidate) => ({
-            id: candidate.node.id,
-            name: candidate.node.name,
-            url: candidate.node.url,
-            status: candidate.node.status,
-            statusAvailability: candidate.node.statusAvailability,
-            pageStatus: candidate.node.pageStatus,
-            pageStatusAvailability: candidate.node.pageStatusAvailability,
-            confidence: candidate.confidence,
-            reasons: candidate.reasons.slice(0, 3),
-          })) ?? [],
+        candidates: designCandidates,
       },
       findings: findings.slice(0, 8),
       gate: { ...gate, overall: overallGate },
@@ -705,7 +797,7 @@ export async function getTaskContext(
         ...reuse.candidates.map((candidate) => candidate.component.id),
         ...(design?.candidates.map((candidate) => candidate.node.id) ?? []),
       ],
-      preserveKeys: ["findings", "questions"],
+      preserveKeys: ["findings", "questions", "selections"],
       preserveFirstKeys: ["memory", "code", "candidates"],
     });
   } finally {

@@ -4,11 +4,13 @@ import { designIndexSummary } from "@component-atlas/design";
 import {
   buildProjectOverviewViewModel,
   getProjectCapabilities,
+  listAgentRunAudits,
   listTaskEvaluations,
 } from "@component-atlas/runtime";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { loadProjectAtlasSnapshot } from "../utils/project";
+import { agentAdapterStatus } from "../utils/agent-runs";
+import { loadProjectAtlasSnapshot, projectGitState } from "../utils/project";
 
 function uniqueContradictions(items: MemoryItem[]) {
   const active = new Map(
@@ -166,9 +168,11 @@ function localArtifactHealth(rootPath: string) {
 
 export default defineEventHandler(async () => {
   const snapshot = loadProjectAtlasSnapshot();
-  const [capabilities, evaluations] = await Promise.all([
+  const [capabilities, evaluations, agentRuns, agent] = await Promise.all([
     getProjectCapabilities(snapshot.graph.project.rootPath),
     listTaskEvaluations(snapshot.graph.project.rootPath, 20),
+    listAgentRunAudits(snapshot.graph.project.rootPath, 12),
+    agentAdapterStatus(),
   ]);
   const currentDecisions = [
     ...snapshot.componentDecisions.map((decision) => ({
@@ -210,7 +214,10 @@ export default defineEventHandler(async () => {
     memoryProposals: snapshot.memoryProposals,
     currentDecisions,
     capabilities,
+    agent,
     evaluations,
+    agentRuns,
+    git: projectGitState(),
     localHealth: localArtifactHealth(snapshot.graph.project.rootPath),
     risks: projectRisks(snapshot),
   };

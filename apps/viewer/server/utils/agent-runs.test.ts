@@ -1,0 +1,203 @@
+import { cp, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type {
+  AgentAdapter,
+  AgentAdapterStatus,
+  AgentRunEvent,
+  AgentRunRequest,
+} from "@component-atlas/agent";
+import { listAgentRunAudits, scanProject } from "@component-atlas/runtime";
+import {
+  cancelAgentRun,
+  clearAgentRuns,
+  getAgentRun,
+  replaceAgentAdapter,
+  startAgentRun,
+} from "./agent-runs";
+import { loadProjectAtlasSnapshot } from "./project";
+
+const fixture = fileURLToPath(
+  new URL("../../../../fixtures/vue-nuxt", import.meta.url),
+);
+
+function compactResult() {
+  return {
+    status: "completed" as const,
+    summary: "Prepared bounded evidence.",
+    brief: ["Inspect the selected component."],
+    evidence: [],
+    decisions: [],
+    risks: [],
+    memoryProposals: [],
+  };
+}
+
+class CompletingAdapter implements AgentAdapter {
+  readonly id = "fake";
+  request?: AgentRunRequest;
+
+  async status(): Promise<AgentAdapterStatus> {
+    return {
+      id: this.id,
+      label: "Fake adapter",
+      state: "detected",
+      authentication: "unknown",
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  run(request: AgentRunRequest) {
+    this.request = request;
+    return {
+      cancel() {},
+      events: (async function* (): AsyncGenerator<AgentRunEvent> {
+        yield {
+          type: "run-started",
+          at: new Date().toISOString(),
+          threadId: "thread-fixture",
+          message: "Started.",
+        };
+        yield {
+          type: "completed",
+          at: new Date().toISOString(),
+          threadId: "thread-fixture",
+          result: compactResult(),
+        };
+      })(),
+    };
+  }
+}
+
+class BlockingAdapter extends CompletingAdapter {
+  private release!: () => void;
+  private cancelled = false;
+
+  override run(request: AgentRunRequest) {
+    this.request = request;
+    const wait = new Promise<void>((resolve) => {
+      this.release = resolve;
+    });
+    const owner = this;
+    return {
+      cancel() {
+        owner.cancelled = true;
+        owner.release();
+      },
+      events: (async function* (): AsyncGenerator<AgentRunEvent> {
+        yield {
+          type: "run-started",
+          at: new Date().toISOString(),
+          threadId: "thread-blocking",
+          message: "Started.",
+        };
+        await wait;
+        if (owner.cancelled) {
+          yield {
+            type: "cancelled",
+            at: new Date().toISOString(),
+            message: "Cancelled.",
+          };
+        }
+      })(),
+    };
+  }
+}
+
+describe.sequential("viewer agent run ownership", () => {
+  let rootPath: string;
+  let restoreAdapter: (() => void) | undefined;
+
+  beforeEach(async () => {
+    rootPath = await mkdtemp(path.join(os.tmpdir(), "atlas-agent-viewer-"));
+    await cp(fixture, rootPath, { recursive: true });
+    await scanProject(rootPath);
+    process.env.ATLAS_PROJECT_ROOT = rootPath;
+  });
+
+  afterEach(async () => {
+    try {
+      clearAgentRuns();
+    } catch {
+      // A failed test may leave a fake run active; process teardown owns it.
+    }
+    restoreAdapter?.();
+    restoreAdapter = undefined;
+    delete process.env.ATLAS_PROJECT_ROOT;
+    await rm(rootPath, { recursive: true, force: true });
+  });
+
+  it("regenerates compact context and carries reviewed selection handles", async () => {
+    const adapter = new CompletingAdapter();
+    restoreAdapter = replaceAgentAdapter(adapter);
+    const snapshot = loadProjectAtlasSnapshot();
+    const selected = snapshot.graph.components[0]!;
+    const started = startAgentRun({
+      mode: "prepare",
+      task: "Review a small interface change",
+      sources: [],
+      sandbox: "read-only",
+      budgetChars: 2_400,
+      topK: 3,
+      selectedHandles: [`code:${selected.id}`],
+      expectedFingerprint: snapshot.fingerprint,
+    });
+
+    await expect
+      .poll(() => getAgentRun(started.id).state)
+      .toBe("completed");
+    expect(adapter.request?.compactContext).toContain(selected.id);
+    expect(adapter.request?.compactContext.length).toBeLessThanOrEqual(2_400);
+    expect(getAgentRun(started.id).events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({ type: "completed" }),
+        }),
+      ]),
+    );
+    const audits = await listAgentRunAudits(rootPath);
+    expect(audits[0]).toMatchObject({
+      id: started.id,
+      state: "completed",
+      sourceKinds: [],
+      selectedKinds: ["code"],
+      resultStatus: "completed",
+    });
+    expect(JSON.stringify(audits[0])).not.toContain("Review a small interface change");
+  });
+
+  it("locks one checkout and supports real cancellation", async () => {
+    const adapter = new BlockingAdapter();
+    restoreAdapter = replaceAgentAdapter(adapter);
+    const snapshot = loadProjectAtlasSnapshot();
+    const started = startAgentRun({
+      mode: "implement",
+      task: "Make a bounded local change",
+      sources: [],
+      sandbox: "workspace-write",
+      budgetChars: 2_400,
+      topK: 3,
+      selectedHandles: [],
+      expectedFingerprint: snapshot.fingerprint,
+    });
+    expect(() =>
+      startAgentRun({
+        mode: "prepare",
+        task: "Start another task",
+        sources: [],
+        sandbox: "read-only",
+        budgetChars: 2_400,
+        topK: 3,
+        selectedHandles: [],
+        expectedFingerprint: snapshot.fingerprint,
+      }),
+    ).toThrow(/active Codex run/i);
+
+    cancelAgentRun(started.id);
+    await expect
+      .poll(() => getAgentRun(started.id).state)
+      .toBe("cancelled");
+  });
+});

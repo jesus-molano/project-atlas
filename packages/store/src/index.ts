@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   GRAPH_SCHEMA_VERSION,
+  type AgentRunAuditRecord,
   type ComponentDecision,
   type ComponentGraph,
   type ComponentNode,
@@ -221,6 +222,14 @@ export class AtlasStore {
       );
       CREATE INDEX IF NOT EXISTS task_evaluations_project
         ON task_evaluations(project_id, recorded_at DESC);
+      CREATE TABLE IF NOT EXISTS agent_run_audits (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS agent_run_audits_project
+        ON agent_run_audits(project_id, updated_at DESC);
     `);
   }
 
@@ -509,6 +518,61 @@ export class AtlasStore {
     return Number(
       this.database
         .prepare("DELETE FROM task_evaluations WHERE project_id = ?")
+        .run(projectId).changes,
+    );
+  }
+
+  saveAgentRunAudit(record: AgentRunAuditRecord, retention = 30): void {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database
+        .prepare(`
+          INSERT INTO agent_run_audits (id, project_id, updated_at, payload)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            updated_at = excluded.updated_at,
+            payload = excluded.payload
+        `)
+        .run(
+          record.id,
+          record.projectId,
+          record.updatedAt,
+          JSON.stringify(record),
+        );
+      this.database
+        .prepare(`
+          DELETE FROM agent_run_audits
+          WHERE project_id = ? AND id NOT IN (
+            SELECT id FROM agent_run_audits
+            WHERE project_id = ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+          )
+        `)
+        .run(record.projectId, record.projectId, Math.max(1, Math.min(retention, 100)));
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listAgentRunAudits(projectId: string, limit = 20): AgentRunAuditRecord[] {
+    const rows = this.database
+      .prepare(`
+        SELECT payload FROM agent_run_audits
+        WHERE project_id = ?
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `)
+      .all(projectId, Math.max(1, Math.min(limit, 50))) as unknown as JsonRow[];
+    return rows.map((row) => JSON.parse(row.payload) as AgentRunAuditRecord);
+  }
+
+  clearAgentRunAudits(projectId: string): number {
+    return Number(
+      this.database
+        .prepare("DELETE FROM agent_run_audits WHERE project_id = ?")
         .run(projectId).changes,
     );
   }
