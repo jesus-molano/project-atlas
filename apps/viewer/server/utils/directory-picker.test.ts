@@ -16,9 +16,15 @@ describe("loopback native directory picker", () => {
     });
     expect(runner).toHaveBeenCalledOnce();
     expect(runner.mock.calls[0]?.[1]).toContain("-STA");
+    const pickerScript = runner.mock.calls[0]?.[1].at(-1);
+    expect(pickerScript).toContain("owner.TopMost = true");
+    expect(pickerScript).toContain("dialog.ShowDialog(owner)");
+    expect(pickerScript).toContain("SetWindowPos");
+    expect(pickerScript).toContain("new IntPtr(-1)");
     expect(runner.mock.calls[0]?.[2]).toEqual({
       timeoutMs: 300_000,
       maxOutputChars: 2_048,
+      windowsHide: false,
     });
   });
 

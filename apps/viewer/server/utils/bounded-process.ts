@@ -4,6 +4,7 @@ export interface BoundedProcessOptions {
   timeoutMs?: number;
   maxOutputChars?: number;
   signal?: AbortSignal;
+  windowsHide?: boolean;
 }
 
 export interface BoundedProcessResult {
@@ -20,7 +21,7 @@ export function runBoundedProcess(
   const maxOutputChars = options.maxOutputChars ?? 1_000_000;
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      windowsHide: true,
+      windowsHide: options.windowsHide ?? true,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

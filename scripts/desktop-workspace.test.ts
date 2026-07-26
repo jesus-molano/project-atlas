@@ -36,6 +36,15 @@ describe("desktop evidence workspace contract", () => {
     const css = await source("apps/viewer/app/assets/css/main.css");
     expect(css).toContain(".nav-group > button > .atlas-icon");
     expect(css).toContain("transform: translateY(-1px)");
+    const compactShell = css.slice(css.indexOf("@media (max-width: 860px)"));
+    expect(compactShell).toContain(".project-switcher-wrap");
+    expect(compactShell).toContain("position: fixed");
+    expect(compactShell).not.toMatch(
+      /\.project-switcher-wrap,\s*\n\s*\.navigator-foot[\s\S]*?display:\s*none/,
+    );
+    expect(compactShell).toContain(
+      "width: min(390px, calc(100vw - 28px))",
+    );
   });
 
   it("turns each Atlas evidence plane into an action for the Workbench", async () => {

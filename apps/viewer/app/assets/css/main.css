@@ -3075,10 +3075,41 @@ textarea::placeholder {
   }
 
   .navigator-brand,
-  .project-switcher-wrap,
   .navigator-foot,
   .nav-group > span {
     display: none;
+  }
+
+  .project-switcher-wrap {
+    width: 196px;
+    display: block;
+    position: fixed;
+    z-index: 40;
+    top: 8px;
+    left: 14px;
+    margin: 0;
+  }
+
+  .project-switcher {
+    min-height: 42px;
+    grid-template-columns: 30px minmax(0, 1fr) 16px;
+    padding: 5px 8px;
+    background: var(--atlas-dialog);
+    box-shadow: var(--atlas-panel-shadow);
+  }
+
+  .project-badge {
+    width: 30px;
+    height: 30px;
+  }
+
+  .project-popover {
+    width: min(390px, calc(100vw - 28px));
+    max-height: calc(100vh - 86px);
+    position: fixed;
+    top: 58px;
+    left: 14px;
+    overflow-y: auto;
   }
 
   .navigator-scroll {
@@ -3113,7 +3144,7 @@ textarea::placeholder {
 
   .project-bar {
     grid-template-columns: minmax(0, 1fr) auto;
-    padding-inline: 14px;
+    padding: 10px 14px 10px 224px;
   }
 
   .status-summary {
@@ -3367,6 +3398,22 @@ textarea::placeholder {
 
   .project-bar {
     justify-content: space-between;
+    padding-left: 68px;
+  }
+
+  .project-switcher-wrap {
+    width: 42px;
+  }
+
+  .project-switcher {
+    width: 42px;
+    grid-template-columns: 30px;
+    padding-inline: 5px;
+  }
+
+  .project-switcher > span:nth-child(2),
+  .project-switcher > .atlas-icon {
+    display: none;
   }
 
   .workspace-heading h1 {
