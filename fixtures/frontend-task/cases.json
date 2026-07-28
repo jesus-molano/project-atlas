@@ -267,6 +267,49 @@
         "promotion": "explicit-only",
         "invalidation": "scope-aware"
       }
+    },
+    {
+      "id": "memory-closeout-none",
+      "request": "Fix a one-off typo without changing project behavior.",
+      "sources": ["conversation", "repository"],
+      "expected": {
+        "memoryCloseout": "none",
+        "message": "no-durable-knowledge-detected",
+        "confirmationRequired": false,
+        "automaticWrite": false
+      }
+    },
+    {
+      "id": "memory-closeout-canonical-confirmed",
+      "request": "Finish the task and retain the newly verified URL-state convention.",
+      "sources": ["conversation", "repository", "verified-outcome"],
+      "expected": {
+        "memoryCloseout": "canonical-candidate",
+        "candidateFields": ["type", "title", "summary", "evidence", "scope", "confidence"],
+        "confirmationMode": "one-exact-canonical-write-question",
+        "automaticWrite": false,
+        "afterExplicitConfirmation": "canonical-stored"
+      }
+    },
+    {
+      "id": "memory-closeout-local-only",
+      "request": "Record that validation passed only in this checkout.",
+      "sources": ["conversation", "repository", "validation-result"],
+      "expected": {
+        "memoryCloseout": "local-only",
+        "canonicalPromotionQuestion": false,
+        "automaticWrite": false
+      }
+    },
+    {
+      "id": "memory-closeout-declined",
+      "request": "Do not save the proposed route-state convention.",
+      "sources": ["conversation", "repository", "prior-memory-candidate"],
+      "expected": {
+        "memoryCloseout": "declined",
+        "stored": false,
+        "askAgain": false
+      }
     }
   ]
 }

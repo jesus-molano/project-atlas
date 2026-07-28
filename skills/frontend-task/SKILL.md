@@ -216,16 +216,29 @@ global Variables, and library data improve evidence but are optional.
 3. Verify relevant tests, type checking, linting, build, responsive states, and
    accessibility in proportion to risk.
 4. Rescan Atlas after component changes and confirm the graph reflects them.
-5. Call `record_outcome` with the observed/verified result. If the task teaches
-   a durable convention, decision, or constraint, call
-   `propose_memory_update` with evidence and confidence. Never call
-   `apply_memory_update` without explicit user confirmation.
+5. Finish every completed task with the compact **Memory candidates** closeout
+   in `references/memory-closeout.md`, even when there is no candidate. This is
+   the shared structured `memoryCloseout` result: produce it once, present it in
+   chat, and let the GUI render the same object without reclassification. It is
+   a status, not a generic follow-up interview:
+   - present a novel reusable decision, convention, constraint, integration,
+     known issue, or lesson with evidence, canonical scope, and confidence, then
+     ask one explicit confirmation before writing it;
+   - label an episodic or checkout-only result `local-only` without asking for
+     canonical promotion;
+   - say explicitly when no durable knowledge was detected;
+   - record a rejection or omission as `declined` in the response and do not
+     ask again unless the evidence or scope changes.
+   Search relevant existing memory before presenting a canonical candidate so
+   the closeout does not duplicate an active item. Do not call
+   `record_outcome`, `propose_memory_update`, or `apply_memory_update` until the
+   user explicitly authorizes that exact write. Never infer confirmation from
+   task completion, implementation approval, or silence.
    Task intake, exact source references, confirmations, hypotheses, permissions,
    and run state remain task-scoped. Checkout graphs, scan state, unmerged
    changes, and episodic validation remain checkout-scoped. Only confirmed
    durable semantics, product/architecture decisions, design metadata, and
-   approved memory may be promoted to the logical project; preserve provenance
-   and never promote automatically.
+   approved memory may be promoted to the logical project; preserve provenance.
 6. Report outcome, evidence, validation, warnings, and remaining external
    checks. Do not claim that missing corporate data was validated.
 7. Only when the user or local project policy explicitly opts in to evaluation,
@@ -233,4 +246,5 @@ global Variables, and library data improve evidence but are optional.
    flags; Atlas hashes the task and never persists its text.
 
 Use `references/capability-routing.md` for source-specific routing and
-`references/brief-contract.md` for the compact input/output contract.
+`references/brief-contract.md` for the compact input/output contract. Read
+`references/memory-closeout.md` for every completed task.

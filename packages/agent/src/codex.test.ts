@@ -59,7 +59,20 @@ async function collect(
   return result;
 }
 
-function completedResult(status: "completed" | "needs-input" = "completed") {
+function noMemoryCandidate() {
+  return {
+    status: "none" as const,
+    summary: "No durable project knowledge was detected.",
+    candidates: [],
+    confirmationRequired: false,
+    confirmationPrompt: "",
+  };
+}
+
+function completedResult(
+  status: "completed" | "needs-input" = "completed",
+  memoryCloseout: Record<string, unknown> = noMemoryCandidate(),
+) {
   return JSON.stringify({
     status,
     summary: "Prepared the task.",
@@ -73,7 +86,7 @@ function completedResult(status: "completed" | "needs-input" = "completed") {
     ],
     decisions: [],
     risks: [],
-    memoryProposals: [],
+    memoryCloseout,
     ...(status === "needs-input"
       ? {
           question: {
@@ -177,6 +190,8 @@ describe("Codex Agent Adapter", () => {
     expect(observed.prompt).toContain("- openapi: confirmed");
     expect(observed.prompt).toContain("bounded `api` context");
     expect(observed.prompt).toContain("Do not perform external writes");
+    expect(observed.prompt).toContain("shared structured `memoryCloseout` result");
+    expect(observed.prompt).toContain("exact shared memoryCloseout confirmation");
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "run-started", threadId: "thread-1" }),
@@ -262,6 +277,134 @@ describe("Codex Agent Adapter", () => {
     expect(observed.prompt).not.toContain("Confirmed Figma ingestion");
     expect(observed.prompt).not.toContain("`get_metadata`");
     expect(observed.prompt).not.toContain("`map_figma_file`");
+  });
+
+  it.each([
+    {
+      label: "no durable candidate",
+      closeout: noMemoryCandidate(),
+      expectedStatus: "none",
+      confirmationRequired: false,
+    },
+    {
+      label: "canonical candidate awaiting confirmation",
+      closeout: {
+        status: "canonical-candidate",
+        summary: "A reusable route-state convention was detected.",
+        candidates: [
+          {
+            type: "convention",
+            title: "Persist catalogue filters in the URL",
+            summary: "Catalogue filters use query parameters for shareable state.",
+            evidence: ["The existing catalogue route reads and writes query state."],
+            scope: "canonical",
+            confidence: 0.9,
+          },
+        ],
+        confirmationRequired: true,
+        confirmationPrompt:
+          "Save this convention as canonical Project Memory?",
+      },
+      expectedStatus: "canonical-candidate",
+      confirmationRequired: true,
+    },
+    {
+      label: "local-only outcome",
+      closeout: {
+        status: "local-only",
+        summary: "The validation result is useful only for this checkout.",
+        candidates: [],
+        localOutcome: {
+          summary: "The catalogue filter tests passed in this checkout.",
+          evidence: ["pnpm test -- catalogue-filter"],
+        },
+        confirmationRequired: false,
+        confirmationPrompt: "",
+      },
+      expectedStatus: "local-only",
+      confirmationRequired: false,
+    },
+    {
+      label: "declined candidate",
+      closeout: {
+        status: "declined",
+        summary: "The user declined the memory candidate; nothing was stored.",
+        candidates: [],
+        confirmationRequired: false,
+        confirmationPrompt: "",
+      },
+      expectedStatus: "declined",
+      confirmationRequired: false,
+    },
+  ])(
+    "returns an explicit memory closeout for $label",
+    async ({ closeout, expectedStatus, confirmationRequired }) => {
+      const client = fakeClient(
+        [
+          { type: "thread.started", thread_id: "thread-memory-closeout" },
+          {
+            type: "item.completed",
+            item: {
+              id: "message-memory-closeout",
+              type: "agent_message",
+              text: completedResult("completed", closeout),
+            },
+          },
+        ],
+        {},
+      );
+      const adapter = new CodexAgentAdapter(client);
+      const events = await collect(adapter.run(request(await root())).events);
+      const completed = events.find((event) => event.type === "completed");
+      expect(completed?.type).toBe("completed");
+      if (completed?.type !== "completed") return;
+      expect(completed.result.memoryCloseout).toMatchObject({
+        status: expectedStatus,
+        confirmationRequired,
+      });
+    },
+  );
+
+  it("rejects a canonical candidate that does not request explicit confirmation", async () => {
+    const client = fakeClient(
+      [
+        { type: "thread.started", thread_id: "thread-invalid-memory-closeout" },
+        {
+          type: "item.completed",
+          item: {
+            id: "message-invalid-memory-closeout",
+            type: "agent_message",
+            text: completedResult("completed", {
+              status: "canonical-candidate",
+              summary: "Candidate",
+              candidates: [
+                {
+                  type: "decision",
+                  title: "Use one filter route",
+                  summary: "The project uses one route.",
+                  evidence: ["Observed in the repository."],
+                  scope: "canonical",
+                  confidence: 0.8,
+                },
+              ],
+              confirmationRequired: false,
+              confirmationPrompt: "",
+            }),
+          },
+        },
+      ],
+      {},
+    );
+    const adapter = new CodexAgentAdapter(client);
+    const events = await collect(adapter.run(request(await root())).events);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "failed",
+          message: expect.stringMatching(/invalid compact result/i),
+        }),
+      ]),
+    );
   });
 
   it("surfaces a material question and resumes the confirmed thread", async () => {

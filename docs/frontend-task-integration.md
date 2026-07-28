@@ -70,8 +70,17 @@ No manual scan, memory, context, or Figma command is required first.
    same target; ask for a manual selection if it cannot be isolated.
 14. Run `check_before_change`, record the component decision, implement,
     validate, and rescan.
-15. Record the observed/verified outcome. Propose any durable memory delta;
-    apply it only after explicit confirmation.
+15. Always return a compact `Memory candidates` closeout: `none`,
+    `canonical-candidate`, `canonical-stored`, `local-only`, or `declined`.
+    A canonical candidate includes evidence, scope, confidence, and one exact
+    confirmation question. Local-only outcomes and empty closeouts do not ask
+    for promotion. Do not record an outcome, create a proposal, or apply memory
+    until the user explicitly authorizes that exact write.
+
+`memoryCloseout` in `AgentCompactResult` is the single domain contract.
+`$frontend-task`/Codex produces it once; conversation formats it as a compact
+section and the GUI only renders that same object. The GUI does not run a
+second candidate detector, state transition, or approval path.
 
 Focused Atlas queries remain compact. The retrieval ladder is orientation,
 search, then expansion of a confirmed ID. The orchestrator requests `raw` nodes
@@ -79,7 +88,8 @@ only when diagnosing incorrect extraction.
 
 Invoking the skill authorizes this task-scoped orchestration. It does not
 authorize plugin installation, connector login, access to an unconnected
-source, external writes, or confirmation of durable memory.
+source, external writes, or any local/canonical memory write. Task completion
+and implementation approval do not count as memory confirmation.
 
 ## Stable Atlas handoff
 

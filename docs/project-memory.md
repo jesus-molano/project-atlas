@@ -38,12 +38,18 @@ important is overwritten invisibly.
 - Reads and rebuilds are automatic.
 - Repository and Figma facts may refresh automatically because they are
   reconstructible.
-- An agent uses `propose_memory_update` for durable decisions, conventions, and
-  conclusions. The proposal contains evidence, confidence, relations, and any
-  item it supersedes.
+- Every completed `$frontend-task` result includes a compact `Memory
+  candidates` status, even when no durable knowledge was detected. A novel
+  durable decision, convention, constraint, integration, known issue, or
+  reusable lesson is shown with evidence, canonical scope, confidence, and one
+  explicit confirmation question.
+- Only after that exact confirmation does an agent use
+  `propose_memory_update` for durable knowledge. The proposal contains
+  evidence, confidence, relations, and any item it supersedes.
 - `apply_memory_update` requires explicit `confirmed: true`.
-- `record_outcome` may append a local observed/verified episode after a task.
-  It does not promote the episode to a team rule.
+- `record_outcome` may append a local observed/verified episode only after the
+  user asks to retain that local result. It does not promote the episode to a
+  team rule.
 - Contradictions, duplicates, stale items, and prior failed attempts become
   evidence-backed findings instead of silent writes.
 
@@ -67,10 +73,15 @@ The first `$frontend-task` run scans code and indexes existing allowed memory
 when needed. `memory index` remains available for explicit diagnostics or
 automation.
 
-Invoking `$frontend-task` permits it to read relevant indexed memory and record
-an observed local task outcome. It does not authorize applying a durable
-decision, convention, or canonical Markdown change. Those remain proposals
-until explicitly confirmed.
+Invoking `$frontend-task` permits it to read relevant indexed memory. It does
+not authorize recording an outcome, creating a proposal, or applying canonical
+memory. The closeout reports `none`, `canonical-candidate`, `local-only`,
+`canonical-stored`, or `declined`; only an explicit confirmation of the named
+write authorizes persistence.
+
+The `AgentCompactResult.memoryCloseout` object is shared across chat and GUI.
+Codex determines it once under the frontend-task contract; the GUI presents it
+without reclassifying candidates or implementing a separate approval rule.
 
 ## Obsidian
 

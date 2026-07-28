@@ -32,7 +32,13 @@ function compactResult() {
     evidence: [],
     decisions: [],
     risks: [],
-    memoryProposals: [],
+    memoryCloseout: {
+      status: "none" as const,
+      summary: "No durable project knowledge was detected.",
+      candidates: [],
+      confirmationRequired: false,
+      confirmationPrompt: "",
+    },
   };
 }
 

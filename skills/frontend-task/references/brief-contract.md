@@ -77,7 +77,17 @@ validation:
   - Commands and manual checks required
 memory_delta:
   outcome: Observed or verified task result
-  durable_proposal: Decision, convention, constraint, or none
+  closeout_status: none | canonical-candidate | canonical-stored | local-only | declined
+  candidates:
+    - type: decision | convention | constraint | integration | known-issue | lesson
+      title: Compact candidate title
+      summary: Reusable knowledge only
+      evidence: [Exact evidence handles or validation facts]
+      scope: canonical
+      confidence: 0.0-1.0
+  local_outcome: Episodic or checkout-only result, or none
+  confirmation_required: true | false
+  confirmation_prompt: Exact canonical-write confirmation question, or empty
 scope_delta:
   project:
     - Explicitly promoted durable knowledge, or none
@@ -96,7 +106,8 @@ Before code, report no more than:
 3. design target or up to three candidates;
 4. reuse decision or strongest candidates;
 5. one evidence-backed blocking question, if one truly exists;
-6. warnings, risk, and intended validation.
+6. warnings, risk, and intended validation;
+7. the compact **Memory candidates** closeout from `memory-closeout.md`.
 
 Do not paste full Jira pages, Confluence documents, Figma trees, or Atlas raw
 nodes into the response. Link or cite the exact evidence and retain only the

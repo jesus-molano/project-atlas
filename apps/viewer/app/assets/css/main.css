@@ -2515,6 +2515,57 @@ textarea::placeholder {
   line-height: 1.5;
 }
 
+.memory-closeout {
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--atlas-memory-border);
+  background: color-mix(in srgb, var(--atlas-memory) 6%, transparent);
+}
+
+.memory-closeout.confirmation {
+  border-color: var(--atlas-warning);
+}
+
+.memory-closeout > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.memory-closeout h3 {
+  margin: 4px 0 0;
+}
+
+.memory-closeout > header > span,
+.memory-candidate small {
+  color: var(--atlas-ink-faint);
+  font-size: 0.75rem;
+}
+
+.memory-candidate {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--atlas-rule-soft);
+}
+
+.memory-candidate p,
+.memory-candidate ul {
+  margin: 5px 0;
+}
+
+.memory-confirmation {
+  margin-top: 14px;
+  color: var(--atlas-warning);
+}
+
+.memory-closeout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .decision-band,
 .question-gate {
   display: grid;

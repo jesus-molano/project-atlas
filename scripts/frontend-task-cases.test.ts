@@ -38,6 +38,10 @@ describe("frontend-task capability routing fixtures", () => {
       "detected-source-confirmation",
       "low-risk-no-source-grill",
       "task-scope-promotion",
+      "memory-closeout-none",
+      "memory-closeout-canonical-confirmed",
+      "memory-closeout-local-only",
+      "memory-closeout-declined",
     ];
 
     expect([...byId.keys()]).toEqual(expect.arrayContaining(requiredCases));
@@ -147,6 +151,29 @@ describe("frontend-task capability routing fixtures", () => {
       promotion: "explicit-only",
       checkoutEvidenceScope: "checkout",
     });
+    expect(byId.get("memory-closeout-none")?.expected).toMatchObject({
+      memoryCloseout: "none",
+      confirmationRequired: false,
+      automaticWrite: false,
+    });
+    expect(
+      byId.get("memory-closeout-canonical-confirmed")?.expected,
+    ).toMatchObject({
+      memoryCloseout: "canonical-candidate",
+      confirmationMode: "one-exact-canonical-write-question",
+      automaticWrite: false,
+      afterExplicitConfirmation: "canonical-stored",
+    });
+    expect(byId.get("memory-closeout-local-only")?.expected).toMatchObject({
+      memoryCloseout: "local-only",
+      canonicalPromotionQuestion: false,
+      automaticWrite: false,
+    });
+    expect(byId.get("memory-closeout-declined")?.expected).toMatchObject({
+      memoryCloseout: "declined",
+      stored: false,
+      askAgain: false,
+    });
 
     const serialized = JSON.stringify(fixture);
     expect(serialized).not.toMatch(
@@ -155,40 +182,48 @@ describe("frontend-task capability routing fixtures", () => {
   });
 
   it("keeps the high-risk source checkpoint and continuation rules in the skill contract", async () => {
-    const [skill, precheck, continuation, brief, routing] = await Promise.all([
-      readFile(
-        new URL("../skills/frontend-task/SKILL.md", import.meta.url),
-        "utf8",
-      ),
-      readFile(
-        new URL(
-          "../skills/frontend-task/references/source-precheck.md",
-          import.meta.url,
+    const [skill, precheck, continuation, brief, routing, memoryCloseout] =
+      await Promise.all([
+        readFile(
+          new URL("../skills/frontend-task/SKILL.md", import.meta.url),
+          "utf8",
         ),
-        "utf8",
-      ),
-      readFile(
-        new URL(
-          "../skills/frontend-task/references/continuation-mode.md",
-          import.meta.url,
+        readFile(
+          new URL(
+            "../skills/frontend-task/references/source-precheck.md",
+            import.meta.url,
+          ),
+          "utf8",
         ),
-        "utf8",
-      ),
-      readFile(
-        new URL(
-          "../skills/frontend-task/references/brief-contract.md",
-          import.meta.url,
+        readFile(
+          new URL(
+            "../skills/frontend-task/references/continuation-mode.md",
+            import.meta.url,
+          ),
+          "utf8",
         ),
-        "utf8",
-      ),
-      readFile(
-        new URL(
-          "../skills/frontend-task/references/capability-routing.md",
-          import.meta.url,
+        readFile(
+          new URL(
+            "../skills/frontend-task/references/brief-contract.md",
+            import.meta.url,
+          ),
+          "utf8",
         ),
-        "utf8",
-      ),
-    ]);
+        readFile(
+          new URL(
+            "../skills/frontend-task/references/capability-routing.md",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+        readFile(
+          new URL(
+            "../skills/frontend-task/references/memory-closeout.md",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      ]);
 
     expect(skill).toMatch(/new high-risk task/i);
     expect(skill).toMatch(/before repository investigation or external retrieval/i);
@@ -209,6 +244,21 @@ describe("frontend-task capability routing fixtures", () => {
     );
     expect(routing).toMatch(
       /Figma Desktop MCP is not connected, not authorized, or does not cover the\s+operation/i,
+    );
+    expect(skill).toMatch(/Finish every completed task with the compact \*\*Memory candidates\*\*/i);
+    expect(memoryCloseout).toMatch(/`none`[\s\S]*No novel durable knowledge/i);
+    expect(memoryCloseout).toMatch(
+      /`canonical-candidate`[\s\S]*explicit canonical-write confirmation/i,
+    );
+    expect(memoryCloseout).toMatch(
+      /`local-only`[\s\S]*do not ask for canonical promotion/i,
+    );
+    expect(memoryCloseout).toMatch(/`declined`[\s\S]*do not ask again/i);
+    expect(memoryCloseout).toMatch(
+      /do not call\s+`record_outcome`, `propose_memory_update`, or `apply_memory_update`/i,
+    );
+    expect(brief).toMatch(
+      /closeout_status: none \| canonical-candidate \| canonical-stored \| local-only \| declined/i,
     );
   });
 });

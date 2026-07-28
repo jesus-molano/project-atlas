@@ -42,9 +42,13 @@ The skill performs this sequence:
    rejected alternatives recorded.
 9. **Verification.** Run repository-appropriate tests, typecheck, build,
    accessibility, and responsive checks.
-10. **Closeout.** Rescan after structural code changes, record the observed
-    outcome, and propose any durable lesson. A durable proposal is not applied
-    without confirmation.
+10. **Closeout.** Rescan after structural code changes and always report
+    `Memory candidates`: no durable candidate, a canonical candidate awaiting
+    explicit confirmation, a local-only outcome, a confirmed stored item, or a
+    declined candidate. A canonical candidate includes evidence, scope, and
+    confidence. Nothing is recorded, proposed, or applied automatically.
+    Conversation and GUI present the same `AgentCompactResult.memoryCloseout`;
+    the GUI does not derive a second result.
 
 ## Later tasks
 
