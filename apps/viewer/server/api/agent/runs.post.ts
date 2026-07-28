@@ -1,16 +1,11 @@
-import type {
-  AgentRunMode,
-  AgentSandbox,
-  AgentSourceReference,
-} from "@component-atlas/agent";
+import type { TaskSourceDecision } from "@component-atlas/core";
 import { startAgentRun } from "../../utils/agent-runs";
 import { assertAgentSession } from "../../utils/agent-session";
 
 interface StartBody {
-  mode?: AgentRunMode;
   task?: string;
-  sources?: AgentSourceReference[];
-  sandbox?: AgentSandbox;
+  objectiveConfirmed?: boolean;
+  sourceDecisions?: TaskSourceDecision[];
   budgetChars?: number;
   topK?: number;
   selectedHandles?: string[];
@@ -24,8 +19,7 @@ export default defineEventHandler(async (event) => {
   if (
     !body?.task ||
     !body.expectedFingerprint ||
-    !["prepare", "implement", "continue", "correct"].includes(body.mode ?? "") ||
-    !["read-only", "workspace-write"].includes(body.sandbox ?? "")
+    typeof body.objectiveConfirmed !== "boolean"
   ) {
     throw createError({
       statusCode: 400,
@@ -33,10 +27,9 @@ export default defineEventHandler(async (event) => {
     });
   }
   return startAgentRun({
-    mode: body.mode!,
     task: body.task,
-    sources: body.sources ?? [],
-    sandbox: body.sandbox!,
+    objectiveConfirmed: body.objectiveConfirmed,
+    sourceDecisions: body.sourceDecisions ?? [],
     budgetChars: body.budgetChars ?? 3_600,
     topK: body.topK ?? 5,
     selectedHandles: body.selectedHandles ?? [],

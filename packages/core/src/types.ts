@@ -190,7 +190,13 @@ export interface AgentRunAuditRecord {
     | "completed"
     | "failed"
     | "cancelled";
-  sourceKinds: Array<"jira" | "confluence" | "figma" | "other">;
+  sourceKinds: Array<"jira" | "confluence" | "figma" | "github" | "other">;
+  sourceDecisions?: {
+    confirmed: number;
+    omitted: number;
+    unavailable: number;
+    replaced: number;
+  };
   selectedKinds: Array<"code" | "design" | "memory">;
   sandbox: "read-only" | "workspace-write";
   budgetChars: number;
@@ -332,6 +338,29 @@ export interface ComponentDecision {
   rejectedComponentIds: string[];
   rationale: string;
   author?: string;
+  scope?: "project" | "checkout";
+  checkoutId?: string;
+  provenance?: AtlasProvenance;
+}
+
+export interface ProjectComponentCatalogEntry {
+  schemaVersion: 1;
+  projectId: string;
+  semanticKey: string;
+  framework: Framework;
+  name: string;
+  effectiveName: string;
+  relativePath: string;
+  observedAt: string;
+  sightings: Array<{
+    checkoutId: string;
+    componentId: string;
+    sourceHash: string;
+    visibility: ComponentVisibility;
+    observedAt: string;
+  }>;
+  divergent: boolean;
+  provenance: AtlasProvenance;
 }
 
 export interface ScanOptions {
@@ -344,3 +373,4 @@ export interface FrameworkAdapter {
   framework: Framework;
   scan(options: ScanOptions): Promise<ComponentNode[]>;
 }
+import type { AtlasProvenance } from "./task-intake.js";

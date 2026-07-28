@@ -70,6 +70,8 @@ export interface RecordDecisionInput {
   rejectedComponentIds?: string[];
   rationale: string;
   author?: string;
+  scope?: "checkout" | "project";
+  confirmedProjectScope?: boolean;
 }
 
 export interface MapFigmaDesignInput extends BuildFigmaDesignIndexInput {
@@ -456,7 +458,11 @@ async function migrateLegacyProject(
   }
   const legacy = new AtlasStore(identity.legacyPathId);
   try {
-    const snapshot = legacy.readProjectSnapshot(identity.legacyPathId);
+    const snapshot = legacy.readProjectSnapshot(
+      identity.legacyPathId,
+      undefined,
+      { includeAllMemory: true },
+    );
     if (
       !snapshot.graph ||
       path.resolve(snapshot.graph.project.rootPath).toLowerCase() !==
@@ -487,6 +493,9 @@ async function migrateLegacyProject(
         target.saveMemoryItem(identity.logicalId, {
           ...item,
           projectId: identity.logicalId,
+          ...(item.scope === "canonical"
+            ? {}
+            : { checkoutId: identity.checkoutId }),
         });
       }
       for (const proposal of snapshot.memoryProposals) {
@@ -677,6 +686,18 @@ export async function recordDecision(
   }
   const rootPath = path.resolve(input.rootPath);
   const graph = await loadProjectGraph(rootPath);
+  const scope = input.scope ?? "checkout";
+  if (scope === "project" && input.confirmedProjectScope !== true) {
+    throw new Error(
+      "Project-scoped component decisions require explicit confirmation.",
+    );
+  }
+  const checkoutId = graph.project.identity?.checkoutId;
+  if (scope === "checkout" && !checkoutId) {
+    throw new Error(
+      "A checkout-scoped component decision requires a resolved checkout identity.",
+    );
+  }
   const createdAt = new Date().toISOString();
   const id = createHash("sha256")
     .update(
@@ -686,6 +707,8 @@ export async function recordDecision(
         input.intent,
         input.decision,
         input.rationale,
+        scope,
+        checkoutId ?? "",
       ].join("\0"),
     )
     .digest("hex")
@@ -700,6 +723,20 @@ export async function recordDecision(
     rejectedComponentIds: input.rejectedComponentIds ?? [],
     rationale: input.rationale,
     ...(input.author ? { author: input.author } : {}),
+    scope,
+    ...(scope === "checkout" && checkoutId ? { checkoutId } : {}),
+    provenance: {
+      scope,
+      origin:
+        scope === "project" ? "user-confirmation" : "agent-observation",
+      observedAt: createdAt,
+      projectId: graph.project.id,
+      ...(checkoutId ? { checkoutId } : {}),
+      promotion:
+        scope === "project" ? "confirmed" : "requires-confirmation",
+      invalidatesOn:
+        scope === "project" ? "explicit-replacement" : "checkout-change",
+    },
   };
   const store = new AtlasStore(graph.project.id);
   try {
@@ -722,6 +759,7 @@ export async function recordDecision(
 - Intent: ${input.intent}
 - Decision: ${input.decision}
 - Recorded: ${createdAt}
+- Scope: ${scope}${checkoutId ? ` (${checkoutId})` : ""}
 - Selected: ${decision.selectedComponentIds.join(", ") || "none"}
 - Rejected: ${decision.rejectedComponentIds.join(", ") || "none"}
 

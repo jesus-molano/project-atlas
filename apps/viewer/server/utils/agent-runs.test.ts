@@ -15,6 +15,7 @@ import {
   clearAgentRuns,
   getAgentRun,
   replaceAgentAdapter,
+  resumeAgentRun,
   startAgentRun,
 } from "./agent-runs";
 import { loadProjectAtlasSnapshot } from "./project";
@@ -135,10 +136,9 @@ describe.sequential("viewer agent run ownership", () => {
     const snapshot = loadProjectAtlasSnapshot();
     const selected = snapshot.graph.components[0]!;
     const started = startAgentRun({
-      mode: "prepare",
       task: "Review a small interface change",
-      sources: [],
-      sandbox: "read-only",
+      objectiveConfirmed: false,
+      sourceDecisions: [],
       budgetChars: 2_400,
       topK: 3,
       selectedHandles: [`code:${selected.id}`],
@@ -173,10 +173,9 @@ describe.sequential("viewer agent run ownership", () => {
     restoreAdapter = replaceAgentAdapter(adapter);
     const snapshot = loadProjectAtlasSnapshot();
     const started = startAgentRun({
-      mode: "implement",
       task: "Make a bounded local change",
-      sources: [],
-      sandbox: "workspace-write",
+      objectiveConfirmed: false,
+      sourceDecisions: [],
       budgetChars: 2_400,
       topK: 3,
       selectedHandles: [],
@@ -184,10 +183,9 @@ describe.sequential("viewer agent run ownership", () => {
     });
     expect(() =>
       startAgentRun({
-        mode: "prepare",
         task: "Start another task",
-        sources: [],
-        sandbox: "read-only",
+        objectiveConfirmed: false,
+        sourceDecisions: [],
         budgetChars: 2_400,
         topK: 3,
         selectedHandles: [],
@@ -199,5 +197,61 @@ describe.sequential("viewer agent run ownership", () => {
     await expect
       .poll(() => getAgentRun(started.id).state)
       .toBe("cancelled");
+  });
+
+  it("upgrades to workspace write only by resuming a reviewed thread", async () => {
+    const adapter = new CompletingAdapter();
+    restoreAdapter = replaceAgentAdapter(adapter);
+    const snapshot = loadProjectAtlasSnapshot();
+    const started = startAgentRun({
+      task: "Fix a local button label",
+      objectiveConfirmed: false,
+      sourceDecisions: [],
+      budgetChars: 2_400,
+      topK: 3,
+      selectedHandles: [],
+      expectedFingerprint: snapshot.fingerprint,
+    });
+    await expect.poll(() => getAgentRun(started.id).state).toBe("completed");
+
+    const resumed = resumeAgentRun(started.id, {
+      answer: "Implement the reviewed brief.",
+      mode: "implement",
+      sandbox: "workspace-write",
+    });
+    expect(resumed).toMatchObject({
+      id: started.id,
+      mode: "implement",
+      sandbox: "workspace-write",
+    });
+    await expect.poll(() => getAgentRun(started.id).state).toBe("completed");
+    expect(adapter.request).toMatchObject({
+      mode: "implement",
+      sandbox: "workspace-write",
+      threadId: "thread-fixture",
+    });
+
+    const corrected = resumeAgentRun(started.id, {
+      correction: "Use the newly confirmed ticket.",
+      mode: "correct",
+      sandbox: "workspace-write",
+      sourceDecisions: [
+        {
+          id: "source-jira-fixture",
+          kind: "jira",
+          reference: "APP-42",
+          origin: "manual",
+          state: "confirmed",
+          required: false,
+        },
+      ],
+    });
+    expect(corrected.sandbox).toBe("read-only");
+    await expect.poll(() => getAgentRun(started.id).state).toBe("completed");
+    expect(adapter.request).toMatchObject({
+      mode: "correct",
+      sandbox: "read-only",
+      sources: [{ kind: "jira", value: "APP-42" }],
+    });
   });
 });

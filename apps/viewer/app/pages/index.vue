@@ -537,7 +537,11 @@ async function refreshSnapshot(): Promise<void> {
 }
 
 async function clearLocalMetrics(): Promise<void> {
-  await $fetch("/api/evaluations", { method: "DELETE" });
+  const session = await $fetch<{ token: string }>("/api/agent/session");
+  await $fetch("/api/evaluations", {
+    method: "DELETE",
+    headers: { "x-atlas-session": session.token },
+  });
   await refreshWorkspace();
 }
 
@@ -546,7 +550,12 @@ async function runLocalAction(source: "repository" | "memory"): Promise<void> {
   localActionMessage.value = "";
   localActionError.value = "";
   try {
-    await $fetch("/api/refresh", { method: "POST", body: { source } });
+    const session = await $fetch<{ token: string }>("/api/agent/session");
+    await $fetch("/api/refresh", {
+      method: "POST",
+      headers: { "x-atlas-session": session.token },
+      body: { source },
+    });
     localActionMessage.value =
       source === "repository"
         ? "Code Atlas rescanned this checkout."
@@ -903,7 +912,7 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'task'" class="section-workspace task-section">
           <header class="workspace-heading compact"><div><span class="eyebrow">Work / Task Workbench</span><h1>Prepare the next move.</h1><p>Describe the outcome first. Sources and context controls appear only when useful.</p></div><span :class="['heading-count', { warning: workspace.git.dirty }]">{{ workspace.git.dirty ? `${workspace.git.changedFiles} changed` : "Clean checkout" }}</span></header>
-          <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" />
+          <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" @update-task="taskSeed = $event" />
         </section>
 
         <section v-else-if="activeSection === 'decisions'" class="section-workspace">

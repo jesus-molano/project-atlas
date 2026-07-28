@@ -13,6 +13,7 @@ import {
   type Framework,
   type GraphEdge,
   type ProjectMetadata,
+  type ProjectComponentCatalogEntry,
   type ProjectCapabilityReport,
   type ProjectScanState,
   type TaskEvaluationRecord,
@@ -42,8 +43,20 @@ interface JsonRow {
   payload: string;
 }
 
-interface MemoryCountRow {
-  count: number;
+interface StoredMemoryRow extends JsonRow {
+  id: string;
+  origin: string;
+  source_hash: string | null;
+}
+
+function memoryStorageId(
+  item: Pick<MemoryItem, "id" | "scope" | "checkoutId">,
+): string {
+  if (item.scope === "canonical") return item.id;
+  if (!item.checkoutId) {
+    throw new Error(`Memory item ${item.id} must declare its checkout scope.`);
+  }
+  return `checkout:${item.checkoutId}:${item.id}`;
 }
 
 export interface AtlasStoredSnapshot {
@@ -163,6 +176,7 @@ export class AtlasStore {
         origin TEXT NOT NULL,
         source_path TEXT,
         source_hash TEXT,
+        checkout_id TEXT,
         payload TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS memory_items_project
@@ -203,6 +217,15 @@ export class AtlasStore {
         payload TEXT NOT NULL,
         PRIMARY KEY (project_id, checkout_id)
       );
+      CREATE TABLE IF NOT EXISTS component_catalog (
+        project_id TEXT NOT NULL,
+        semantic_key TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (project_id, semantic_key)
+      );
+      CREATE INDEX IF NOT EXISTS component_catalog_project
+        ON component_catalog(project_id, observed_at DESC);
       CREATE TABLE IF NOT EXISTS scan_states (
         project_id TEXT NOT NULL,
         checkout_id TEXT NOT NULL,
@@ -243,6 +266,16 @@ export class AtlasStore {
       );
       CREATE INDEX IF NOT EXISTS action_resolutions_scope
         ON action_resolutions(project_id, checkout_id, item_id, resolved_at DESC);
+    `);
+    const memoryColumns = this.database
+      .prepare("PRAGMA table_info(memory_items)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!memoryColumns.some((column) => column.name === "checkout_id")) {
+      this.database.exec("ALTER TABLE memory_items ADD COLUMN checkout_id TEXT;");
+    }
+    this.database.exec(`
+      CREATE INDEX IF NOT EXISTS memory_items_checkout
+        ON memory_items(project_id, checkout_id, scope);
     `);
   }
 
@@ -316,6 +349,10 @@ export class AtlasStore {
         tokenStatement.run(graph.project.id, token.name, JSON.stringify(token));
       }
       if (graph.project.identity?.checkoutId) {
+        this.claimCheckoutMemory(
+          graph.project.id,
+          graph.project.identity.checkoutId,
+        );
         this.database
           .prepare(`
             INSERT INTO checkout_graphs (
@@ -331,12 +368,106 @@ export class AtlasStore {
             graph.project.scannedAt,
             JSON.stringify(graph),
           );
+        this.refreshComponentCatalog(graph);
       }
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  private refreshComponentCatalog(graph: ComponentGraph): void {
+    const checkoutId = graph.project.identity?.checkoutId;
+    if (!checkoutId) return;
+    const rows = this.database
+      .prepare("SELECT payload FROM component_catalog WHERE project_id = ?")
+      .all(graph.project.id) as unknown as JsonRow[];
+    const entries = new Map<string, ProjectComponentCatalogEntry>(
+      rows.map((row) => {
+        const entry = JSON.parse(
+          row.payload,
+        ) as ProjectComponentCatalogEntry;
+        return [
+          entry.semanticKey,
+          {
+            ...entry,
+            sightings: entry.sightings.filter(
+              (sighting) => sighting.checkoutId !== checkoutId,
+            ),
+          },
+        ];
+      }),
+    );
+    for (const component of graph.components) {
+      const semanticKey =
+        `${component.framework}:${component.relativePath}`.toLowerCase();
+      const existing = entries.get(semanticKey);
+      const sightings = [
+        ...(existing?.sightings ?? []),
+        {
+          checkoutId,
+          componentId: component.id,
+          sourceHash: component.sourceHash,
+          visibility: component.visibility,
+          observedAt: graph.project.scannedAt,
+        },
+      ];
+      entries.set(semanticKey, {
+        schemaVersion: 1,
+        projectId: graph.project.id,
+        semanticKey,
+        framework: component.framework,
+        name: component.name,
+        effectiveName: component.effectiveName,
+        relativePath: component.relativePath,
+        observedAt: graph.project.scannedAt,
+        sightings,
+        divergent:
+          new Set(sightings.map((sighting) => sighting.sourceHash)).size > 1,
+        provenance: {
+          scope: "project",
+          origin: "repository-scan",
+          observedAt: graph.project.scannedAt,
+          projectId: graph.project.id,
+          checkoutId,
+          promotion: "derived",
+          invalidatesOn: "rescan",
+        },
+      });
+    }
+    this.database
+      .prepare("DELETE FROM component_catalog WHERE project_id = ?")
+      .run(graph.project.id);
+    const insert = this.database.prepare(`
+      INSERT INTO component_catalog (
+        project_id, semantic_key, observed_at, payload
+      ) VALUES (?, ?, ?, ?)
+    `);
+    for (const entry of entries.values()) {
+      if (entry.sightings.length === 0) continue;
+      insert.run(
+        graph.project.id,
+        entry.semanticKey,
+        entry.observedAt,
+        JSON.stringify(entry),
+      );
+    }
+  }
+
+  listComponentCatalog(
+    projectId: string,
+  ): ProjectComponentCatalogEntry[] {
+    const rows = this.database
+      .prepare(`
+        SELECT payload FROM component_catalog
+        WHERE project_id = ?
+        ORDER BY observed_at DESC, semantic_key
+      `)
+      .all(projectId) as unknown as JsonRow[];
+    return rows.map(
+      (row) => JSON.parse(row.payload) as ProjectComponentCatalogEntry,
+    );
   }
 
   loadGraph(projectId: string, checkoutId?: string): ComponentGraph | undefined {
@@ -429,24 +560,42 @@ export class AtlasStore {
       );
   }
 
-  listDecisions(projectId: string): ComponentDecision[] {
+  listDecisions(
+    projectId: string,
+    checkoutId?: string,
+  ): ComponentDecision[] {
     const rows = this.database
       .prepare(
         "SELECT payload FROM decisions WHERE project_id = ? ORDER BY created_at DESC",
       )
       .all(projectId) as unknown as JsonRow[];
-    return rows.map((row) => JSON.parse(row.payload) as ComponentDecision);
+    return rows
+      .map((row) => JSON.parse(row.payload) as ComponentDecision)
+      .filter(
+        (decision) =>
+          !decision.scope ||
+          decision.scope === "project" ||
+          (decision.scope === "checkout" &&
+            Boolean(checkoutId) &&
+            decision.checkoutId === checkoutId),
+      );
   }
 
-  readProjectSnapshot(projectId: string, checkoutId?: string): AtlasStoredSnapshot {
+  readProjectSnapshot(
+    projectId: string,
+    checkoutId?: string,
+    options: { includeAllMemory?: boolean } = {},
+  ): AtlasStoredSnapshot {
     this.database.exec("BEGIN");
     try {
       const snapshot = {
         graph: this.loadGraph(projectId, checkoutId),
         designIndexes: this.listDesignIndexes(projectId),
-        memoryItems: this.listMemoryItems(projectId),
+        memoryItems: options.includeAllMemory
+          ? this.listAllMemoryItems(projectId)
+          : this.listMemoryItems(projectId, checkoutId),
         memoryProposals: this.listMemoryProposals(projectId),
-        componentDecisions: this.listDecisions(projectId),
+        componentDecisions: this.listDecisions(projectId, checkoutId),
       };
       this.database.exec("COMMIT");
       return snapshot;
@@ -704,14 +853,19 @@ export class AtlasStore {
     this.database
       .prepare("DELETE FROM memory_fts WHERE project_id = ?")
       .run(projectId);
-    const items = this.listMemoryItems(projectId);
+    const rows = this.database
+      .prepare(
+        "SELECT id, payload FROM memory_items WHERE project_id = ? ORDER BY updated_at DESC, id",
+      )
+      .all(projectId) as unknown as Array<{ id: string; payload: string }>;
     const insert = this.database.prepare(`
       INSERT INTO memory_fts (id, project_id, title, summary, body, tags)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    for (const item of items) {
+    for (const row of rows) {
+      const item = JSON.parse(row.payload) as MemoryItem;
       insert.run(
-        item.id,
+        row.id,
         projectId,
         item.title,
         item.summary,
@@ -732,13 +886,14 @@ export class AtlasStore {
         `Memory item ${item.id} belongs to a different project scope.`,
       );
     }
+    const storageId = memoryStorageId(item);
     this.database
       .prepare(`
         INSERT INTO memory_items (
           id, project_id, namespace, type, title, summary, status, authority,
           confidence, scope, updated_at, review_after, origin, source_path,
-          source_hash, payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          source_hash, checkout_id, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           project_id = excluded.project_id,
           namespace = excluded.namespace,
@@ -754,10 +909,11 @@ export class AtlasStore {
           origin = excluded.origin,
           source_path = excluded.source_path,
           source_hash = excluded.source_hash,
+          checkout_id = excluded.checkout_id,
           payload = excluded.payload
       `)
       .run(
-        item.id,
+        storageId,
         projectId,
         item.namespace,
         item.type,
@@ -772,11 +928,12 @@ export class AtlasStore {
         origin,
         item.bodyPath ?? null,
         sourceHash ?? null,
+        item.checkoutId ?? null,
         JSON.stringify(item),
       );
     this.database
       .prepare("DELETE FROM memory_relations WHERE project_id = ? AND source_id = ?")
-      .run(projectId, item.id);
+      .run(projectId, storageId);
     const relationStatement = this.database.prepare(`
       INSERT INTO memory_relations (
         project_id, source_id, kind, target_id, payload
@@ -785,7 +942,7 @@ export class AtlasStore {
     for (const relation of item.relations) {
       relationStatement.run(
         projectId,
-        item.id,
+        storageId,
         relation.kind,
         relation.targetId,
         JSON.stringify(relation),
@@ -793,17 +950,61 @@ export class AtlasStore {
     }
   }
 
+  private claimCheckoutMemory(projectId: string, checkoutId: string): void {
+    const rows = this.database
+      .prepare(
+        `SELECT id, origin, source_hash, payload
+         FROM memory_items
+         WHERE project_id = ? AND scope != 'canonical'
+           AND (checkout_id IS NULL OR checkout_id = ?)`,
+      )
+      .all(projectId, checkoutId) as unknown as StoredMemoryRow[];
+    let changed = false;
+    for (const row of rows) {
+      const parsed = JSON.parse(row.payload) as MemoryItem;
+      const item: MemoryItem = {
+        ...parsed,
+        checkoutId: parsed.checkoutId ?? checkoutId,
+      };
+      const storageId = memoryStorageId(item);
+      if (row.id === storageId && parsed.checkoutId === item.checkoutId) continue;
+      this.database
+        .prepare(
+          "DELETE FROM memory_relations WHERE project_id = ? AND source_id = ?",
+        )
+        .run(projectId, row.id);
+      this.database
+        .prepare("DELETE FROM memory_items WHERE project_id = ? AND id = ?")
+        .run(projectId, row.id);
+      this.writeMemoryItem(
+        projectId,
+        item,
+        row.origin,
+        row.source_hash ?? undefined,
+      );
+      changed = true;
+    }
+    if (changed) this.rebuildMemoryFts(projectId);
+  }
+
   replaceMarkdownMemory(
     projectId: string,
     items: Array<{ item: MemoryItem; sourceHash: string }>,
+    checkoutId: string,
   ): void {
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const stale = this.database
         .prepare(
-          "SELECT id FROM memory_items WHERE project_id = ? AND origin = 'markdown'",
+          `SELECT id FROM memory_items
+           WHERE project_id = ? AND origin = 'markdown'
+             AND (
+               scope = 'canonical'
+               OR checkout_id = ?
+               OR (scope != 'canonical' AND checkout_id IS NULL)
+             )`,
         )
-        .all(projectId) as unknown as Array<{ id: string }>;
+        .all(projectId, checkoutId) as unknown as Array<{ id: string }>;
       for (const row of stale) {
         this.database
           .prepare(
@@ -813,9 +1014,15 @@ export class AtlasStore {
       }
       this.database
         .prepare(
-          "DELETE FROM memory_items WHERE project_id = ? AND origin = 'markdown'",
+          `DELETE FROM memory_items
+           WHERE project_id = ? AND origin = 'markdown'
+             AND (
+               scope = 'canonical'
+               OR checkout_id = ?
+               OR (scope != 'canonical' AND checkout_id IS NULL)
+             )`,
         )
-        .run(projectId);
+        .run(projectId, checkoutId);
       for (const entry of items) {
         this.writeMemoryItem(
           projectId,
@@ -848,16 +1055,33 @@ export class AtlasStore {
     }
   }
 
-  loadMemoryItem(projectId: string, id: string): MemoryItem | undefined {
+  loadMemoryItem(
+    projectId: string,
+    id: string,
+    checkoutId?: string,
+  ): MemoryItem | undefined {
+    if (checkoutId) {
+      const scopedRow = this.database
+        .prepare(
+          "SELECT payload FROM memory_items WHERE project_id = ? AND id = ?",
+        )
+        .get(
+          projectId,
+          memoryStorageId({ id, scope: "local", checkoutId }),
+        ) as JsonRow | undefined;
+      if (scopedRow) return JSON.parse(scopedRow.payload) as MemoryItem;
+    }
     const row = this.database
       .prepare(
         "SELECT payload FROM memory_items WHERE project_id = ? AND id = ?",
       )
       .get(projectId, id) as JsonRow | undefined;
-    return row ? (JSON.parse(row.payload) as MemoryItem) : undefined;
+    if (!row) return undefined;
+    const item = JSON.parse(row.payload) as MemoryItem;
+    return item.scope === "canonical" ? item : undefined;
   }
 
-  listMemoryItems(projectId: string): MemoryItem[] {
+  private listAllMemoryItems(projectId: string): MemoryItem[] {
     const rows = this.database
       .prepare(
         "SELECT payload FROM memory_items WHERE project_id = ? ORDER BY updated_at DESC, id",
@@ -866,10 +1090,19 @@ export class AtlasStore {
     return rows.map((row) => JSON.parse(row.payload) as MemoryItem);
   }
 
+  listMemoryItems(projectId: string, checkoutId?: string): MemoryItem[] {
+    return this.listAllMemoryItems(projectId).filter(
+      (item) =>
+        item.scope === "canonical" ||
+        (Boolean(checkoutId) && item.checkoutId === checkoutId),
+    );
+  }
+
   searchMemoryCandidates(
     projectId: string,
     query: string,
     limit = 100,
+    checkoutId?: string,
   ): MemoryItem[] {
     const terms = query
       .normalize("NFD")
@@ -877,7 +1110,7 @@ export class AtlasStore {
       .match(/[A-Za-z0-9]{2,}/g)
       ?.slice(0, 12);
     if (!terms || terms.length === 0) {
-      return this.listMemoryItems(projectId).slice(0, limit);
+      return this.listMemoryItems(projectId, checkoutId).slice(0, limit);
     }
     const match = terms.map((term) => `"${term.replaceAll('"', '""')}"*`).join(" OR ");
     try {
@@ -893,13 +1126,20 @@ export class AtlasStore {
           LIMIT ?
         `)
         .all(match, projectId, limit) as unknown as JsonRow[];
-      return rows.map((row) => JSON.parse(row.payload) as MemoryItem);
+      return rows
+        .map((row) => JSON.parse(row.payload) as MemoryItem)
+        .filter(
+          (item) =>
+            item.scope === "canonical" ||
+            (Boolean(checkoutId) && item.checkoutId === checkoutId),
+        )
+        .slice(0, limit);
     } catch {
-      return this.listMemoryItems(projectId).slice(0, limit);
+      return this.listMemoryItems(projectId, checkoutId).slice(0, limit);
     }
   }
 
-  memoryCounts(projectId: string): {
+  memoryCounts(projectId: string, checkoutId?: string): {
     total: number;
     active: number;
     proposed: number;
@@ -907,26 +1147,15 @@ export class AtlasStore {
     byType: Partial<Record<MemoryType, number>>;
     byStatus: Partial<Record<MemoryStatus, number>>;
   } {
-    const totalRow = this.database
-      .prepare("SELECT COUNT(*) AS count FROM memory_items WHERE project_id = ?")
-      .get(projectId) as unknown as MemoryCountRow;
-    const grouped = this.database
-      .prepare(
-        "SELECT type, status, COUNT(*) AS count FROM memory_items WHERE project_id = ? GROUP BY type, status",
-      )
-      .all(projectId) as unknown as Array<{
-        type: MemoryType;
-        status: MemoryStatus;
-        count: number;
-      }>;
+    const visible = this.listMemoryItems(projectId, checkoutId);
     const byType: Partial<Record<MemoryType, number>> = {};
     const byStatus: Partial<Record<MemoryStatus, number>> = {};
-    for (const row of grouped) {
-      byType[row.type] = (byType[row.type] ?? 0) + row.count;
-      byStatus[row.status] = (byStatus[row.status] ?? 0) + row.count;
+    for (const item of visible) {
+      byType[item.type] = (byType[item.type] ?? 0) + 1;
+      byStatus[item.status] = (byStatus[item.status] ?? 0) + 1;
     }
     return {
-      total: totalRow.count,
+      total: visible.length,
       active: byStatus.active ?? 0,
       proposed: byStatus.proposed ?? 0,
       superseded: byStatus.superseded ?? 0,

@@ -62,6 +62,7 @@ const resultSchema = {
               "figma",
               "jira",
               "confluence",
+              "github",
               "agent",
             ],
           },
@@ -206,6 +207,36 @@ function assertRequest(request: AgentRunRequest): void {
   if (request.sources.length > MAX_SOURCES) {
     throw new Error(`At most ${MAX_SOURCES} source references are allowed.`);
   }
+  if (request.sourceDecisions.some((source) => source.state === "pending")) {
+    throw new Error("Every detected source must be resolved before starting Codex.");
+  }
+  const confirmed = request.sourceDecisions.filter(
+    (source) => source.state === "confirmed",
+  );
+  if (
+    confirmed.length !== request.sources.length ||
+    confirmed.some(
+      (decision) =>
+        !request.sources.some(
+          (source) =>
+            source.kind === decision.kind &&
+            source.value === decision.reference,
+        ),
+    )
+  ) {
+    throw new Error("Agent sources do not match the confirmed task source ledger.");
+  }
+  if (
+    request.mode === "prepare" &&
+    request.sandbox !== "read-only"
+  ) {
+    throw new Error("Task preparation must run read-only.");
+  }
+  if (request.sandbox === "workspace-write" && !request.threadId) {
+    throw new Error(
+      "A write-capable turn must resume a reviewed Project Atlas thread.",
+    );
+  }
   if (request.contextMetrics.usedChars > request.contextMetrics.budgetChars) {
     throw new Error("Context metrics exceed the reviewed hard cap.");
   }
@@ -225,7 +256,17 @@ function buildPrompt(request: AgentRunRequest): string {
       ? request.sources
           .map((source) => `- ${source.kind}: ${source.value}`)
           .join("\n")
-      : "- No explicit external references. Use only relevant connected sources.";
+      : "- No external source was confirmed for this task.";
+  const sourceLedger =
+    request.sourceDecisions.length > 0
+      ? request.sourceDecisions
+          .map((source) =>
+            source.state === "confirmed"
+              ? `- ${source.kind}: confirmed`
+              : `- ${source.kind}: ${source.state}; do not access`,
+          )
+          .join("\n")
+      : "- Empty: no source connector is authorized for this task.";
   const answer = request.answer
     ? `\nMaterial answer supplied by the user:\n${request.answer}\n`
     : "";
@@ -238,6 +279,11 @@ function buildPrompt(request: AgentRunRequest): string {
     "Explicit source references:",
     sources,
     "",
+    "Task-scoped source ledger:",
+    sourceLedger,
+    "",
+    `Risk classification: ${request.risk.level} (${request.risk.reasons.join("; ")})`,
+    "",
     "Reviewed compact Project Atlas context:",
     request.compactContext || '{"status":"no-local-context"}',
     "",
@@ -245,10 +291,13 @@ function buildPrompt(request: AgentRunRequest): string {
     `- Work only in ${request.rootPath}.`,
     `- This turn is ${request.sandbox}.`,
     "- Preserve existing user changes and inspect the current diff before editing.",
-    "- Use connected Jira, Confluence, Figma, or GitHub sources only when task-relevant.",
+    "- Use a connector only for an explicitly confirmed source above. Relevance alone is not authorization.",
+    "- Do not follow, infer, or add transitive source references without a new user confirmation.",
+    "- Omitted, unavailable, replaced, and unlisted sources are optional and must not block progress.",
     "- Do not install or authorize connectors and never read or expose credentials.",
     "- Do not perform external writes, commits, pushes, ticket changes, or documentation publication.",
     "- Ask only when a material decision or contradiction remains. Include evidence and a recommendation.",
+    "- Keep task intake, exact references, hypotheses, and run state task-scoped. Propose durable project memory separately; never promote it implicitly.",
     "- Return the requested compact structured result. Do not include raw source documents, code dumps, or transient localhost asset URLs.",
   ]
     .filter(Boolean)

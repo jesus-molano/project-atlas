@@ -46,15 +46,16 @@ That is the recommended workflow. You do not need to run `scan`, `memory`,
    that are actually connected;
 2. classifies repository, Atlas, Jira/Confluence, Figma, and GitHub for this
    specific task;
-3. asks one native question only when a missing source or decision can
-   materially change the result;
+3. confirms every detected external reference before connector access and asks
+   about objective scope only when risk or ambiguity warrants it;
 4. scans the local code with Code Atlas;
 5. indexes existing allowed Project Memory when the project has any;
 6. uses Design Atlas only when Figma is relevant and a file, page, or node is
    available or confirmed;
 7. retrieves a few explainable candidates under a hard context budget;
 8. checks decisions, contradictions, fragile areas, and prior failed attempts;
-9. implements and validates the change in the product repository;
+9. prepares read-only, then implements only after a reviewed same-thread write
+   confirmation;
 10. refreshes the code graph, records the observed outcome, and only *proposes*
     durable memory when something is worth keeping.
 
@@ -64,10 +65,11 @@ or apply durable Project Memory without confirmation.
 
 ## What happens on later tasks
 
-Atlas reuses the project-scoped code graph, memory index, and sparse design
-cache. It refreshes reconstructible local data when needed and retrieves only a
-few task-relevant records. It never injects the complete repository, Figma file,
-or memory store into the conversation.
+Atlas reuses project-scoped component semantics, confirmed memory, and sparse
+design metadata. Exact code graphs and scan state remain checkout-scoped. It
+refreshes reconstructible local data when needed and retrieves only a few
+task-relevant records. It never injects the complete repository, Figma file, or
+memory store into the conversation.
 
 The default task package is hard-capped and reports its estimated size,
 truncation state, matches, and IDs that can be expanded deliberately.
@@ -126,7 +128,7 @@ block the task.
 | --- | --- |
 | Product repository | Product code; Atlas does not change it merely by being queried |
 | `<product-repo>/.component-atlas/` | Ignored local artifacts and local memory |
-| Windows LocalAppData | SQLite keyed by logical repository, with checkout-specific code snapshots and shared design/memory evidence |
+| Windows LocalAppData | SQLite keyed by logical repository, with checkout-specific code/local memory and shared confirmed design/canonical memory |
 | `<product-repo>/project-memory/` | Optional team/canonical Markdown, only when policy allows and a user approves it |
 | `~/.agents/skills/` | Global `frontend-task` and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |
@@ -173,6 +175,7 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 - [GUI](docs/gui.md)
 - [Action Center decisions and risks](docs/action-center.md)
 - [Desktop workspace contract and Agent Adapter](docs/desktop-workspace.md)
+- [Task intake and persistence scopes](docs/task-intake-and-scopes.md)
 - [Architecture](docs/architecture.md)
 - [Figma Design Index](docs/design-index.md)
 - [Project Memory and write policy](docs/project-memory.md)

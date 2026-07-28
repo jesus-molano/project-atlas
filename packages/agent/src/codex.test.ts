@@ -41,6 +41,12 @@ function request(rootPath: string): AgentRunRequest {
       truncated: false,
     },
     sources: [],
+    sourceDecisions: [],
+    risk: {
+      level: "low",
+      reasons: ["No elevated-risk signal detected"],
+      requiresObjectiveConfirmation: false,
+    },
     sandbox: "read-only",
   };
 }

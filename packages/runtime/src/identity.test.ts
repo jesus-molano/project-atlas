@@ -167,6 +167,7 @@ describe("stable project identity", () => {
         schemaVersion: 1,
         id: "decision:legacy-fixture",
         projectId: legacyId,
+        checkoutId: "legacy-path-checkout",
         namespace: "project",
         type: "decision",
         title: "Keep the stable public API",
@@ -190,10 +191,16 @@ describe("stable project identity", () => {
     expect(graph.project.id).not.toBe(legacyId);
     const migrated = new AtlasStore(graph.project.id);
     try {
-      expect(migrated.listMemoryItems(graph.project.id)).toEqual([
+      expect(
+        migrated.listMemoryItems(
+          graph.project.id,
+          graph.project.identity?.checkoutId,
+        ),
+      ).toEqual([
         expect.objectContaining({
           id: "decision:legacy-fixture",
           projectId: graph.project.id,
+          checkoutId: graph.project.identity?.checkoutId,
         }),
       ]);
     } finally {

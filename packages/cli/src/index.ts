@@ -556,6 +556,8 @@ export function createProgram(): Command {
     .option("--select <ids...>", "selected component ids")
     .option("--reject <ids...>", "rejected component ids")
     .option("--author <name>", "decision author")
+    .option("--project-scope", "promote this confirmed decision to the logical project")
+    .option("--confirm-project-scope", "confirm project-wide promotion")
     .description("Record a reuse-first implementation decision.")
     .action(
       async (
@@ -567,6 +569,8 @@ export function createProgram(): Command {
           select?: string[];
           reject?: string[];
           author?: string;
+          projectScope?: boolean;
+          confirmProjectScope?: boolean;
         },
       ) => {
         printJson(
@@ -578,6 +582,10 @@ export function createProgram(): Command {
             selectedComponentIds: options.select ?? [],
             rejectedComponentIds: options.reject ?? [],
             ...(options.author ? { author: options.author } : {}),
+            scope: options.projectScope ? "project" : "checkout",
+            ...(options.projectScope
+              ? { confirmedProjectScope: options.confirmProjectScope === true }
+              : {}),
           }),
         );
       },

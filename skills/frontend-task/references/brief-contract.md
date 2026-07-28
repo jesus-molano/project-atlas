@@ -5,6 +5,15 @@ material unknowns visible.
 
 ```yaml
 objective: One-sentence user or product outcome
+intake:
+  scope: task
+  objective_confirmed: true | false
+  readiness: ready | needs-confirmation | blocked
+  source_ledger:
+    - kind: jira | confluence | figma | github | other
+      reference: Exact task-scoped URL or ID
+      state: pending | confirmed | omitted | unavailable | replaced
+      origin: explicit | inferred | manual
 mode: new | continue | correct | finish
 delta:
   preserved:
@@ -63,6 +72,13 @@ validation:
 memory_delta:
   outcome: Observed or verified task result
   durable_proposal: Decision, convention, constraint, or none
+scope_delta:
+  project:
+    - Explicitly promoted durable knowledge, or none
+  checkout:
+    - Derived graph, local changes, and episodic validation
+  task:
+    - Intake, source ledger, brief, risk, permissions, and run state
 ```
 
 ## Compact preparation response

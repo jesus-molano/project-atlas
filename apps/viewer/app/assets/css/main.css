@@ -2247,6 +2247,53 @@ textarea::placeholder {
   margin-top: 10px;
 }
 
+.source-decision {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: 7px;
+  background: var(--atlas-raised);
+}
+
+.source-decision.pending {
+  border-color: var(--atlas-warning);
+}
+
+.source-decision.confirmed {
+  border-color: var(--atlas-success);
+}
+
+.source-decision > div:first-child span,
+.source-decision > div:first-child strong,
+.source-decision > div:first-child small {
+  display: block;
+}
+
+.source-decision > div:first-child span,
+.source-decision > div:first-child small {
+  color: var(--atlas-ink-faint);
+  font-size: 0.7rem;
+}
+
+.source-decision > div:first-child strong {
+  margin: 3px 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
 .source-chips > button {
   max-width: 100%;
   min-height: 30px;

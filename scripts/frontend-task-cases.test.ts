@@ -33,6 +33,9 @@ describe("frontend-task capability routing fixtures", () => {
       "high-risk-current-turn-confirmed",
       "continue-dirty-worktree",
       "correct-after-failed-validation",
+      "detected-source-confirmation",
+      "low-risk-no-source-grill",
+      "task-scope-promotion",
     ];
 
     expect([...byId.keys()]).toEqual(expect.arrayContaining(requiredCases));
@@ -88,6 +91,21 @@ describe("frontend-task capability routing fixtures", () => {
       mode: "correct",
       retrieve: "affected-evidence-only",
       repeatOnboarding: false,
+    });
+    expect(byId.get("detected-source-confirmation")?.expected).toMatchObject({
+      initialState: "pending",
+      connectorAccessBeforeConfirmation: false,
+      choices: ["confirm", "replace-or-add", "omit", "unavailable"],
+    });
+    expect(byId.get("low-risk-no-source-grill")?.expected).toMatchObject({
+      risk: "low",
+      questionMode: "none",
+      firstAgentTurn: "read-only",
+    });
+    expect(byId.get("task-scope-promotion")?.expected).toMatchObject({
+      exactReferencesScope: "task",
+      promotion: "explicit-only",
+      checkoutEvidenceScope: "checkout",
     });
 
     const serialized = JSON.stringify(fixture);

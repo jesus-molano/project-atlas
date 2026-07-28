@@ -17,6 +17,9 @@ worktree, or a clearly related prior outcome.
 4. Query only affected code, memory handles, design nodes, or source fragments.
    Run the incremental repository scan; do not repeat the full onboarding or
    source inventory when capability state and target are unchanged.
+   Reuse the task-scoped source ledger and confirmed references when resuming
+   the same thread. A correction that adds or replaces a reference returns only
+   that source to `pending`; it does not invalidate unchanged confirmations.
 5. Re-run a human gate only when the delta changes observable behavior, exposes
    a new contradiction, changes a shared API, or leaves a material decision
    unresolved. A previously confirmed decision remains valid when its evidence
@@ -26,6 +29,9 @@ worktree, or a clearly related prior outcome.
 7. Verify the delta plus the nearest regression surface, then record one new
    outcome linked conceptually to the continuation. Propose durable memory only
    when the corrected result establishes reusable knowledge.
+   Never reconstruct a thread from content-free project audit metadata. If the
+   task/thread state expired, start a new read-only intake and cite the prior
+   outcome only as evidence.
 
 If no reliable prior objective can be recovered, present the observed diff and
 ask one evidence-backed question about the intended outcome. Do not infer that a

@@ -24,8 +24,32 @@ export interface AgentAdapterStatus {
 }
 
 export interface AgentSourceReference {
-  kind: "jira" | "confluence" | "figma" | "other";
+  kind: AgentSourceKind;
   value: string;
+}
+
+export type AgentSourceKind =
+  | "jira"
+  | "confluence"
+  | "figma"
+  | "github"
+  | "other";
+
+export interface AgentSourceDecision {
+  id: string;
+  kind: AgentSourceKind;
+  reference: string;
+  origin: "explicit" | "inferred" | "manual";
+  state: "pending" | "confirmed" | "omitted" | "unavailable" | "replaced";
+  required: boolean;
+  replacementFor?: string;
+  decidedAt?: string;
+}
+
+export interface AgentTaskRiskAssessment {
+  level: "low" | "medium" | "high";
+  reasons: string[];
+  requiresObjectiveConfirmation: boolean;
 }
 
 export interface AgentContextMetrics {
@@ -42,6 +66,8 @@ export interface AgentRunRequest {
   compactContext: string;
   contextMetrics: AgentContextMetrics;
   sources: AgentSourceReference[];
+  sourceDecisions: AgentSourceDecision[];
+  risk: AgentTaskRiskAssessment;
   sandbox: AgentSandbox;
   threadId?: string;
   answer?: string;
@@ -53,7 +79,14 @@ export interface AgentCompactResult {
   summary: string;
   brief: string[];
   evidence: Array<{
-    source: "repository" | "atlas" | "figma" | "jira" | "confluence" | "agent";
+    source:
+      | "repository"
+      | "atlas"
+      | "figma"
+      | "jira"
+      | "confluence"
+      | "github"
+      | "agent";
     label: string;
     handle?: string;
   }>;

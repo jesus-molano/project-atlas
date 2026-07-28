@@ -370,7 +370,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     "record_component_decision",
-    "Record the required reuse/extend/compose/extract/create decision and rationale.",
+    "Record the required reuse/extend/compose/extract/create decision and rationale. Defaults to the current checkout; project promotion requires explicit confirmation.",
     {
       root_path: z.string(),
       intent: z.string(),
@@ -385,6 +385,8 @@ export function createMcpServer(): McpServer {
       rejected_component_ids: z.array(z.string()).optional(),
       rationale: z.string().min(1),
       author: z.string().optional(),
+      scope: z.enum(["checkout", "project"]).optional(),
+      confirmed_project_scope: z.boolean().optional(),
     },
     async ({
       root_path,
@@ -394,6 +396,8 @@ export function createMcpServer(): McpServer {
       rejected_component_ids,
       rationale,
       author,
+      scope,
+      confirmed_project_scope,
     }) =>
       text(
         await recordDecision({
@@ -404,6 +408,10 @@ export function createMcpServer(): McpServer {
           rejectedComponentIds: rejected_component_ids ?? [],
           rationale,
           ...(author ? { author } : {}),
+          ...(scope ? { scope } : {}),
+          ...(confirmed_project_scope
+            ? { confirmedProjectScope: true }
+            : {}),
         }),
       ),
   );

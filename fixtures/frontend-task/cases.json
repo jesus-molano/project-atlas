@@ -33,10 +33,10 @@
       "sources": ["conversation", "repository", "figma-node-url"],
       "expected": {
         "atlas": "compact-context",
-        "figma": "inspect-confirmed-node",
+        "figma": "confirm-reference-then-inspect-node",
         "readyForDevRequired": false,
-        "questionMode": "none",
-        "gate": "skip-candidate-selection"
+        "questionMode": "source-confirmation",
+        "gate": "confirm-explicit-source-before-connector"
       }
     },
     {
@@ -47,7 +47,7 @@
         "atlas": "compact-context",
         "figma": "skip",
         "readyForDevRequired": false,
-        "questionMode": "none-if-ticket-readable",
+        "questionMode": "confirm-ticket-then-none-if-readable",
         "gate": "ask-only-impact-decisions"
       }
     },
@@ -105,8 +105,8 @@
       "expected": {
         "followOnlyExplicitRelations": true,
         "atlas": "optional-use-if-valuable",
-        "questionMode": "none",
-        "gate": "continue-unless-sources-conflict"
+        "questionMode": "grouped-source-confirmation",
+        "gate": "confirm-sources-then-continue-unless-conflict"
       }
     },
     {
@@ -189,6 +189,40 @@
         "retrieve": "affected-evidence-only",
         "preserveExistingChanges": true,
         "repeatOnboarding": false
+      }
+    },
+    {
+      "id": "detected-source-confirmation",
+      "request": "Implement ACME-42 using the supplied design reference.",
+      "sources": ["conversation", "repository", "ticket-id", "design-node-url"],
+      "expected": {
+        "initialState": "pending",
+        "connectorAccessBeforeConfirmation": false,
+        "choices": ["confirm", "replace-or-add", "omit", "unavailable"],
+        "ledgerScope": "task"
+      }
+    },
+    {
+      "id": "low-risk-no-source-grill",
+      "request": "Fix the typo in the local button label.",
+      "sources": ["conversation", "repository"],
+      "expected": {
+        "risk": "low",
+        "questionMode": "none",
+        "firstAgentTurn": "read-only",
+        "writeTurn": "resume-after-review"
+      }
+    },
+    {
+      "id": "task-scope-promotion",
+      "request": "Prepare a task and retain only confirmed durable learning.",
+      "sources": ["conversation", "repository", "jira"],
+      "expected": {
+        "exactReferencesScope": "task",
+        "checkoutEvidenceScope": "checkout",
+        "durableKnowledgeScope": "logical-project",
+        "promotion": "explicit-only",
+        "invalidation": "scope-aware"
       }
     }
   ]

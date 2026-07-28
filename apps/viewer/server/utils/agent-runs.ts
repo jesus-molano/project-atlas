@@ -8,7 +8,15 @@ import {
   type AgentSandbox,
   type AgentSourceReference,
 } from "@component-atlas/agent";
-import type { AgentRunAuditRecord } from "@component-atlas/core";
+import {
+  assessTaskIntake,
+  assessTaskRisk,
+  confirmedTaskSources,
+  normalizeTaskSourceDecisions,
+  taskContextSourcePolicy,
+  type AgentRunAuditRecord,
+  type TaskSourceDecision,
+} from "@component-atlas/core";
 import { assertMemoryContentSafe } from "@component-atlas/memory";
 import { getTaskContext } from "@component-atlas/runtime";
 import { AtlasStore } from "@component-atlas/store";
@@ -17,7 +25,6 @@ import { loadProjectAtlasSnapshot, projectRootPath } from "./project";
 
 const MAX_RUNS = 20;
 const MAX_EVENTS_PER_RUN = 160;
-const MAX_SOURCE_VALUE_CHARS = 1_000;
 
 export type AgentRunState =
   | "queued"
@@ -28,17 +35,14 @@ export type AgentRunState =
   | "cancelled";
 
 export interface StartAgentRunInput {
-  mode: AgentRunMode;
   task: string;
-  sources: AgentSourceReference[];
-  sandbox: AgentSandbox;
+  objectiveConfirmed: boolean;
+  sourceDecisions: TaskSourceDecision[];
   budgetChars: number;
   topK: number;
   selectedHandles: string[];
   figmaFile?: string;
   expectedFingerprint: string;
-  threadId?: string;
-  answer?: string;
 }
 
 interface AgentRunRecord {
@@ -47,6 +51,7 @@ interface AgentRunRecord {
   mode: AgentRunMode;
   task: string;
   sources: AgentSourceReference[];
+  sourceDecisions: TaskSourceDecision[];
   sandbox: AgentSandbox;
   budgetChars: number;
   topK: number;
@@ -82,6 +87,13 @@ function publicRun(record: AgentRunRecord, after = 0) {
     sources: record.sources.map((source) => ({
       kind: source.kind,
       value: source.value,
+    })),
+    sourceDecisions: record.sourceDecisions.map((source) => ({
+      id: source.id,
+      kind: source.kind,
+      origin: source.origin,
+      state: source.state,
+      required: source.required,
     })),
     projectId: record.projectId,
     checkoutId: record.checkoutId,
@@ -126,6 +138,20 @@ function persistRunAudit(record: AgentRunRecord): void {
     mode: record.mode,
     state: record.state,
     sourceKinds: [...new Set(record.sources.map((source) => source.kind))],
+    sourceDecisions: {
+      confirmed: record.sourceDecisions.filter(
+        (source) => source.state === "confirmed",
+      ).length,
+      omitted: record.sourceDecisions.filter(
+        (source) => source.state === "omitted",
+      ).length,
+      unavailable: record.sourceDecisions.filter(
+        (source) => source.state === "unavailable",
+      ).length,
+      replaced: record.sourceDecisions.filter(
+        (source) => source.state === "replaced",
+      ).length,
+    },
     selectedKinds: [
       ...new Set(
         record.selectedHandles.map(
@@ -151,31 +177,18 @@ function persistRunAudit(record: AgentRunRecord): void {
   }
 }
 
-function validateSources(
-  sources: AgentSourceReference[],
-): AgentSourceReference[] {
-  if (sources.length > 12) {
+function validateSourceDecisions(
+  sources: TaskSourceDecision[],
+): TaskSourceDecision[] {
+  try {
+    return normalizeTaskSourceDecisions(sources);
+  } catch (error) {
     throw createError({
       statusCode: 400,
-      statusMessage: "At most 12 explicit source references are allowed.",
+      statusMessage:
+        error instanceof Error ? error.message : "The source ledger is invalid.",
     });
   }
-  return sources.map((source) => {
-    if (
-      !["jira", "confluence", "figma", "other"].includes(source.kind) ||
-      !source.value.trim() ||
-      source.value.length > MAX_SOURCE_VALUE_CHARS ||
-      /[\u0000-\u001f]/.test(source.value) ||
-      /^(?:file|javascript|data):/i.test(source.value) ||
-      /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])/i.test(source.value)
-    ) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: "A source reference is invalid or transient.",
-      });
-    }
-    return { kind: source.kind, value: source.value.trim() };
-  });
 }
 
 function validateHandles(handles: string[]): string[] {
@@ -240,6 +253,13 @@ async function execute(record: AgentRunRecord, answer?: string): Promise<void> {
       budgetChars: record.budgetChars,
       topK: record.topK,
       selectedHandles: record.selectedHandles,
+      sourcePolicy: taskContextSourcePolicy(record.sourceDecisions),
+      confirmedFigmaReferences: record.sourceDecisions
+        .filter(
+          (source) =>
+            source.kind === "figma" && source.state === "confirmed",
+        )
+        .map((source) => source.reference),
       ...(record.figmaFile ? { figmaFile: record.figmaFile } : {}),
     });
     const compactContext = JSON.stringify(context);
@@ -258,6 +278,8 @@ async function execute(record: AgentRunRecord, answer?: string): Promise<void> {
         truncated: context.metrics.truncated,
       },
       sources: record.sources,
+      sourceDecisions: record.sourceDecisions,
+      risk: assessTaskRisk(record.task),
       sandbox: record.sandbox,
       ...(record.threadId ? { threadId: record.threadId } : {}),
       ...(answer ? { answer } : {}),
@@ -315,18 +337,38 @@ export function startAgentRun(input: StartAgentRunInput) {
       statusMessage: "Task intent must contain 1-6,000 characters.",
     });
   }
-  const sources = validateSources(input.sources ?? []);
-  assertMemoryContentSafe({ task, sources, answer: input.answer });
+  const sourceDecisions = validateSourceDecisions(input.sourceDecisions ?? []);
+  const risk = assessTaskRisk(task);
+  const intake = assessTaskIntake({
+    schemaVersion: 1,
+    scope: "task",
+    objective: task,
+    objectiveConfirmed: input.objectiveConfirmed,
+    risk,
+    sources: sourceDecisions,
+  });
+  if (intake.status !== "ready") {
+    throw createError({
+      statusCode: 409,
+      statusMessage: intake.reasons.join(" "),
+    });
+  }
+  const sources = confirmedTaskSources(sourceDecisions).map((source) => ({
+    kind: source.kind,
+    value: source.reference,
+  }));
+  assertMemoryContentSafe({ task, sources });
   const checkoutId = snapshot.graph.project.identity?.checkoutId;
   assertNoActiveCheckoutRun(checkoutId);
   const now = new Date().toISOString();
   const record: AgentRunRecord = {
     id: randomUUID(),
     state: "queued",
-    mode: input.mode,
+    mode: "prepare",
     task,
     sources,
-    sandbox: input.sandbox,
+    sourceDecisions,
+    sandbox: "read-only",
     budgetChars: Math.min(12_000, Math.max(800, input.budgetChars)),
     topK: Math.min(10, Math.max(1, input.topK)),
     selectedHandles: validateHandles(input.selectedHandles ?? []),
@@ -337,7 +379,6 @@ export function startAgentRun(input: StartAgentRunInput) {
     startingFingerprint: snapshot.fingerprint,
     createdAt: now,
     updatedAt: now,
-    ...(input.threadId ? { threadId: input.threadId } : {}),
     events: [],
     nextCursor: 0,
     contextChars: 0,
@@ -347,7 +388,7 @@ export function startAgentRun(input: StartAgentRunInput) {
   };
   records.set(record.id, record);
   persistRunAudit(record);
-  void execute(record, input.answer);
+  void execute(record);
   return publicRun(record);
 }
 
@@ -384,7 +425,13 @@ export function cancelAgentRun(id: string) {
 
 export function resumeAgentRun(
   id: string,
-  input: { answer?: string; correction?: string; sandbox?: AgentSandbox },
+  input: {
+    answer?: string;
+    correction?: string;
+    sandbox?: AgentSandbox;
+    mode?: AgentRunMode;
+    sourceDecisions?: TaskSourceDecision[];
+  },
 ) {
   const record = records.get(id);
   if (!record) {
@@ -409,6 +456,7 @@ export function resumeAgentRun(
   }
   const answer = input.answer?.trim();
   const correction = input.correction?.trim();
+  let sourceLedgerChanged = false;
   if (!answer && !correction) {
     throw createError({
       statusCode: 400,
@@ -416,9 +464,45 @@ export function resumeAgentRun(
     });
   }
   assertMemoryContentSafe({ answer, correction });
-  if (correction) record.task = correction;
-  record.mode = correction ? "correct" : "continue";
+  if (input.sourceDecisions) {
+    const nextDecisions = validateSourceDecisions(input.sourceDecisions);
+    if (nextDecisions.some((source) => source.state === "pending")) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: "Resolve every newly detected source before continuing.",
+      });
+    }
+    sourceLedgerChanged =
+      JSON.stringify(nextDecisions) !== JSON.stringify(record.sourceDecisions);
+    record.sourceDecisions = nextDecisions;
+    record.sources = confirmedTaskSources(nextDecisions).map((source) => ({
+      kind: source.kind,
+      value: source.reference,
+    }));
+  }
+  if (input.mode === "implement") {
+    if (
+      !record.threadId ||
+      record.resultStatus !== "completed" ||
+      record.state !== "completed" ||
+      input.sandbox !== "workspace-write"
+    ) {
+      throw createError({
+        statusCode: 409,
+        statusMessage:
+          "Implementation must resume a completed, reviewed read-only thread.",
+      });
+    }
+  }
+  if (correction) record.task = `${record.task}\n\nCorrection: ${correction}`;
+  record.mode =
+    input.mode === "implement"
+      ? "implement"
+      : correction
+        ? "correct"
+        : "continue";
   if (input.sandbox) record.sandbox = input.sandbox;
+  if (sourceLedgerChanged) record.sandbox = "read-only";
   record.startingFingerprint = snapshot.fingerprint;
   void execute(record, answer);
   return publicRun(record);

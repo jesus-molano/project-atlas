@@ -166,6 +166,46 @@ describe.sequential("Project Atlas runtime", () => {
     expect(narrow.code.length).toBeLessThanOrEqual(1);
     expect(narrow.design.candidates.length).toBeLessThanOrEqual(1);
 
+    const designOmitted = await getTaskContext(
+      rootPath,
+      "add study filter to search on mobile",
+      {
+        figmaFile: "PersonalShop",
+        budgetChars: 2_800,
+        sourcePolicy: {
+          scope: "task",
+          confirmedKinds: [],
+          omittedKinds: ["figma"],
+          unavailableKinds: [],
+        },
+      },
+    );
+    expect(designOmitted.design).toMatchObject({
+      available: false,
+      candidates: [],
+    });
+
+    const unrelatedDesign = await getTaskContext(
+      rootPath,
+      "add study filter to search on mobile",
+      {
+        budgetChars: 2_800,
+        sourcePolicy: {
+          scope: "task",
+          confirmedKinds: ["figma"],
+          omittedKinds: [],
+          unavailableKinds: [],
+        },
+        confirmedFigmaReferences: [
+          "https://www.figma.com/design/AnotherFile/Other",
+        ],
+      },
+    );
+    expect(unrelatedDesign.design).toMatchObject({
+      available: false,
+      candidates: [],
+    });
+
     const graph = await scanProject(rootPath, { writeArtifacts: false });
     const selectedComponent = graph.components[0]!;
     const selectedDesignNodeId = context.design.candidates[0]!.id;

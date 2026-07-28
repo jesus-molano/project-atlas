@@ -5,13 +5,20 @@ import type {
   AgentRunEvent,
   AgentRunMode,
   AgentSandbox,
-  AgentSourceReference,
 } from "@component-atlas/agent";
-import type {
-  ActionResolution,
-  AgentRunAuditRecord,
-  ProjectCapabilityReport,
-  ProjectIdentityMetadata,
+import {
+  assessTaskIntake,
+  assessTaskRisk,
+  confirmedTaskSources,
+  detectTaskSources,
+  taskSourceId,
+  type TaskIntakeState,
+  type TaskSourceDecision,
+  type TaskSourceKind,
+  type ActionResolution,
+  type AgentRunAuditRecord,
+  type ProjectCapabilityReport,
+  type ProjectIdentityMetadata,
 } from "@component-atlas/core/browser";
 import type { DesignFileIndex } from "@component-atlas/design";
 import {
@@ -80,16 +87,20 @@ const props = defineProps<{
   recentActions?: ActionResolution[];
 }>();
 
+const emit = defineEmits<{
+  updateTask: [value: string];
+}>();
+
 const task = ref(props.initialTask ?? "");
-const mode = ref<AgentRunMode>("prepare");
+const objectiveConfirmed = ref(false);
 const budgetChars = ref(props.defaultBudget);
 const topK = ref(props.defaultTopK);
 const figmaFile = ref("");
 const advancedOpen = ref(false);
-const sourceKind = ref<AgentSourceReference["kind"]>("figma");
+const sourceKind = ref<TaskSourceKind>("figma");
 const sourceValue = ref("");
-const manualSources = ref<AgentSourceReference[]>([]);
-const ignoredSources = ref<Set<string>>(new Set());
+const replacementFor = ref("");
+const sourceDecisions = ref<TaskSourceDecision[]>([]);
 const context = ref<CompactContext>();
 const contextPending = ref(false);
 const contextError = ref("");
@@ -109,30 +120,39 @@ const preparedAt = ref<number>();
 const preparationMs = ref(0);
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 
-const detectedSources = computed<AgentSourceReference[]>(() => {
-  const matches =
-    task.value.match(/https?:\/\/[^\s<>"')\]]+/gi)?.slice(0, 8) ?? [];
-  return matches.map((value) => {
-    const lower = value.toLowerCase();
-    const kind: AgentSourceReference["kind"] = lower.includes("figma.com")
-      ? "figma"
-      : /confluence/.test(lower)
-          ? "confluence"
-        : /atlassian|jira/.test(lower)
-          ? "jira"
-          : "other";
-    return { kind, value };
-  });
-});
-
-const sources = computed(() => {
-  const unique = new Map<string, AgentSourceReference>();
-  for (const source of [...detectedSources.value, ...manualSources.value]) {
-    const key = `${source.kind}:${source.value}`;
-    if (!ignoredSources.value.has(key)) unique.set(key, source);
-  }
-  return [...unique.values()];
-});
+const risk = computed(() => assessTaskRisk(task.value));
+const intake = computed<TaskIntakeState>(() => ({
+  schemaVersion: 1,
+  scope: "task",
+  objective: task.value,
+  objectiveConfirmed: objectiveConfirmed.value,
+  risk: risk.value,
+  sources: sourceDecisions.value,
+}));
+const intakeAssessment = computed(() => assessTaskIntake(intake.value));
+const sources = computed(() =>
+  confirmedTaskSources(sourceDecisions.value).map((source) => ({
+    kind: source.kind,
+    value: source.reference,
+  })),
+);
+const sourceCounts = computed(() => ({
+  confirmed: sourceDecisions.value.filter((source) => source.state === "confirmed")
+    .length,
+  pending: sourceDecisions.value.filter((source) => source.state === "pending")
+    .length,
+  omitted: sourceDecisions.value.filter((source) => source.state === "omitted")
+    .length,
+  unavailable: sourceDecisions.value.filter(
+    (source) => source.state === "unavailable",
+  ).length,
+}));
+const taskSessionKey = computed(
+  () =>
+    `atlas-task:${props.identity?.logicalId ?? props.projectName}:${
+      props.identity?.checkoutId ?? props.projectRoot
+    }`,
+);
 
 const capabilitySummary = computed(() =>
   props.capabilities.observations.filter(
@@ -177,26 +197,93 @@ const progressEvents = computed(() =>
 function addSource(): void {
   const value = sourceValue.value.trim();
   if (!value) return;
-  const key = `${sourceKind.value}:${value}`;
-  const nextIgnored = new Set(ignoredSources.value);
-  nextIgnored.delete(key);
-  ignoredSources.value = nextIgnored;
-  manualSources.value.push({ kind: sourceKind.value, value });
+  const id = taskSourceId(sourceKind.value, value);
+  const source: TaskSourceDecision = {
+    id,
+    kind: sourceKind.value,
+    reference: value,
+    origin: "manual",
+    state: "confirmed",
+    required: false,
+    ...(replacementFor.value ? { replacementFor: replacementFor.value } : {}),
+    decidedAt: new Date().toISOString(),
+  };
+  if (replacementFor.value) {
+    sourceDecisions.value = sourceDecisions.value.map((item) =>
+      item.id === replacementFor.value
+        ? { ...item, state: "replaced", decidedAt: new Date().toISOString() }
+        : item,
+    );
+  }
+  sourceDecisions.value = [
+    ...sourceDecisions.value.filter((item) => item.id !== id),
+    source,
+  ];
+  replacementFor.value = "";
   sourceValue.value = "";
 }
 
-function removeSource(index: number): void {
-  const source = sources.value[index];
-  if (!source) return;
-  const key = `${source.kind}:${source.value}`;
-  ignoredSources.value = new Set([...ignoredSources.value, key]);
-  const manualIndex = manualSources.value.findIndex(
-    (item) => item.kind === source.kind && item.value === source.value,
+function decideSource(
+  id: string,
+  state: Extract<
+    TaskSourceDecision["state"],
+    "confirmed" | "omitted" | "unavailable"
+  >,
+): void {
+  sourceDecisions.value = sourceDecisions.value.map((source) =>
+    source.id === id
+      ? { ...source, state, decidedAt: new Date().toISOString() }
+      : source,
   );
-  if (manualIndex >= 0) manualSources.value.splice(manualIndex, 1);
+}
+
+function removeManualSource(id: string): void {
+  sourceDecisions.value = sourceDecisions.value.filter(
+    (source) => source.id !== id || source.origin !== "manual",
+  );
+}
+
+function beginSourceReplacement(id: string): void {
+  replacementFor.value = id;
+  advancedOpen.value = true;
+}
+
+function syncDetectedSources(): void {
+  const detected = detectTaskSources(task.value);
+  for (const handle of props.pinnedHandles ?? []) {
+    if (!handle.startsWith("design:")) continue;
+    const fileKey = handle.slice("design:".length).split("::")[0];
+    const index = props.designIndexes.find((item) => item.file.key === fileKey);
+    if (!index) continue;
+    const reference = index.file.url;
+    const id = taskSourceId("figma", reference);
+    if (!detected.some((source) => source.id === id)) {
+      detected.push({
+        id,
+        kind: "figma",
+        reference,
+        origin: "inferred",
+        state: "pending",
+        required: false,
+      });
+    }
+  }
+  const detectedIds = new Set(detected.map((source) => source.id));
+  const retained = sourceDecisions.value.filter(
+    (source) => source.origin === "manual" || detectedIds.has(source.id),
+  );
+  for (const source of detected) {
+    if (!retained.some((candidate) => candidate.id === source.id)) {
+      retained.push(source);
+    }
+  }
+  sourceDecisions.value = retained;
 }
 
 async function generateContext(): Promise<void> {
+  if (intakeAssessment.value.status !== "ready") return;
+  if (!agentToken.value) await loadAgentSurface();
+  if (!agentToken.value) return;
   preparedAt.value = Date.now();
   contextPending.value = true;
   contextError.value = "";
@@ -204,8 +291,11 @@ async function generateContext(): Promise<void> {
   try {
     context.value = await $fetch<CompactContext>("/api/task-context", {
       method: "POST",
+      headers: { "x-atlas-session": agentToken.value },
       body: {
         task: task.value,
+        objectiveConfirmed: objectiveConfirmed.value,
+        sourceDecisions: sourceDecisions.value,
         budgetChars: budgetChars.value,
         topK: topK.value,
         selectedHandles: props.pinnedHandles ?? [],
@@ -244,7 +334,14 @@ function reviewLaunch(sandbox: AgentSandbox): void {
 }
 
 async function startRun(): Promise<void> {
-  if (!context.value || !agentToken.value) return;
+  if (
+    !context.value ||
+    !agentToken.value ||
+    intakeAssessment.value.status !== "ready" ||
+    launchSandbox.value !== "read-only"
+  ) {
+    return;
+  }
   launchReviewOpen.value = false;
   runError.value = "";
   runEvents.value = [];
@@ -253,15 +350,9 @@ async function startRun(): Promise<void> {
       method: "POST",
       headers: { "x-atlas-session": agentToken.value },
       body: {
-        mode:
-          mode.value === "continue" || mode.value === "correct"
-            ? mode.value
-            : launchSandbox.value === "workspace-write"
-              ? "implement"
-              : "prepare",
         task: task.value,
-        sources: sources.value,
-        sandbox: launchSandbox.value,
+        objectiveConfirmed: objectiveConfirmed.value,
+        sourceDecisions: sourceDecisions.value,
         budgetChars: budgetChars.value,
         topK: topK.value,
         selectedHandles: props.pinnedHandles ?? [],
@@ -293,6 +384,7 @@ async function pollRun(): Promise<void> {
       recordedRuns.add(response.id);
       await $fetch("/api/evaluations", {
         method: "POST",
+        headers: { "x-atlas-session": agentToken.value },
         body: {
           task: task.value,
           necessaryQuestions: runEvents.value.filter(
@@ -301,7 +393,7 @@ async function pollRun(): Promise<void> {
           contextChars: context.value.metrics.usedChars,
           preparationMs: preparationMs.value,
           conflictCount: context.value.findings?.length ?? 0,
-          reworkRequired: mode.value === "correct",
+          reworkRequired: response.mode === "correct",
         },
       }).catch(() => undefined);
     }
@@ -309,8 +401,15 @@ async function pollRun(): Promise<void> {
       pollTimer = setTimeout(pollRun, 700);
     }
   } catch (caught) {
-    runError.value =
+    const message =
       caught instanceof Error ? caught.message : "Agent activity could not refresh.";
+    runError.value = message;
+    if (/not found|expired/i.test(message)) {
+      activeRun.value = undefined;
+      launchSandbox.value = "read-only";
+      runError.value =
+        "The previous task thread expired. The draft and source ledger were kept; start a new read-only preparation.";
+    }
   }
 }
 
@@ -330,6 +429,7 @@ async function resumeRun(): Promise<void> {
   if (!activeRun.value || (!answer.value.trim() && !correction.value.trim())) {
     return;
   }
+  if (sourceDecisions.value.some((source) => source.state === "pending")) return;
   runError.value = "";
   activeRun.value = await $fetch<RunResponse>(
     `/api/agent/runs/${activeRun.value.id}/resume`,
@@ -340,12 +440,107 @@ async function resumeRun(): Promise<void> {
         answer: answer.value || undefined,
         correction: correction.value || undefined,
         sandbox: launchSandbox.value,
+        mode: correction.value.trim() ? "correct" : "continue",
+        sourceDecisions: sourceDecisions.value,
       },
     },
   );
   answer.value = "";
   correction.value = "";
   pollTimer = setTimeout(pollRun, 100);
+}
+
+async function implementReviewedRun(): Promise<void> {
+  if (!activeRun.value || activeRun.value.state !== "completed") return;
+  launchReviewOpen.value = false;
+  launchSandbox.value = "workspace-write";
+  runError.value = "";
+  activeRun.value = await $fetch<RunResponse>(
+    `/api/agent/runs/${activeRun.value.id}/resume`,
+    {
+      method: "POST",
+      headers: { "x-atlas-session": agentToken.value },
+      body: {
+        answer:
+          "Implement the reviewed brief in this checkout. Preserve the confirmed task scope and source ledger.",
+        mode: "implement",
+        sandbox: "workspace-write",
+      },
+    },
+  );
+  pollTimer = setTimeout(pollRun, 100);
+}
+
+function confirmLaunch(): void {
+  if (launchSandbox.value === "workspace-write") {
+    void implementReviewedRun();
+  } else {
+    void startRun();
+  }
+}
+
+function newTask(): void {
+  if (pollTimer) clearTimeout(pollTimer);
+  task.value = "";
+  objectiveConfirmed.value = false;
+  sourceDecisions.value = [];
+  context.value = undefined;
+  activeRun.value = undefined;
+  runEvents.value = [];
+  runError.value = "";
+  sessionStorage.removeItem(taskSessionKey.value);
+}
+
+function persistTaskSession(): void {
+  if (!import.meta.client) return;
+  sessionStorage.setItem(
+    taskSessionKey.value,
+    JSON.stringify({
+      schemaVersion: 1,
+      scope: "task",
+      task: task.value,
+      objectiveConfirmed: objectiveConfirmed.value,
+      sourceDecisions: sourceDecisions.value,
+      context: context.value,
+      activeRun: activeRun.value,
+      runEvents: runEvents.value,
+      budgetChars: budgetChars.value,
+      topK: topK.value,
+      figmaFile: figmaFile.value,
+    }),
+  );
+}
+
+function restoreTaskSession(): void {
+  const raw = sessionStorage.getItem(taskSessionKey.value);
+  if (!raw) return;
+  try {
+    const saved = JSON.parse(raw) as {
+      schemaVersion?: number;
+      scope?: string;
+      task?: string;
+      objectiveConfirmed?: boolean;
+      sourceDecisions?: TaskSourceDecision[];
+      context?: CompactContext;
+      activeRun?: RunResponse;
+      runEvents?: Array<{ cursor: number; event: AgentRunEvent }>;
+      budgetChars?: number;
+      topK?: number;
+      figmaFile?: string;
+    };
+    if (saved.schemaVersion !== 1 || saved.scope !== "task") return;
+    if (saved.task) task.value = saved.task;
+    objectiveConfirmed.value = saved.objectiveConfirmed ?? false;
+    sourceDecisions.value = saved.sourceDecisions ?? [];
+    context.value = saved.context;
+    activeRun.value = saved.activeRun;
+    runEvents.value = saved.runEvents ?? [];
+    budgetChars.value = saved.budgetChars ?? budgetChars.value;
+    topK.value = saved.topK ?? topK.value;
+    figmaFile.value = saved.figmaFile ?? "";
+  } catch {
+    sessionStorage.removeItem(taskSessionKey.value);
+  }
 }
 
 async function copyPackage(): Promise<void> {
@@ -362,7 +557,54 @@ function eventLabel(event: AgentRunEvent): string {
   return event.type;
 }
 
-onMounted(loadAgentSurface);
+onMounted(async () => {
+  restoreTaskSession();
+  syncDetectedSources();
+  await loadAgentSurface();
+  if (activeRun.value) pollRun();
+});
+watch(task, (value, previous) => {
+  emit("updateTask", value);
+  if (value !== previous) {
+    objectiveConfirmed.value = false;
+    context.value = undefined;
+    syncDetectedSources();
+  }
+}, { flush: "sync" });
+watch(figmaFile, (fileKey) => {
+  if (!fileKey) return;
+  const index = props.designIndexes.find((item) => item.file.key === fileKey);
+  const reference = index?.file.url ?? `figma:${fileKey}`;
+  const id = taskSourceId("figma", reference);
+  if (sourceDecisions.value.some((source) => source.id === id)) return;
+  sourceDecisions.value = [
+    ...sourceDecisions.value,
+    {
+      id,
+      kind: "figma",
+      reference,
+      origin: "manual",
+      state: "confirmed",
+      required: false,
+      decidedAt: new Date().toISOString(),
+    },
+  ];
+});
+watch(
+  [
+    task,
+    objectiveConfirmed,
+    sourceDecisions,
+    context,
+    activeRun,
+    runEvents,
+    budgetChars,
+    topK,
+    figmaFile,
+  ],
+  persistTaskSession,
+  { deep: true },
+);
 watch(
   () => props.initialTask,
   (value) => {
@@ -371,24 +613,22 @@ watch(
 );
 onBeforeUnmount(() => {
   if (pollTimer) clearTimeout(pollTimer);
+  persistTaskSession();
 });
 </script>
 
 <template>
   <div class="workbench">
     <section class="workbench-composer" aria-labelledby="task-intent-heading">
-      <div class="mode-switch" aria-label="Task mode">
-        <button
-          v-for="item in [
-            { id: 'prepare', label: 'New task' },
-            { id: 'continue', label: 'Continue' },
-            { id: 'correct', label: 'Correct' },
-          ]"
-          :key="item.id"
-          :class="{ active: mode === item.id }"
-          @click="mode = item.id as AgentRunMode"
-        >
-          {{ item.label }}
+      <div class="mode-switch" aria-label="Task intake status">
+        <span :class="['capability-pill', risk.level]">
+          {{ risk.level }} risk
+        </span>
+        <span :class="['capability-pill', intakeAssessment.status]">
+          {{ intakeAssessment.status }}
+        </span>
+        <button v-if="activeRun" class="text-button" @click="newTask">
+          New task
         </button>
       </div>
 
@@ -397,9 +637,29 @@ onBeforeUnmount(() => {
         <textarea
           v-model="task"
           rows="5"
+          :disabled="Boolean(activeRun)"
           placeholder="Describe the frontend outcome. Add links only when they are useful."
         />
       </label>
+
+      <section
+        v-if="risk.requiresObjectiveConfirmation && !objectiveConfirmed"
+        class="decision-band"
+        aria-labelledby="objective-confirmation"
+      >
+        <span>Confirm scope</span>
+        <div>
+          <strong id="objective-confirmation">Is this the outcome to prepare?</strong>
+          <p>{{ risk.reasons.join(" · ") }}</p>
+          <button
+            class="secondary-button"
+            :disabled="!task.trim()"
+            @click="objectiveConfirmed = true"
+          >
+            Confirm objective
+          </button>
+        </div>
+      </section>
 
       <div v-if="props.pinnedHandles?.length" class="selection-strip">
         <span>Selected evidence</span>
@@ -410,35 +670,66 @@ onBeforeUnmount(() => {
         <div class="source-strip-heading">
           <div>
             <strong>Task sources</strong>
-            <span>Optional · detected links are never treated as write approval</span>
+            <span>Optional · detected references require an explicit choice</span>
           </div>
           <button class="text-button" @click="advancedOpen = !advancedOpen">
             {{ advancedOpen ? "Hide source controls" : "Add source" }}
           </button>
         </div>
-        <div v-if="sources.length" class="source-chips">
-          <button
-            v-for="(source, index) in sources"
-            :key="`${source.kind}:${source.value}`"
-            :title="source.value"
-            @click="removeSource(index)"
+        <div v-if="sourceDecisions.length" class="source-chips">
+          <article
+            v-for="source in sourceDecisions"
+            :key="source.id"
+            :class="['source-decision', source.state]"
           >
-            <span>{{ source.kind }}</span>
-            {{ source.value.replace(/^https?:\/\//, "").slice(0, 42) }}
-            <AtlasIcon name="x" />
-          </button>
+            <div :title="source.reference">
+              <span>{{ source.kind }} · {{ source.state }}</span>
+              <strong>{{ source.reference.replace(/^https?:\/\//, "").slice(0, 54) }}</strong>
+              <small>{{ source.origin === "manual" ? "Added by you" : "Detected in the task" }}</small>
+            </div>
+            <div v-if="source.state === 'pending'" class="source-decision-actions">
+              <button class="secondary-button" @click="decideSource(source.id, 'confirmed')">
+                Yes, use this
+              </button>
+              <button class="text-button" @click="decideSource(source.id, 'omitted')">
+                Continue without it
+              </button>
+              <button class="text-button" @click="decideSource(source.id, 'unavailable')">
+                Not available
+              </button>
+              <button class="text-button" @click="beginSourceReplacement(source.id)">
+                Replace or add
+              </button>
+            </div>
+            <button
+              v-else-if="source.origin === 'manual'"
+              class="text-button"
+              aria-label="Remove manually added source"
+              @click="removeManualSource(source.id)"
+            >
+              Remove
+            </button>
+            <button
+              v-else-if="source.state !== 'confirmed'"
+              class="text-button"
+              @click="decideSource(source.id, 'confirmed')"
+            >
+              Use instead
+            </button>
+          </article>
         </div>
         <div v-if="advancedOpen" class="source-adder">
           <select v-model="sourceKind" aria-label="Source kind">
             <option value="figma">Figma</option>
             <option value="jira">Jira</option>
             <option value="confluence">Confluence</option>
+            <option value="github">GitHub</option>
             <option value="other">Other reference</option>
           </select>
           <input
             v-model="sourceValue"
             type="text"
-            placeholder="Paste one URL or ID"
+            :placeholder="replacementFor ? 'Paste the replacement URL or ID' : 'Paste one URL or ID'"
             @keydown.enter.prevent="addSource"
           >
           <button class="secondary-button" :disabled="!sourceValue.trim()" @click="addSource">
@@ -464,7 +755,7 @@ onBeforeUnmount(() => {
       <div class="workbench-actions">
         <button
           class="primary-button"
-          :disabled="contextPending || !task.trim()"
+          :disabled="contextPending || intakeAssessment.status !== 'ready' || !agentToken"
           @click="generateContext"
         >
           {{ contextPending ? "Preparing local evidence…" : "Prepare task" }}
@@ -477,7 +768,7 @@ onBeforeUnmount(() => {
         <label>
           Design map
           <select v-model="figmaFile">
-            <option value="">Automatic / none</option>
+            <option value="">None unless confirmed</option>
             <option
               v-for="index in designIndexes"
               :key="index.file.key"
@@ -516,8 +807,8 @@ onBeforeUnmount(() => {
         </p>
         <ol>
           <li>Describe the task.</li>
-          <li>Review the compact evidence and any material question.</li>
-          <li>Prepare read-only or implement in the selected checkout.</li>
+          <li>Confirm inferred sources and material scope only when needed.</li>
+          <li>Prepare read-only, then explicitly approve editing in the same task.</li>
         </ol>
         <section v-if="recentRuns?.length || recentActions?.length" class="recent-runs">
           <header>
@@ -604,13 +895,6 @@ onBeforeUnmount(() => {
           >
             Prepare with Codex
           </button>
-          <button
-            class="primary-button"
-            :disabled="agentStatus?.state !== 'detected'"
-            @click="reviewLaunch('workspace-write')"
-          >
-            Implement with Codex
-          </button>
         </section>
 
         <section v-if="activeRun" class="run-ledger">
@@ -692,6 +976,13 @@ onBeforeUnmount(() => {
           <button class="secondary-button" :disabled="!correction.trim()" @click="resumeRun">
             Continue same Codex task
           </button>
+          <button
+            v-if="activeRun?.mode === 'prepare' && activeRun.state === 'completed' && latestResult.status === 'completed'"
+            class="primary-button"
+            @click="reviewLaunch('workspace-write')"
+          >
+            Review implementation
+          </button>
         </section>
         <p v-if="runError" class="inline-error">{{ runError }}</p>
       </template>
@@ -716,7 +1007,13 @@ onBeforeUnmount(() => {
         <div><dt>Branch</dt><dd>{{ identity?.branch ?? "detached / unknown" }}</dd></div>
         <div><dt>Checkout</dt><dd>{{ identity?.checkoutId.slice(0, 8) ?? "path scoped" }}</dd></div>
         <div><dt>Snapshot</dt><dd>{{ workspaceFingerprint.slice(0, 8) }}</dd></div>
-        <div><dt>Sources</dt><dd>{{ sources.length }} explicit/detected</dd></div>
+        <div>
+          <dt>Sources</dt>
+          <dd>
+            {{ sourceCounts.confirmed }} confirmed · {{ sourceCounts.pending }} pending ·
+            {{ sourceCounts.omitted + sourceCounts.unavailable }} omitted/unavailable
+          </dd>
+        </div>
         <div><dt>Context</dt><dd>{{ context?.metrics.usedChars ?? 0 }} / {{ budgetChars }} chars</dd></div>
         <div><dt>Truncated</dt><dd>{{ context?.metrics.truncated ? "Yes" : "No" }}</dd></div>
       </dl>
@@ -738,14 +1035,14 @@ onBeforeUnmount(() => {
           <div><dt>Branch</dt><dd>{{ identity?.branch ?? "unknown" }}</dd></div>
           <div><dt>Permission</dt><dd>{{ launchSandbox }}</dd></div>
           <div><dt>Context</dt><dd>{{ context?.metrics.estimatedTokens }} estimated tokens</dd></div>
-          <div><dt>Sources</dt><dd>{{ sources.map((source) => source.kind).join(", ") || "repository + Atlas" }}</dd></div>
+          <div><dt>Sources</dt><dd>{{ sources.map((source) => source.kind).join(", ") || "repository + confirmed Atlas memory" }}</dd></div>
           <div><dt>Possible writes</dt><dd>{{ activeAction?.possibleWrites.join(", ") || "none" }}</dd></div>
           <div><dt>External writes</dt><dd>prohibited in this run</dd></div>
         </dl>
         <div class="dialog-actions">
           <button class="secondary-button" @click="launchReviewOpen = false">Back</button>
-          <button class="primary-button" @click="startRun">
-            Start reviewed Codex task
+          <button class="primary-button" @click="confirmLaunch">
+            {{ launchSandbox === "workspace-write" ? "Implement in this task" : "Start read-only preparation" }}
           </button>
         </div>
       </section>

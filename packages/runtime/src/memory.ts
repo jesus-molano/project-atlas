@@ -16,6 +16,7 @@ import {
 import {
   decisionGate,
   designIndexSummary,
+  parseFigmaReference,
   rankDesignCandidates,
   type DesignFinding,
 } from "@component-atlas/design";
@@ -87,13 +88,25 @@ function memoryStore(graph: ComponentGraph): AtlasStore {
   return new AtlasStore(graph.project.id);
 }
 
+function graphCheckoutId(graph: ComponentGraph): string {
+  const checkoutId = graph.project.identity?.checkoutId;
+  if (!checkoutId) {
+    throw new Error("Project memory requires a resolved checkout identity.");
+  }
+  return checkoutId;
+}
+
 async function ensureMemoryIndexed(
   rootPath: string,
   graph: ComponentGraph,
 ): Promise<void> {
   const store = memoryStore(graph);
   try {
-    if (store.memoryCounts(graph.project.id).total > 0) return;
+    if (
+      store.memoryCounts(graph.project.id, graphCheckoutId(graph)).total > 0
+    ) {
+      return;
+    }
   } finally {
     store.close();
   }
@@ -119,12 +132,16 @@ export async function indexProjectMemory(rootPath: string) {
     if (!source.startsWith("---")) continue;
     const relativePath = slash(path.relative(absoluteRoot, filePath));
     const local = relativePath.startsWith(".component-atlas/");
-    const item = parseMemoryMarkdown(source, {
+    const parsed = parseMemoryMarkdown(source, {
       projectId: graph.project.id,
       projectName: graph.project.name,
       sourcePath: relativePath,
       defaultScope: local ? "local" : "canonical",
     });
+    const item: MemoryItem =
+      parsed.scope === "canonical"
+        ? parsed
+        : { ...parsed, checkoutId: graphCheckoutId(graph) };
     assertMemoryContentSafe(item);
     const duplicateSource = sourceById.get(item.id);
     if (duplicateSource) {
@@ -140,8 +157,9 @@ export async function indexProjectMemory(rootPath: string) {
   }
   const store = memoryStore(graph);
   try {
-    store.replaceMarkdownMemory(graph.project.id, entries);
-    const counts = store.memoryCounts(graph.project.id);
+    const checkoutId = graphCheckoutId(graph);
+    store.replaceMarkdownMemory(graph.project.id, entries, checkoutId);
+    const counts = store.memoryCounts(graph.project.id, checkoutId);
     return fitBudgetedResponse(
       {
         schemaVersion: MEMORY_SCHEMA_VERSION,
@@ -182,6 +200,7 @@ export async function searchProjectMemory(
       graph.project.id,
       query,
       100,
+      graphCheckoutId(graph),
     );
     return compactMemorySearch(candidates, query, options);
   } finally {
@@ -198,7 +217,11 @@ export async function getProjectMemoryItem(
   await ensureMemoryIndexed(rootPath, graph);
   const store = memoryStore(graph);
   try {
-    const item = store.loadMemoryItem(graph.project.id, id);
+    const item = store.loadMemoryItem(
+      graph.project.id,
+      id,
+      graphCheckoutId(graph),
+    );
     if (!item) {
       throw new Error(`Project memory item "${id}" was not found.`);
     }
@@ -242,7 +265,10 @@ export async function orientProject(
   else await ensureMemoryIndexed(rootPath, graph);
   const store = memoryStore(graph);
   try {
-    const items = store.listMemoryItems(graph.project.id);
+    const items = store.listMemoryItems(
+      graph.project.id,
+      graphCheckoutId(graph),
+    );
     const active = items.filter((item) => item.status === "active");
     const domains = active
       .filter((item) => item.type === "domain")
@@ -254,6 +280,7 @@ export async function orientProject(
       modules.set(owner, (modules.get(owner) ?? 0) + 1);
     }
     const indexes = store.listDesignIndexes(graph.project.id);
+    const componentCatalog = store.listComponentCatalog(graph.project.id);
     const pendingProposals = store.listMemoryProposals(
       graph.project.id,
       "pending",
@@ -270,7 +297,10 @@ export async function orientProject(
         summary: item.summary,
       }));
     const reuseDecisions = store
-      .listDecisions(graph.project.id)
+      .listDecisions(
+        graph.project.id,
+        graph.project.identity?.checkoutId,
+      )
       .slice(0, 5)
       .map((decision) => ({
         id: decision.id,
@@ -295,6 +325,17 @@ export async function orientProject(
           .sort((left, right) => right[1] - left[1])
           .slice(0, 8)
           .map(([name, components]) => ({ name, components })),
+        sharedCatalog: {
+          entries: componentCatalog.length,
+          divergent: componentCatalog.filter((entry) => entry.divergent).length,
+          examples: componentCatalog.slice(0, 5).map((entry) => ({
+            semanticKey: entry.semanticKey,
+            name: entry.effectiveName,
+            path: entry.relativePath,
+            checkouts: entry.sightings.length,
+            divergent: entry.divergent,
+          })),
+        },
       },
       designAtlas: {
         files: indexes.length,
@@ -310,7 +351,10 @@ export async function orientProject(
         }),
       },
       projectMemory: {
-        counts: store.memoryCounts(graph.project.id),
+        counts: store.memoryCounts(
+          graph.project.id,
+          graphCheckoutId(graph),
+        ),
         sources: sourceCounts(items),
         domains,
         currentDecisions: decisions,
@@ -480,7 +524,12 @@ export async function checkBeforeChange(
   const query = `${intent} ${(options.files ?? []).join(" ")}`.trim();
   const store = memoryStore(graph);
   try {
-    const candidates = store.searchMemoryCandidates(graph.project.id, query, 100);
+    const candidates = store.searchMemoryCandidates(
+      graph.project.id,
+      query,
+      100,
+      graphCheckoutId(graph),
+    );
     const ranked = rankMemoryItems(candidates, query, {
       includeInactive: true,
     });
@@ -578,6 +627,8 @@ export async function getTaskContext(
     refreshMemory?: boolean;
     topK?: number;
     selectedHandles?: string[];
+    sourcePolicy?: import("@component-atlas/core").TaskContextSourcePolicy;
+    confirmedFigmaReferences?: string[];
   } = {},
 ) {
   const graph = await loadProjectGraph(rootPath);
@@ -608,9 +659,10 @@ export async function getTaskContext(
       graph.project.id,
       task,
       100,
+      graphCheckoutId(graph),
     );
     const selectedMemory = store
-      .listMemoryItems(graph.project.id)
+      .listMemoryItems(graph.project.id, graphCheckoutId(graph))
       .filter((item) => selectedMemoryIds.includes(item.id))
       .map((item) => ({
         item,
@@ -628,17 +680,37 @@ export async function getTaskContext(
       .slice(0, topK);
     const reuse = buildReuseContext(graph, task, topK);
     const indexes = store.listDesignIndexes(graph.project.id);
-    const selectedIndex = options.figmaFile
-      ? indexes.find(
-          (index) =>
-            index.file.key === options.figmaFile ||
-            index.file.url === options.figmaFile,
-        )
-      : selectedDesign
-        ? indexes.find((index) => index.file.key === selectedDesign.fileKey)
-      : indexes.length === 1
-        ? indexes[0]
-        : undefined;
+    const designAllowed =
+      options.sourcePolicy === undefined ||
+      options.sourcePolicy.confirmedKinds.includes("figma");
+    const confirmedFigmaKeys = new Set(
+      (options.confirmedFigmaReferences ?? []).flatMap((reference) => {
+        try {
+          return [parseFigmaReference(reference).fileKey];
+        } catch {
+          return [];
+        }
+      }),
+    );
+    const eligibleIndexes =
+      options.sourcePolicy === undefined
+        ? indexes
+        : indexes.filter((index) => confirmedFigmaKeys.has(index.file.key));
+    const selectedIndex = !designAllowed
+      ? undefined
+      : options.figmaFile
+        ? eligibleIndexes.find(
+            (index) =>
+              index.file.key === options.figmaFile ||
+              index.file.url === options.figmaFile,
+          )
+        : selectedDesign
+          ? eligibleIndexes.find(
+              (index) => index.file.key === selectedDesign.fileKey,
+            )
+          : eligibleIndexes.length === 1
+            ? eligibleIndexes[0]
+            : undefined;
     const design = selectedIndex
       ? rankDesignCandidates(selectedIndex, task, {
           limit: topK,
@@ -748,6 +820,12 @@ export async function getTaskContext(
     const payload = {
       schemaVersion: 1,
       task: task.trim(),
+      sourcePolicy: options.sourcePolicy ?? {
+        scope: "task" as const,
+        confirmedKinds: selectedIndex ? (["figma"] as const) : [],
+        omittedKinds: [],
+        unavailableKinds: [],
+      },
       project: {
         name: graph.project.name,
         framework: graph.project.framework,
@@ -930,7 +1008,7 @@ export async function proposeMemoryUpdate(input: ProposeMemoryUpdateInput) {
     const createdAt = new Date().toISOString();
     const findings = proposalFindings(
       input.items,
-      store.listMemoryItems(graph.project.id),
+      store.listMemoryItems(graph.project.id, graphCheckoutId(graph)),
     );
     const proposal: MemoryProposal = {
       schemaVersion: MEMORY_SCHEMA_VERSION,
@@ -999,6 +1077,9 @@ function itemFromDraft(
     confidence: Math.max(0, Math.min(draft.confidence, 1)),
     authority: draft.authority,
     scope,
+    ...(scope === "canonical"
+      ? {}
+      : { checkoutId: graphCheckoutId(graph) }),
     createdAt,
     updatedAt: createdAt,
     ...(draft.verifiedAt ? { verifiedAt: draft.verifiedAt } : {}),
@@ -1116,7 +1197,11 @@ export async function applyMemoryUpdate(
             : "local",
       );
       for (const supersededId of item.supersedes) {
-        const previous = store.loadMemoryItem(graph.project.id, supersededId);
+        const previous = store.loadMemoryItem(
+          graph.project.id,
+          supersededId,
+          graphCheckoutId(graph),
+        );
         if (!previous) continue;
         const superseded: MemoryItem = {
           ...previous,
@@ -1269,7 +1354,7 @@ export async function reviseMemoryProposal(input: {
     }
     const findings = proposalFindings(
       input.items,
-      store.listMemoryItems(graph.project.id),
+      store.listMemoryItems(graph.project.id, graphCheckoutId(graph)),
     );
     const updated: MemoryProposal = {
       ...proposal,
@@ -1346,7 +1431,7 @@ export async function combineMemoryProposals(input: {
     const items = [...byIdentity.values()];
     const findings = proposalFindings(
       items,
-      store.listMemoryItems(graph.project.id),
+      store.listMemoryItems(graph.project.id, graphCheckoutId(graph)),
     );
     const merged: MemoryProposal = {
       ...target,
@@ -1411,12 +1496,13 @@ export async function recordProjectOutcome(input: RecordOutcomeInput) {
   const graph = await loadProjectGraph(input.rootPath);
   const createdAt = new Date().toISOString();
   const id = `outcome:${hash(
-    `${graph.project.id}\0${createdAt}\0${input.task}`,
+    `${graph.project.id}\0${graphCheckoutId(graph)}\0${createdAt}\0${input.task}`,
   ).slice(0, 20)}`;
   let item: MemoryItem = {
     schemaVersion: MEMORY_SCHEMA_VERSION,
     id,
     projectId: graph.project.id,
+    checkoutId: graphCheckoutId(graph),
     namespace: graph.project.name.toLowerCase().replace(/\s+/g, "-"),
     type: "outcome",
     title: `${input.result}: ${input.task}`.slice(0, 120),

@@ -18,13 +18,17 @@ and conversation are the baseline; every external source is optional.
 2. Run the cheap source/capability precheck in
    `references/source-precheck.md`. Detect the repository, task text, explicit
    source links/IDs, and callable capabilities before asking anything.
+   A detected or inferred external reference starts as `pending`, never as
+   permission to access a connector.
 3. Classify repository, Figma, Jira, Confluence, Atlas, and GitHub for this task
    as `required`, `recommended`, `optional`, `unavailable`, or
    `not-applicable`, with one short reason. Atlas is always optional.
-4. Show a compact detected/missing/skip summary. When a material source choice
-   remains and `request_user_input` is available, use its native selector with
-   one question by default (maximum three). Otherwise ask one brief chat
-   question. Never create a separate form or ask about every source.
+4. Show a compact task intake proportional to risk. For each detected external
+   reference ask whether it is the correct source, and allow the user to
+   confirm it, replace it, add another source, or continue without it. In the
+   Project Atlas GUI, use the source ledger already presented by the Workbench;
+   outside it, use one grouped native selector or brief chat question. Never
+   access a connector while its source is pending, omitted, or unavailable.
 5. Read repository instructions and determine the target package, framework,
    validation commands, and likely ownership boundary.
 6. Inventory only sources actually present:
@@ -35,6 +39,8 @@ and conversation are the baseline; every external source is optional.
 7. Never require a fixed Jira-to-Confluence-to-Figma chain. Do not block because
    a connector, credential, Dev Mode, Ready for dev, or global Variables access
    is absent.
+   Optional sources that the user omits or marks unavailable are resolved
+   choices, not blockers.
 8. Build the brief defined in `references/brief-contract.md`. Keep unknowns
    explicit; do not fill them with invented product behavior.
 9. Classify risk:
@@ -63,6 +69,11 @@ Before editing, apply this checkpoint policy:
   cancel/save semantics are unclear, states are missing, the target is
   uncertain, or a shared API changes.
 - Low risk may continue without a checkpoint when no material ambiguity exists.
+
+Project Atlas always separates preparation from editing: the first agent turn
+is read-only, and a write-capable turn must resume the reviewed task/thread
+after the user approves implementation. This gate applies even when the
+conversational risk checkpoint was skipped for a small task.
 
 When a checkpoint is required and `request_user_input` is callable, use its
 native selector. Otherwise ask one brief grouped question in chat and wait.
@@ -156,6 +167,12 @@ global Variables, and library data improve evidence but are optional.
    a durable convention, decision, or constraint, call
    `propose_memory_update` with evidence and confidence. Never call
    `apply_memory_update` without explicit user confirmation.
+   Task intake, exact source references, confirmations, hypotheses, permissions,
+   and run state remain task-scoped. Checkout graphs, scan state, unmerged
+   changes, and episodic validation remain checkout-scoped. Only confirmed
+   durable semantics, product/architecture decisions, design metadata, and
+   approved memory may be promoted to the logical project; preserve provenance
+   and never promote automatically.
 6. Report outcome, evidence, validation, warnings, and remaining external
    checks. Do not claim that missing corporate data was validated.
 7. Only when the user or local project policy explicitly opts in to evaluation,

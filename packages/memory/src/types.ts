@@ -71,6 +71,7 @@ export interface MemoryItem {
   schemaVersion: typeof MEMORY_SCHEMA_VERSION;
   id: string;
   projectId: string;
+  checkoutId?: string;
   namespace: string;
   type: MemoryType;
   title: string;
