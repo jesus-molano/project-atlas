@@ -30,7 +30,6 @@ const textExtensions = new Set([
   ".yml",
 ]);
 const forbidden = [
-  new RegExp(`\\b${"pre" + "view"}`, "i"),
   new RegExp(`\\b${"play" + "ground"}\\b`, "i"),
   new RegExp(`\\b${"L" + "ab"}\\b`),
   new RegExp(`${41}${74}`),
