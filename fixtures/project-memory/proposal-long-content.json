@@ -1,0 +1,89 @@
+{
+  "rationale": "Synthetic long-form proposal used to verify that Memory Inbox cards, status labels, semantic findings, and review actions remain readable without overlapping at desktop, laptop, tablet, and compact widths.",
+  "evidence": [
+    "Synthetic responsive review at 1440x900, 1280x800, 768x1024, and 390x844.",
+    "No external account, credential, customer data, or live Figma document was used.",
+    "The English evidence text intentionally remains unchanged when the Atlas interface switches to Spanish."
+  ],
+  "proposedBy": "project-atlas-ux-fixture",
+  "items": [
+    {
+      "id": "fixture-convention-long-responsive-copy",
+      "type": "convention",
+      "title": "Keep critical decision copy readable when translated labels become substantially longer",
+      "summary": "Decision controls wrap into a stable vertical rhythm, preserve their complete explanation, and never shrink checkboxes, radio buttons, priorities, or state labels into accidental vertical text.",
+      "confidence": 0.96,
+      "authority": "verified",
+      "scope": "canonical",
+      "tags": [
+        "accessibility",
+        "responsive",
+        "internationalization"
+      ],
+      "provenance": {
+        "evidence": [
+          "Synthetic cross-width visual audit"
+        ]
+      },
+      "relations": [
+        {
+          "kind": "references_code",
+          "targetId": "apps/viewer/app/assets/css/main.css"
+        }
+      ]
+    },
+    {
+      "id": "fixture-decision-one-semantic-memory-record",
+      "type": "decision",
+      "title": "Store one semantic memory proposal with localized Atlas findings",
+      "summary": "Atlas-authored findings may render by semantic key in English or Spanish, while user-authored rationale, canonical memory, file names, and indexed evidence retain their original language and provenance.",
+      "confidence": 0.94,
+      "authority": "decided",
+      "scope": "canonical",
+      "supersedes": [
+        "fixture-decision-duplicate-localized-records"
+      ],
+      "tags": [
+        "memory",
+        "i18n",
+        "provenance"
+      ],
+      "provenance": {
+        "evidence": [
+          "Synthetic bilingual rendering contract"
+        ]
+      },
+      "relations": [
+        {
+          "kind": "supersedes",
+          "targetId": "fixture-decision-duplicate-localized-records"
+        }
+      ]
+    },
+    {
+      "id": "fixture-fragile-inbox-overflow",
+      "type": "fragile-area",
+      "title": "Long proposal rationale and summary content can expose inherited grid constraints",
+      "summary": "A proposal article must own its content layout instead of inheriting a three-column catalog-row grid, because additional metadata, headings, summaries, replacement identifiers, and findings otherwise overlap.",
+      "confidence": 0.91,
+      "authority": "observed",
+      "scope": "local",
+      "tags": [
+        "memory-inbox",
+        "overflow",
+        "layout"
+      ],
+      "provenance": {
+        "evidence": [
+          "Reproduced with synthetic long content"
+        ]
+      },
+      "relations": [
+        {
+          "kind": "references_code",
+          "targetId": "apps/viewer/app/components/MemoryInboxView.vue"
+        }
+      ]
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import {
   type ActionCenterSnapshot,
   type ActionResolutionScope,
 } from "@component-atlas/core/browser";
+import { localizeActionCenterItem } from "~/i18n/generated";
 
 const emit = defineEmits<{
   prepareTask: [payload: { intent: string; handles: string[] }];
@@ -39,7 +40,13 @@ const alternativeHandle = ref("");
 const confirmed = ref(false);
 const pendingAction = ref("");
 const actionError = ref("");
-const actionNotice = ref("");
+const actionNotice = ref<{
+  key: string;
+  command?: ActionCenterCommand;
+  count?: number;
+}>();
+const actionInspector = ref<HTMLElement>();
+const { formatDate, locale, runtimeMessage, statusLabel, t } = useAtlasI18n();
 
 const filteredItems = computed(() =>
   (center.value?.items ?? []).filter((item) => {
@@ -64,6 +71,15 @@ const selected = computed(
     center.value?.items.find((item) => item.id === selectedId.value) ??
     filteredItems.value[0],
 );
+const localizedSelected = computed(() =>
+  selected.value
+    ? localizeActionCenterItem(selected.value, locale.value)
+    : undefined,
+);
+
+function displayItem(item: ActionCenterItem) {
+  return localizeActionCenterItem(item, locale.value);
+}
 
 const materialBlockers = computed(
   () =>
@@ -130,7 +146,7 @@ function actionLabel(command: ActionCenterCommand): string {
     "continue-without-evidence": "Continue without evidence",
     dismiss: "Ignore warning",
   };
-  return labels[command];
+  return t(labels[command]);
 }
 
 function commandNeedsConfirmation(command: ActionCenterCommand): boolean {
@@ -141,32 +157,32 @@ function commandDisabledReason(
   command: ActionCenterCommand,
   item = selected.value,
 ): string {
-  if (!item) return "Select an action item first.";
-  if (pendingAction.value) return "Another action is being saved.";
-  if (!reason.value.trim()) return "Add an explicit, bounded reason.";
+  if (!item) return t("Select an action item first.");
+  if (pendingAction.value) return t("Another action is being saved.");
+  if (!reason.value.trim()) return t("Add an explicit, bounded reason.");
   if (scope.value === "until-date" && !deferUntil.value) {
-    return "Choose a future date for this scope.";
+    return t("Choose a future date for this scope.");
   }
   if (scope.value === "run" && !item.runId) {
-    return "This item is not bound to an originating run.";
+    return t("This item is not bound to an originating run.");
   }
   if (commandNeedsConfirmation(command) && !confirmed.value) {
-    return "Confirm the consequence and scope first.";
+    return t("Confirm the consequence and scope first.");
   }
   if (
     command === "save-decision-and-continue" &&
     !item.runId
   ) {
-    return "No originating run is bound to this decision.";
+    return t("No originating run is bound to this decision.");
   }
   if (
     command === "resolve-contradiction" &&
     !selectedOption.value
   ) {
-    return "Choose the authoritative source.";
+    return t("Choose the authoritative source.");
   }
   if (command === "use-alternative" && !alternativeHandle.value.trim()) {
-    return "Provide a bounded Atlas evidence handle.";
+    return t("Provide a bounded Atlas evidence handle.");
   }
   return "";
 }
@@ -209,30 +225,13 @@ function mutationFor(
   };
 }
 
-function errorMessage(caught: unknown): string {
-  if (
-    typeof caught === "object" &&
-    caught &&
-    "data" in caught &&
-    typeof caught.data === "object" &&
-    caught.data &&
-    "statusMessage" in caught.data &&
-    typeof caught.data.statusMessage === "string"
-  ) {
-    return caught.data.statusMessage;
-  }
-  return caught instanceof Error
-    ? caught.message
-    : "The Action Center request could not be saved.";
-}
-
 async function runAction(command: ActionCenterCommand): Promise<void> {
   const item = selected.value;
   const disabledReason = commandDisabledReason(command, item);
   if (!item || !center.value || disabledReason) return;
   pendingAction.value = command;
   actionError.value = "";
-  actionNotice.value = "";
+  actionNotice.value = undefined;
   try {
     const token = await sessionToken();
     const result = await $fetch<{
@@ -259,15 +258,21 @@ async function runAction(command: ActionCenterCommand): Promise<void> {
       emit("openEvidence", "integration:connections");
     }
     actionNotice.value = result.duplicate
-      ? "This request was already recorded; no action was repeated."
-      : `${actionLabel(command)} recorded with evidence provenance.`;
+      ? { key: "This request was already recorded; no action was repeated." }
+      : {
+          key: "{action} recorded with evidence provenance.",
+          command,
+        };
     await refresh();
     emit("changed");
     if (guided.value) {
       selectedId.value = nextMaterialAction(center.value?.items ?? [])?.id;
     }
   } catch (caught) {
-    actionError.value = errorMessage(caught);
+    actionError.value = atlasErrorSource(
+      caught,
+      "The Action Center request could not be saved.",
+    );
   } finally {
     pendingAction.value = "";
   }
@@ -284,7 +289,7 @@ async function runBulk(command: ActionCenterCommand): Promise<void> {
   }
   pendingAction.value = `bulk:${command}`;
   actionError.value = "";
-  actionNotice.value = "";
+  actionNotice.value = undefined;
   try {
     const token = await sessionToken();
     await $fetch("/api/action-center/bulk", {
@@ -296,12 +301,18 @@ async function runBulk(command: ActionCenterCommand): Promise<void> {
         ),
       },
     });
-    actionNotice.value = `${bulkItems.value.length} safe triage actions recorded atomically.`;
+    actionNotice.value = {
+      key: "{count} safe triage actions recorded atomically.",
+      count: bulkItems.value.length,
+    };
     selectedIds.value = [];
     await refresh();
     emit("changed");
   } catch (caught) {
-    actionError.value = errorMessage(caught);
+    actionError.value = atlasErrorSource(
+      caught,
+      "The Action Center request could not be saved.",
+    );
   } finally {
     pendingAction.value = "";
   }
@@ -329,7 +340,7 @@ function resetResolutionForm(): void {
   alternativeHandle.value = "";
   confirmed.value = false;
   actionError.value = "";
-  actionNotice.value = "";
+  actionNotice.value = undefined;
 }
 </script>
 
@@ -338,102 +349,110 @@ function resetResolutionForm(): void {
     <section v-if="pending && !center" class="action-state" aria-busy="true">
       <span class="mini-loader" />
       <div>
-        <h2>Building the action queue</h2>
-        <p>Atlas is matching canonical evidence to prior resolutions.</p>
+        <h2>{{ t("Building the action queue") }}</h2>
+        <p>{{ t("Atlas is matching canonical evidence to prior resolutions.") }}</p>
       </div>
     </section>
 
     <section v-else-if="error && !center" class="action-state error" role="alert">
       <AtlasIcon name="risk" />
       <div>
-        <h2>Action Center is unavailable</h2>
-        <p>{{ error.message }}</p>
-        <button class="secondary-button" @click="refresh()">Retry</button>
+        <h2>{{ t("Action Center is unavailable") }}</h2>
+        <p>{{ runtimeMessage(error, "The Action Center request could not be saved.") }}</p>
+        <button class="secondary-button" @click="refresh()">{{ t("Retry") }}</button>
       </div>
     </section>
 
     <template v-else-if="center">
       <header class="action-toolbar">
         <div>
-          <span class="eyebrow">Action Center · schema v{{ center.schemaVersion }}</span>
+          <span class="eyebrow">{{ t("Action Center") }} · {{ t("schema v{version}", { version: center.schemaVersion }) }}</span>
           <h2>
-            {{ center.counts.materialBlockers }} material
-            blocker{{ center.counts.materialBlockers === 1 ? "" : "s" }}
+            {{ t(
+              center.counts.materialBlockers === 1
+                ? "{count} material blocker"
+                : "{count} material blockers",
+              { count: center.counts.materialBlockers },
+            ) }}
           </h2>
-          <p>Every resolution keeps evidence, consequence, scope, and audit provenance intact.</p>
+          <p>{{ t("Every resolution keeps evidence, consequence, scope, and audit provenance intact.") }}</p>
         </div>
         <button
           class="primary-button"
           :disabled="!center.counts.open"
-          :title="center.counts.open ? 'Open the highest-priority item' : 'No open actions remain'"
+          :title="center.counts.open ? t('Open the highest-priority item') : t('No open actions remain')"
           @click="resolveNext"
         >
           <AtlasIcon name="arrow-right" />
-          Resolve next
+          {{ t("Resolve next") }}
         </button>
       </header>
 
       <div v-if="guided" class="guided-banner">
         <span>
-          <strong>Guided triage</strong> · blockers and urgency determine the next item.
+          <strong>{{ t("Guided triage") }}</strong> · {{ t("Blockers and urgency determine the next item.") }}
         </span>
         <span v-if="materialBlockers.length">
-          Continue stays gated until {{ materialBlockers.length }} material
-          blocker{{ materialBlockers.length === 1 ? "" : "s" }} are resolved.
+          {{ t(
+            materialBlockers.length === 1
+              ? "Continue stays gated until {count} material blocker is resolved."
+              : "Continue stays gated until {count} material blockers are resolved.",
+            { count: materialBlockers.length },
+          ) }}
         </span>
-        <span v-else>All material blockers are resolved.</span>
-        <button class="secondary-button" @click="guided = false">Exit guide</button>
+        <span v-else>{{ t("All material blockers are resolved.") }}</span>
+        <button class="secondary-button" @click="guided = false">{{ t("Exit guide") }}</button>
       </div>
 
-      <div class="action-filters" aria-label="Action Center filters">
+      <div class="action-filters" :aria-label="t('Action Center filters')">
         <label>
-          Status
+          {{ t("Status") }}
           <select v-model="statusFilter">
-            <option value="open">Open</option>
-            <option value="closed">Closed</option>
-            <option value="stale">Evidence changed</option>
-            <option value="all">All</option>
+            <option value="open">{{ statusLabel("open") }}</option>
+            <option value="closed">{{ statusLabel("closed") }}</option>
+            <option value="stale">{{ t("Evidence changed") }}</option>
+            <option value="all">{{ t("All") }}</option>
           </select>
         </label>
         <label>
-          Type
+          {{ t("Type") }}
           <select v-model="typeFilter">
-            <option value="all">All types</option>
-            <option value="decision-required">Decision required</option>
-            <option value="contradiction">Contradiction</option>
-            <option value="risk">Risk</option>
-            <option value="warning">Warning</option>
-            <option value="missing-evidence">Missing evidence</option>
+            <option value="all">{{ t("All types") }}</option>
+            <option value="decision-required">{{ statusLabel("decision-required") }}</option>
+            <option value="contradiction">{{ statusLabel("contradiction") }}</option>
+            <option value="risk">{{ statusLabel("risk") }}</option>
+            <option value="warning">{{ statusLabel("warning") }}</option>
+            <option value="missing-evidence">{{ statusLabel("missing-evidence") }}</option>
           </select>
         </label>
         <label>
-          Severity
+          {{ t("Severity") }}
           <select v-model="severityFilter">
-            <option value="all">All severities</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-            <option value="info">Info</option>
+            <option value="all">{{ t("All severities") }}</option>
+            <option value="critical">{{ statusLabel("critical") }}</option>
+            <option value="high">{{ statusLabel("high") }}</option>
+            <option value="medium">{{ statusLabel("medium") }}</option>
+            <option value="low">{{ statusLabel("low") }}</option>
+            <option value="info">{{ statusLabel("info") }}</option>
           </select>
         </label>
         <label>
-          Source
+          {{ t("Source") }}
           <select v-model="sourceFilter">
-            <option value="all">All sources</option>
-            <option value="repository">Repository</option>
-            <option value="design">Design</option>
-            <option value="memory">Memory</option>
-            <option value="agent">Agent run</option>
-            <option value="integration">Integration</option>
+            <option value="all">{{ t("All sources") }}</option>
+            <option value="repository">{{ t("Repository") }}</option>
+            <option value="design">{{ t("Design") }}</option>
+            <option value="memory">{{ t("Memory") }}</option>
+            <option value="agent">{{ t("Agent run") }}</option>
+            <option value="integration">{{ t("Integration") }}</option>
           </select>
         </label>
       </div>
 
-      <section v-if="selectedIds.length" class="bulk-bar" aria-label="Safe bulk actions">
+      <section v-if="selectedIds.length" class="bulk-bar" :aria-label="t('Safe bulk actions')">
         <span>
-          <strong>{{ selectedIds.length }} selected</strong>
-          <small>Only reversible review, postpone, and ignore operations can be applied together.</small>
+          <strong>{{ t("{count} selected", { count: selectedIds.length }) }}</strong>
+          <small>{{ t("Only reversible review, postpone, and ignore operations can be applied together.") }}</small>
         </span>
         <button
           v-for="command in bulkCommands"
@@ -445,22 +464,29 @@ function resetResolutionForm(): void {
         >
           {{ actionLabel(command) }}
         </button>
-        <button class="secondary-button" @click="selectedIds = []">Clear</button>
+        <button class="secondary-button" @click="selectedIds = []">{{ t("Clear") }}</button>
       </section>
 
-      <p v-if="actionNotice" class="inline-success">{{ actionNotice }}</p>
-      <p v-if="actionError" class="inline-error" role="alert">{{ actionError }}</p>
+      <p v-if="actionNotice" class="inline-success">
+        {{
+          t(actionNotice.key, {
+            action: actionNotice.command ? actionLabel(actionNotice.command) : "",
+            count: actionNotice.count ?? 0,
+          })
+        }}
+      </p>
+      <p v-if="actionError" class="inline-error" role="alert">{{ runtimeMessage(actionError) }}</p>
 
       <div v-if="!filteredItems.length" class="action-state empty">
         <AtlasIcon name="check" />
         <div>
-          <h2>No actions match these filters</h2>
-          <p>Change a filter or continue if no material blockers remain.</p>
+          <h2>{{ t("No actions match these filters") }}</h2>
+          <p>{{ t("Change a filter or continue if no material blockers remain.") }}</p>
         </div>
       </div>
 
       <div v-else class="action-layout">
-        <section class="action-list" aria-label="Action queue">
+        <section class="action-list" :aria-label="t('Action queue')">
           <article
             v-for="item in filteredItems"
             :key="item.id"
@@ -475,83 +501,90 @@ function resetResolutionForm(): void {
           >
             <label
               class="action-select"
-              :title="isOpenActionState(item.state) ? 'Select for compatible safe triage' : 'Closed items cannot be triaged again'"
+              :title="isOpenActionState(item.state) ? t('Select for compatible safe triage') : t('Closed items cannot be triaged again')"
             >
               <input
                 type="checkbox"
                 :checked="selectedIds.includes(item.id)"
                 :disabled="!isOpenActionState(item.state)"
-                :aria-label="`Select ${item.title}`"
+                :aria-label="t('Select {title}', { title: displayItem(item).title })"
                 @change="toggleSelected(item.id)"
               >
             </label>
             <button class="action-row-main" @click="selectedId = item.id">
               <span class="action-row-top">
-                <span :class="['action-severity', item.severity]">{{ item.severity }}</span>
-                <span>{{ item.type }}</span>
-                <span>{{ item.state }}</span>
-                <strong v-if="item.blocking">Blocking</strong>
+                <span :class="['action-severity', item.severity]">{{ statusLabel(item.severity) }}</span>
+                <span>{{ statusLabel(item.type) }}</span>
+                <span>{{ statusLabel(item.state) }}</span>
+                <strong v-if="item.blocking">{{ t("Blocking") }}</strong>
               </span>
-              <strong>{{ item.title }}</strong>
-              <p>{{ item.detected }}</p>
-              <small>{{ item.affectedTask }}</small>
+              <strong>{{ displayItem(item).title }}</strong>
+              <p>{{ displayItem(item).detected }}</p>
+              <small>{{ displayItem(item).affectedTask }}</small>
             </button>
           </article>
         </section>
 
         <aside
           v-if="selected"
+          ref="actionInspector"
           class="action-inspector"
-          :aria-label="`Action details: ${selected.title}`"
+          tabindex="-1"
+          :aria-label="t('Action details: {title}', { title: localizedSelected?.title ?? selected.title })"
         >
           <header>
             <div>
-              <span class="eyebrow">{{ selected.source }} · {{ selected.type }}</span>
-              <h2>{{ selected.title }}</h2>
+              <span class="eyebrow">{{ statusLabel(selected.source) }} · {{ statusLabel(selected.type) }}</span>
+              <h2>{{ localizedSelected?.title }}</h2>
             </div>
             <span :class="['action-severity', selected.severity]">
-              {{ selected.severity }}
+              {{ statusLabel(selected.severity) }}
             </span>
           </header>
 
           <div v-if="selected.resolutionInvalidated" class="stale-callout" role="status">
-            <strong>Evidence changed</strong>
+            <strong>{{ t("Evidence changed") }}</strong>
             <p>
-              The prior {{ selected.resolution?.command }} resolution no longer
-              matches this evidence fingerprint. Human review is required again.
+              {{ t("The prior {command} resolution no longer matches this evidence fingerprint. Human review is required again.", {
+                command: selected.resolution?.command ? actionLabel(selected.resolution.command) : "",
+              }) }}
             </p>
           </div>
 
           <dl class="action-explanation">
             <div>
-              <dt>What Atlas detected</dt>
-              <dd>{{ selected.detected }}</dd>
+              <dt>{{ t("What Atlas detected") }}</dt>
+              <dd>{{ localizedSelected?.detected }}</dd>
             </div>
             <div>
-              <dt>Why it matters</dt>
-              <dd>{{ selected.whyItMatters }}</dd>
+              <dt>{{ t("Why it matters") }}</dt>
+              <dd>{{ localizedSelected?.whyItMatters }}</dd>
             </div>
             <div>
-              <dt>Affected task</dt>
-              <dd>{{ selected.affectedTask }}</dd>
+              <dt>{{ t("Affected task") }}</dt>
+              <dd>{{ localizedSelected?.affectedTask }}</dd>
             </div>
             <div>
-              <dt>If you do nothing</dt>
-              <dd>{{ selected.consequence }}</dd>
+              <dt>{{ t("If you do nothing") }}</dt>
+              <dd>{{ localizedSelected?.consequence }}</dd>
             </div>
             <div>
-              <dt>Recommended action</dt>
-              <dd>{{ selected.recommendation }}</dd>
+              <dt>{{ t("Recommended action") }}</dt>
+              <dd>{{ localizedSelected?.recommendation }}</dd>
             </div>
           </dl>
 
           <section class="evidence-panel">
             <header>
               <div>
-                <span class="eyebrow">Evidence</span>
+                <span class="eyebrow">{{ t("Evidence") }}</span>
                 <h3>
-                  {{ selected.evidence.length }} bounded
-                  handle{{ selected.evidence.length === 1 ? "" : "s" }}
+                  {{ t(
+                    selected.evidence.length === 1
+                      ? "{count} bounded handle"
+                      : "{count} bounded handles",
+                    { count: selected.evidence.length },
+                  ) }}
                 </h3>
               </div>
               <code>{{ selected.evidenceFingerprint.slice(0, 10) }}</code>
@@ -561,84 +594,83 @@ function resetResolutionForm(): void {
                 v-for="evidence in selected.evidence"
                 :key="evidence.handle"
               >
-                <span>{{ evidence.source }}</span>
+                <span>{{ statusLabel(evidence.source) }}</span>
                 <strong>{{ evidence.label }}</strong>
                 <p>{{ evidence.summary }}</p>
                 <button
                   class="text-button"
                   @click="emit('openEvidence', evidence.handle)"
                 >
-                  Open evidence
+                  {{ t("Open evidence") }}
                 </button>
               </article>
             </div>
           </section>
 
           <section v-if="isOpenActionState(selected.state)" class="resolution-panel">
-            <span class="eyebrow">Resolution with provenance</span>
+            <span class="eyebrow">{{ t("Resolution with provenance") }}</span>
             <label v-if="selected.options?.length">
-              Authority / option
+              {{ t("Authority / option") }}
               <select v-model="selectedOption">
-                <option value="">Choose an option</option>
+                <option value="">{{ t("Choose an option") }}</option>
                 <option
-                  v-for="option in selected.options"
+                  v-for="option in localizedSelected?.options"
                   :key="option.id"
                   :value="option.id"
+                  :title="option.detail"
                 >
                   {{ option.label }}
                 </option>
               </select>
             </label>
             <label v-if="availableCommands.includes('use-alternative')">
-              Alternative Atlas handle
+              {{ t("Alternative Atlas handle") }}
               <input
                 v-model="alternativeHandle"
                 maxlength="240"
-                placeholder="memory:item-id or design:file:node"
+                :placeholder="t('memory:item-id or design:file:node')"
               >
             </label>
             <label>
-              Reason
+              {{ t("Reason") }}
               <textarea
                 v-model="reason"
                 maxlength="500"
                 rows="3"
-                placeholder="Why is this action correct for the selected scope?"
+                :placeholder="t('Why is this action correct for the selected scope?')"
               />
             </label>
             <div class="resolution-scope">
               <label>
                 <input v-model="scope" type="radio" value="run">
-                Only the originating run
+                <span>{{ t("Only the originating run") }}</span>
               </label>
               <label>
                 <input v-model="scope" type="radio" value="evidence">
-                Until evidence, code, or design changes
+                <span>{{ t("Until evidence, code, or design changes") }}</span>
               </label>
               <label>
                 <input v-model="scope" type="radio" value="until-date">
-                Until a date
+                <span>{{ t("Until a date") }}</span>
               </label>
               <label>
                 <input v-model="scope" type="radio" value="project">
-                Stable project decision
+                <span>{{ t("Stable project decision") }}</span>
               </label>
             </div>
             <label v-if="scope === 'until-date'">
-              Review again on
+              {{ t("Review again on") }}
               <input v-model="deferUntil" type="date">
             </label>
             <p v-if="scope === 'project'" class="scope-note">
-              This audit record does not bypass the Project Memory
-              proposal-and-approval gate for canonical knowledge.
+              {{ t("This audit record does not bypass the Project Memory proposal-and-approval gate for canonical knowledge.") }}
             </p>
             <label
               v-if="availableCommands.some(commandNeedsConfirmation)"
               class="confirmation-check"
             >
               <input v-model="confirmed" type="checkbox">
-              I understand the consequence and confirm this scope. Canonical
-              evidence will not be modified.
+              <span>{{ t("I understand the consequence and confirm this scope. Canonical evidence will not be modified.") }}</span>
             </label>
 
             <div class="action-buttons">
@@ -666,34 +698,41 @@ function resetResolutionForm(): void {
                 :disabled="Boolean(pendingAction)"
                 @click="resetResolutionForm"
               >
-                Clear
+                {{ t("Clear") }}
               </button>
             </div>
           </section>
 
           <section v-else-if="selected.resolution" class="resolution-audit">
-            <span class="eyebrow">Resolution audit</span>
+            <span class="eyebrow">{{ t("Resolution audit") }}</span>
             <dl>
               <div>
-                <dt>Command</dt>
-                <dd>{{ selected.resolution.command }}</dd>
+                <dt>{{ t("Command") }}</dt>
+                <dd>{{ actionLabel(selected.resolution.command) }}</dd>
               </div>
               <div>
-                <dt>Scope</dt>
-                <dd>{{ selected.resolution.scope }}</dd>
+                <dt>{{ t("Scope") }}</dt>
+                <dd>{{ statusLabel(selected.resolution.scope) }}</dd>
               </div>
               <div>
-                <dt>Reason</dt>
+                <dt>{{ t("Reason") }}</dt>
                 <dd>{{ selected.resolution.reason }}</dd>
               </div>
               <div>
-                <dt>Recorded</dt>
-                <dd>{{ new Date(selected.resolution.resolvedAt).toLocaleString() }}</dd>
+                <dt>{{ t("Recorded") }}</dt>
+                <dd>{{ formatDate(selected.resolution.resolvedAt) }}</dd>
               </div>
             </dl>
-            <p>Fingerprint {{ selected.resolution.evidenceFingerprint }}</p>
+            <p>{{ t("Fingerprint") }} {{ selected.resolution.evidenceFingerprint }}</p>
           </section>
         </aside>
+        <ScrollToTopButton
+          :target="actionInspector"
+          :focus-target="actionInspector"
+          placement="panel"
+          :threshold="220"
+          :min-overflow="360"
+        />
       </div>
     </template>
   </div>

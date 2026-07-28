@@ -4,10 +4,14 @@ import type {
   DesignFileIndex,
   DesignIndexNode,
   DesignIndexPage,
+  DesignVariableToken,
+  DesignVariableValue,
 } from "@component-atlas/design";
+import type { ProjectCapabilityReport } from "@component-atlas/core/browser";
 
 const props = defineProps<{
   indexes: DesignFileIndex[];
+  capabilities?: ProjectCapabilityReport;
   initialNodeId?: string;
   syncState?: {
     status:
@@ -23,10 +27,13 @@ const emit = defineEmits<{
   useInTask: [handle: string, intent: string];
   prepareTask: [intent: string];
 }>();
+const { formatDate, statusLabel: uiStatusLabel, t } = useAtlasI18n();
 
 const query = ref("");
 const fileKey = ref(props.indexes[0]?.file.key ?? "");
 const selectedNodeId = ref<string>();
+const selectedVariableCollectionId = ref<string>();
+const selectedVariableId = ref<string>();
 const activeFile = computed(
   () => props.indexes.find((index) => index.file.key === fileKey.value) ?? props.indexes[0],
 );
@@ -47,6 +54,41 @@ const activeFileIsSimulated = computed(() => {
 });
 const activeSummary = computed(() =>
   activeFile.value ? designIndexSummary(activeFile.value) : undefined,
+);
+const variablesCapability = computed(() =>
+  props.capabilities?.observations.find(
+    (observation) => observation.id === "figma-variables",
+  ),
+);
+const variableAccessState = computed<
+  "global" | "selection-only" | "permission-required" | "unavailable"
+>(() => {
+  const availability = activeFile.value?.variables.availability;
+  if (availability === "global") return "global";
+  if (availability === "selection-only") return "selection-only";
+  return variablesCapability.value?.state === "permission-required"
+    ? "permission-required"
+    : "unavailable";
+});
+const variableCollections = computed(
+  () => activeFile.value?.variables.collections ?? [],
+);
+const activeVariableCollection = computed(
+  () =>
+    variableCollections.value.find(
+      (collection) => collection.id === selectedVariableCollectionId.value,
+    ) ?? variableCollections.value[0],
+);
+const collectionVariables = computed(() =>
+  (activeFile.value?.variables.variables ?? []).filter(
+    (variable) => variable.collectionId === activeVariableCollection.value?.id,
+  ),
+);
+const selectedVariable = computed<DesignVariableToken | undefined>(
+  () =>
+    collectionVariables.value.find(
+      (variable) => variable.id === selectedVariableId.value,
+    ) ?? collectionVariables.value[0],
 );
 const filteredNodes = computed(() => {
   const nodes = activeFile.value?.nodes ?? [];
@@ -87,21 +129,21 @@ const durableResources = computed(() =>
 );
 const emptyStateTitle = computed(() => {
   if (props.syncState?.status === "loading") {
-    return "Synchronizing confirmed Figma source";
+    return t("Synchronizing confirmed Figma source");
   }
   if (props.syncState?.status === "error") {
-    return "Figma source could not be synchronized";
+    return t("Figma source could not be synchronized");
   }
   if (props.syncState?.status === "confirmed-unsynced") {
-    return "Figma source confirmed, not synchronized";
+    return t("Figma source confirmed, not synchronized");
   }
-  return "No design metadata is indexed";
+  return t("No design metadata is indexed");
 });
 const emptyStateCopy = computed(() => {
   if (props.syncState && props.syncState.status !== "idle") {
-    return props.syncState.message;
+    return t(props.syncState.message);
   }
-  return "Add a Figma file or page in the Task Workbench. Atlas builds a sparse map first and uses Ready for Dev only as an optional confidence signal.";
+  return t("Add a Figma file or page in the Task Workbench. Atlas builds a sparse map first and uses Ready for Dev only as an optional confidence signal.");
 });
 
 function selectInitialNode(value: string | undefined): void {
@@ -120,24 +162,45 @@ watch(
   selectInitialNode,
   { immediate: true },
 );
+watch(
+  () => activeFile.value?.file.key,
+  () => {
+    selectedVariableCollectionId.value =
+      activeFile.value?.variables.collections[0]?.id;
+    selectedVariableId.value = activeFile.value?.variables.variables[0]?.id;
+  },
+  { immediate: true },
+);
+watch(
+  () => activeVariableCollection.value?.id,
+  () => {
+    if (
+      !collectionVariables.value.some(
+        (variable) => variable.id === selectedVariableId.value,
+      )
+    ) {
+      selectedVariableId.value = collectionVariables.value[0]?.id;
+    }
+  },
+);
 
 function statusLabel(status: string): string {
   return status === "ready-for-dev"
-    ? "Ready for dev"
+    ? t("Ready for dev")
     : status === "completed"
-      ? "Completed"
-      : "No dev status";
+      ? t("Completed")
+      : t("No dev status");
 }
 
 function nodeStatusLabel(node: DesignIndexNode): string {
   if (node.devStatusProvenance === "user-confirmed") {
-    return `${statusLabel(node.devStatus)} · user confirmed`;
+    return t("{status} · user confirmed", { status: statusLabel(node.devStatus) });
   }
   if (node.devStatusProvenance === "source-unavailable") {
-    return "Status unavailable from source";
+    return t("Status unavailable from source");
   }
-  if (node.devStatusProvenance === "absent") return "No dev status observed";
-  return `${statusLabel(node.devStatus)} · indexed metadata`;
+  if (node.devStatusProvenance === "absent") return t("No dev status observed");
+  return t("{status} · indexed metadata", { status: statusLabel(node.devStatus) });
 }
 
 function statusClass(node: DesignIndexNode): string {
@@ -148,13 +211,13 @@ function statusClass(node: DesignIndexNode): string {
 
 function pageStatusLabel(page: DesignIndexPage): string {
   if (page.devStatusProvenance === "user-confirmed") {
-    return `${statusLabel(page.devStatus)} · user confirmed`;
+    return t("{status} · user confirmed", { status: statusLabel(page.devStatus) });
   }
   if (page.devStatusProvenance === "source-unavailable") {
-    return "status unavailable";
+    return t("status unavailable");
   }
-  if (page.devStatusProvenance === "absent") return "no dev status observed";
-  return `${statusLabel(page.devStatus)} · indexed metadata`;
+  if (page.devStatusProvenance === "absent") return t("no dev status observed");
+  return t("{status} · indexed metadata", { status: statusLabel(page.devStatus) });
 }
 
 function durableFigmaUrl(value: string | undefined): string | undefined {
@@ -173,6 +236,55 @@ function durableFigmaUrl(value: string | undefined): string | undefined {
   return undefined;
 }
 
+function variableAccessLabel(): string {
+  const labels = {
+    global: "Global file variables",
+    "selection-only": "Selection-only fallback",
+    "permission-required": "Permission required",
+    unavailable: "Global variables unavailable",
+  } as const;
+  return t(labels[variableAccessState.value]);
+}
+
+function variableAccessCopy(): string {
+  const copy = {
+    global:
+      "Global collections and shared tokens are indexed independently of the selected frame. Exact values appear only when the authorized source included them.",
+    "selection-only":
+      "The source exposes variables only for a confirmed selection. This fallback is not a global file catalog and is kept separate from global variables.",
+    "permission-required":
+      "The connected Figma source requires permission before Atlas can read global variable collections. No absence is inferred.",
+    unavailable:
+      "The indexed source did not expose a global variable catalog. This does not mean the file has no variables.",
+  } as const;
+  return t(copy[variableAccessState.value]);
+}
+
+function variableValueLabel(value: DesignVariableValue): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if ("aliasTo" in value) {
+    return t("Alias to {id}", { id: value.aliasTo });
+  }
+  const channel = (component: number) =>
+    Math.round(Math.min(1, Math.max(0, component)) * 255);
+  return t("Color channels: {red}, {green}, {blue}, alpha {alpha}", {
+    red: channel(value.r),
+    green: channel(value.g),
+    blue: channel(value.b),
+    alpha: value.a ?? 1,
+  });
+}
+
+function variableModeName(modeId: string): string {
+  return (
+    activeVariableCollection.value?.modes.find((mode) => mode.id === modeId)
+      ?.name ?? modeId
+  );
+}
+
 function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
   if (!activeFile.value) return;
   const handle = selectedNode.value
@@ -180,8 +292,12 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
     : `design:${activeFile.value.file.key}`;
   const intent =
     action === "sync"
-      ? `Refresh the sparse Figma map for ${activeFile.value.file.name ?? "this design file"} and preserve provenance.`
-      : `Inspect ${selectedNode.value?.name ?? "the selected design evidence"} and relate it to code for this task.`;
+      ? t("Refresh the sparse Figma map for {name} and preserve provenance.", {
+          name: activeFile.value.file.name ?? t("this design file"),
+        })
+      : t("Inspect {name} and relate it to code for this task.", {
+          name: selectedNode.value?.name ?? t("the selected design evidence"),
+        });
   emit("useInTask", handle, intent);
 }
 </script>
@@ -195,16 +311,16 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
     <button
       class="primary-button"
       :disabled="syncState?.status === 'loading'"
-      @click="emit('prepareTask', 'Map a Figma file or page for this project.')"
+      @click="emit('prepareTask', t('Map a Figma file or page for this project.'))"
     >
-      {{ syncState?.status === "error" ? "Review Figma access" : "Map a Figma file" }}
+      {{ syncState?.status === "error" ? t("Review Figma access") : t("Map a Figma file") }}
     </button>
   </div>
 
   <div v-else class="atlas-workspace three-pane">
     <aside class="index-pane">
       <label class="field-label">
-        Design file
+        {{ t("Design file") }}
         <select v-model="fileKey">
           <option
             v-for="index in indexes"
@@ -216,19 +332,20 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
         </select>
       </label>
       <label class="filter-input">
-        <span>Filter</span>
-        <input v-model="query" type="search" placeholder="Frame, page, component…" >
+        <span>{{ t("Filter") }}</span>
+        <input v-model="query" type="search" :placeholder="t('Frame, page, component…')" >
       </label>
       <div class="index-summary">
-        <span>{{ activeFile?.stats.pages }} pages</span>
-        <span>{{ activeFile?.stats.nodes }} nodes</span>
-        <span>{{ activeFile?.stats.readyForDev }} ready claims</span>
+        <span>{{ t("{count} pages", { count: activeFile?.stats.pages ?? 0 }) }}</span>
+        <span>{{ t("{count} nodes", { count: activeFile?.stats.nodes ?? 0 }) }}</span>
+        <span>{{ t("{count} ready claims", { count: activeFile?.stats.readyForDev ?? 0 }) }}</span>
       </div>
       <div class="entity-list">
         <button
           v-for="node in filteredNodes"
           :key="node.id"
           :class="{ active: selectedNode?.id === node.id }"
+          :title="`${node.name} · ${nodeStatusLabel(node)}`"
           @click="selectedNodeId = node.id"
         >
           <span :class="['entity-mark', statusClass(node)]" />
@@ -251,7 +368,7 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
           </div>
           <div class="entity-actions">
             <button class="primary-button" @click="useSelectedInTask('inspect')">
-              Use in task
+              {{ t("Use in task") }}
             </button>
             <a
               v-if="durableFigmaUrl(selectedNode.url)"
@@ -259,7 +376,7 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
               target="_blank"
               rel="noreferrer"
             >
-              Open source ↗
+              {{ t("Open source") }} ↗
             </a>
           </div>
         </header>
@@ -267,43 +384,42 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
           <span :class="['status-chip', statusClass(selectedNode)]">
             {{ nodeStatusLabel(selectedNode) }}
           </span>
-          <span>Indexed evidence only</span>
+          <span>{{ t("Indexed evidence only") }}</span>
         </div>
         <p v-if="activeFileIsSimulated" class="evidence-note">
-          Synthetic lab evidence. Ready for Dev, Code Connect, variables, and
-          connector states below are fixture claims, not live Figma verification.
+          {{ t("Synthetic lab evidence. Ready for Dev, Code Connect, variables, and connector states below are fixture claims, not live Figma verification.") }}
         </p>
         <p v-if="selectedNode.devStatusDescription" class="evidence-note">
           {{ selectedNode.devStatusDescription }}
         </p>
 
         <section class="detail-block">
-          <header><h3>Implementation signals</h3></header>
+          <header><h3>{{ t("Implementation signals") }}</h3></header>
           <dl class="fact-grid">
             <div>
-              <dt>Components</dt>
-              <dd>{{ selectedNode.componentNames.join(", ") || "None indexed" }}</dd>
+              <dt>{{ t("Components") }}</dt>
+              <dd>{{ selectedNode.componentNames.join(", ") || t("None indexed") }}</dd>
             </div>
             <div>
-              <dt>Variants</dt>
-              <dd>{{ selectedNode.variantProperties.join(", ") || "None indexed" }}</dd>
+              <dt>{{ t("Variants") }}</dt>
+              <dd>{{ selectedNode.variantProperties.join(", ") || t("None indexed") }}</dd>
             </div>
             <div>
-              <dt>Indexed code mappings</dt>
+              <dt>{{ t("Indexed code mappings") }}</dt>
               <dd>
                 {{ selectedNode.codeConnections.length }}
-                <template v-if="activeFileIsSimulated"> · simulated</template>
+                <template v-if="activeFileIsSimulated"> · {{ t("simulated") }}</template>
               </dd>
             </div>
             <div>
-              <dt>Children</dt>
+              <dt>{{ t("Children") }}</dt>
               <dd>{{ selectedNode.childIds.length }}</dd>
             </div>
           </dl>
         </section>
 
         <section class="detail-block">
-          <header><h3>Annotations & resources</h3></header>
+          <header><h3>{{ t("Annotations & resources") }}</h3></header>
           <div v-if="selectedNode.annotations.length || durableResources.length" class="evidence-stack">
             <p v-for="(annotation, index) in selectedNode.annotations" :key="`a:${index}`">
               {{ annotation.label ? `${annotation.label}: ${annotation.text}` : annotation.text }}
@@ -318,28 +434,28 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
               {{ resource.name ?? resource.url }}
             </a>
           </div>
-          <p v-else class="muted-copy">No annotations or resources were present in the sparse metadata.</p>
+          <p v-else class="muted-copy">{{ t("No annotations or resources were present in the sparse metadata.") }}</p>
         </section>
       </template>
     </section>
 
     <aside class="inspector-pane">
       <section>
-        <span class="eyebrow">File provenance</span>
+        <span class="eyebrow">{{ t("File provenance") }}</span>
         <h3>{{ activeFile?.file.name ?? activeFile?.file.key }}</h3>
         <button class="secondary-button" @click="useSelectedInTask('sync')">
-          Prepare design refresh
+          {{ t("Prepare design refresh") }}
         </button>
         <p class="muted-copy">
-          Adds a reviewed task. It does not claim a live Figma connection.
+          {{ t("Adds a reviewed task. It does not claim a live Figma connection.") }}
         </p>
         <dl class="stacked-facts">
-          <div><dt>Indexed</dt><dd>{{ activeFile?.indexedAt }}</dd></div>
-          <div><dt>Modified</dt><dd>{{ activeFile?.file.lastModified ?? "Unknown" }}</dd></div>
-          <div><dt>Version</dt><dd>{{ activeFile?.file.version ?? "Unknown" }}</dd></div>
+          <div><dt>{{ t("Indexed") }}</dt><dd>{{ formatDate(activeFile?.indexedAt) }}</dd></div>
+          <div><dt>{{ t("Modified") }}</dt><dd>{{ activeFile?.file.lastModified ? formatDate(activeFile.file.lastModified) : t("Unknown") }}</dd></div>
+          <div><dt>{{ t("Version") }}</dt><dd>{{ activeFile?.file.version ?? t("Unknown") }}</dd></div>
           <div>
-            <dt>Indexed status availability</dt>
-            <dd>{{ activeFile?.devStatus.availability ?? "source-unavailable" }}</dd>
+            <dt>{{ t("Indexed status availability") }}</dt>
+            <dd>{{ uiStatusLabel(activeFile?.devStatus.availability ?? "source-unavailable") }}</dd>
           </div>
         </dl>
         <p v-if="activeFile?.devStatus.note" class="evidence-note">
@@ -347,58 +463,191 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
         </p>
       </section>
       <section>
-        <span class="eyebrow">Pages</span>
-        <h3>{{ activeFile?.pages.length ?? 0 }} indexed</h3>
+        <span class="eyebrow">{{ t("Pages") }}</span>
+        <h3>{{ t("{count} indexed", { count: activeFile?.pages.length ?? 0 }) }}</h3>
         <div class="token-list">
           <div v-for="page in activeFile?.pages" :key="page.id">
             <strong>{{ page.name }}</strong>
-            <span>{{ pageStatusLabel(page) }} · {{ page.readyForDev }} ready nodes</span>
+            <span>{{ pageStatusLabel(page) }} · {{ t("{count} ready nodes", { count: page.readyForDev }) }}</span>
           </div>
         </div>
       </section>
-      <section>
-        <span class="eyebrow">Global variables</span>
-        <h3>{{ activeFile?.variables.totalCollections }} collections</h3>
-        <p>{{ activeFile?.variables.note ?? "Availability follows the connected Figma permissions." }}</p>
-        <div class="token-list">
-          <div v-for="collection in activeFile?.variables.collections" :key="collection.id">
-            <strong>{{ collection.name }}</strong>
-            <span>{{ collection.modes.map((mode) => mode.name).join(" / ") }}</span>
+      <section class="design-variable-browser">
+        <header class="variable-browser-heading">
+          <div>
+            <span class="eyebrow">{{ t("Global Figma variables") }}</span>
+            <h3>
+              {{
+                t("{collections} collections · {tokens} shared tokens", {
+                  collections: variableCollections.length,
+                  tokens: activeFile?.variables.variables.length ?? 0,
+                })
+              }}
+            </h3>
           </div>
+          <span :class="['status-chip', `variable-${variableAccessState}`]">
+            {{ variableAccessLabel() }}
+          </span>
+        </header>
+        <p>{{ variableAccessCopy() }}</p>
+
+        <template v-if="variableAccessState === 'global'">
+          <div
+            class="variable-collection-tabs"
+            role="tablist"
+            :aria-label="t('Global variable collections')"
+          >
+            <button
+              v-for="collection in variableCollections"
+              :key="collection.id"
+              type="button"
+              role="tab"
+              :aria-selected="activeVariableCollection?.id === collection.id"
+              :title="collection.name"
+              @click="selectedVariableCollectionId = collection.id"
+            >
+              <strong>{{ collection.name }}</strong>
+              <span>
+                {{
+                  t("{count} tokens · {modes}", {
+                    count: collection.variableCount,
+                    modes:
+                      collection.modes.map((mode) => mode.name).join(" / ") ||
+                      t("No modes exposed"),
+                  })
+                }}
+              </span>
+            </button>
+          </div>
+
+          <div v-if="activeVariableCollection" class="variable-token-browser">
+            <div class="variable-token-list" role="listbox" :aria-label="t('Shared tokens')">
+              <button
+                v-for="variable in collectionVariables"
+                :key="variable.id"
+                type="button"
+                role="option"
+                :aria-selected="selectedVariable?.id === variable.id"
+                :title="variable.name"
+                @click="selectedVariableId = variable.id"
+              >
+                <span class="variable-type">{{ variable.resolvedType }}</span>
+                <strong>{{ variable.name }}</strong>
+                <small>
+                  {{
+                    variable.scopes.length
+                      ? t("Used for {scopes}", {
+                          scopes: variable.scopes.join(", "),
+                        })
+                      : t("Usage scope not exposed")
+                  }}
+                </small>
+              </button>
+              <p v-if="!collectionVariables.length" class="muted-copy">
+                {{
+                  t(
+                    "The collection summary is available, but token names were not included in the bounded response.",
+                  )
+                }}
+              </p>
+            </div>
+
+            <article v-if="selectedVariable" class="variable-token-detail">
+              <span class="eyebrow">{{ t("Selected shared token") }}</span>
+              <h4 :title="selectedVariable.name">{{ selectedVariable.name }}</h4>
+              <dl class="stacked-facts">
+                <div>
+                  <dt>{{ t("Collection") }}</dt>
+                  <dd>{{ activeVariableCollection.name }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t("Type") }}</dt>
+                  <dd>{{ selectedVariable.resolvedType }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t("Origin") }}</dt>
+                  <dd>{{ uiStatusLabel(selectedVariable.origin) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t("Usage scopes") }}</dt>
+                  <dd>
+                    {{
+                      selectedVariable.scopes.length
+                        ? selectedVariable.scopes.join(", ")
+                        : t("Not exposed")
+                    }}
+                  </dd>
+                </div>
+              </dl>
+              <template
+                v-if="
+                  activeFile?.variables.valuesIncluded &&
+                  selectedVariable.valuesByMode
+                "
+              >
+                <span class="field-label">{{ t("Authorized mode values") }}</span>
+                <div class="variable-mode-values">
+                  <div
+                    v-for="(value, modeId) in selectedVariable.valuesByMode"
+                    :key="modeId"
+                  >
+                    <strong>{{ variableModeName(modeId) }}</strong>
+                    <code>{{ variableValueLabel(value) }}</code>
+                  </div>
+                </div>
+              </template>
+              <p v-else class="evidence-note">
+                {{
+                  t(
+                    "Exact values were not persisted. Retrieve them only on demand for a confirmed task and authorized source.",
+                  )
+                }}
+              </p>
+            </article>
+          </div>
+        </template>
+
+        <div v-else class="variable-access-state" role="status">
+          <AtlasIcon
+            :name="
+              variableAccessState === 'permission-required'
+                ? 'risk'
+                : 'design'
+            "
+          />
+          <span>
+            <strong>{{ variableAccessLabel() }}</strong>
+            <small>{{ variableAccessCopy() }}</small>
+          </span>
         </div>
         <small>
-          {{ activeFile?.variables.availability }} ·
           {{
-            activeFile?.variables.availability !== "global"
-              ? "no global catalog"
-              : activeFile?.variables.valuesIncluded
-                ? "exact values indexed"
-                : activeFile?.variables.detailLevel === "expanded"
-                  ? "names and types indexed"
-                  : "catalog only"
+            activeFile?.variables.valuesIncluded
+              ? t("Authorized values indexed")
+              : t("Catalog summary only · values on demand")
           }}
         </small>
       </section>
       <section>
-        <span class="eyebrow">Design families</span>
-        <h3>{{ activeSummary?.families.length ?? 0 }} grouped</h3>
+        <span class="eyebrow">{{ t("Design families") }}</span>
+        <h3>{{ t("{count} grouped", { count: activeSummary?.families.length ?? 0 }) }}</h3>
         <div v-if="activeSummary?.families.length" class="token-list">
           <div v-for="family in activeSummary.families" :key="family.id">
             <strong>{{ family.name }}</strong>
             <span>
               {{ family.kind }} ·
-              {{ family.viewportWidths.length ? `${family.viewportWidths.join(" / ")}px` : "no viewport evidence" }}
+              {{ family.viewportWidths.length ? `${family.viewportWidths.join(" / ")}px` : t("no viewport evidence") }}
             </span>
             <small v-if="family.observedStates.length">
-              States: {{ family.observedStates.join(", ") }}
+              {{ t("States") }}: {{ family.observedStates.join(", ") }}
             </small>
             <small v-if="family.missingCommonStates.length">
-              Not evidenced: {{ family.missingCommonStates.join(", ") }}
+              {{ t("Not evidenced") }}: {{ family.missingCommonStates.join(", ") }}
             </small>
           </div>
         </div>
         <p v-else class="muted-copy">
-          No responsive or storyboard family can be inferred from the sparse index.
+          {{ t("No responsive or storyboard family can be inferred from the sparse index.") }}
         </p>
       </section>
     </aside>

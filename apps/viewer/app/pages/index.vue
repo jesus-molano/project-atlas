@@ -17,6 +17,10 @@ import type {
 import type { AgentAdapterStatus } from "@component-atlas/agent";
 import type { AtlasIconName } from "~/components/AtlasIcon.vue";
 import {
+  localizeSourceHealth,
+  localizeWorkspaceRisk,
+} from "~/i18n/generated";
+import {
   chooseDesktopProjectFolder,
   desktopFolderPicker,
   projectPathFromDrop,
@@ -65,6 +69,28 @@ interface NavigationGroup {
   }>;
 }
 
+interface ProjectGitState {
+  branch?: string;
+  head?: string;
+  worktreePath?: string;
+  worktreeName?: string;
+  logicalProjectPath?: string;
+  logicalProjectName?: string;
+  isLinkedWorktree: boolean;
+  dirty: boolean;
+  changedFiles: number;
+  stagedFiles: number;
+  untrackedFiles: number;
+  checkedAt: string;
+}
+
+interface ProjectDestinationPreview {
+  rootPath: string;
+  name: string;
+  available: true;
+  git: ProjectGitState;
+}
+
 interface ProjectsResponse {
   activeRoot?: string;
   projects: Array<{
@@ -72,6 +98,7 @@ interface ProjectsResponse {
     name: string;
     lastOpenedAt: string;
     available: boolean;
+    git?: ProjectGitState;
   }>;
 }
 
@@ -94,15 +121,7 @@ interface WorkspaceSnapshot {
     open: number;
     stale: number;
   };
-  git: {
-    branch?: string;
-    head?: string;
-    dirty: boolean;
-    changedFiles: number;
-    stagedFiles: number;
-    untrackedFiles: number;
-    checkedAt: string;
-  };
+  git: ProjectGitState;
   currentDecisions: Array<{
     id: string;
     type: MemoryItem["type"] | "component-reuse";
@@ -123,14 +142,20 @@ interface WorkspaceSnapshot {
 }
 
 const {
-  data: workspace,
-  error: workspaceError,
-  refresh: refreshWorkspace,
-} = await useFetch<WorkspaceSnapshot>("/api/workspace");
-const {
   data: projects,
   refresh: refreshProjects,
 } = await useFetch<ProjectsResponse>("/api/projects");
+const {
+  data: workspace,
+  error: workspaceError,
+  refresh: refreshWorkspace,
+} = await useFetch<WorkspaceSnapshot>("/api/workspace", {
+  // An absent project is the launcher state, not a failed workspace request.
+  // refreshWorkspace() still executes this request after project activation.
+  immediate: Boolean(projects.value?.activeRoot),
+  watch: false,
+});
+const { formatDate, locale, runtimeMessage, statusLabel, t } = useAtlasI18n();
 
 const overview = computed(() => workspace.value?.overview);
 const graph = computed(() => workspace.value?.graph);
@@ -146,12 +171,19 @@ const navCollapsed = ref(false);
 const projectMenuOpen = ref(false);
 const projectPath = ref("");
 const projectSwitchPending = ref(false);
+const projectInspectPending = ref(false);
 const projectSwitchError = ref("");
+const projectPickerMessage = ref("");
+const projectPreview = ref<ProjectDestinationPreview>();
 const folderPicker = shallowRef<AtlasDesktopFolderPicker>();
 const folderPickerPending = ref(false);
 const folderDropActive = ref(false);
 const launcherBrowse = ref<HTMLButtonElement>();
 const popoverBrowse = ref<HTMLButtonElement>();
+const launcherScroller = ref<HTMLElement>();
+const launcherHeading = ref<HTMLElement>();
+const workspaceScroller = ref<HTMLElement>();
+const inboxHeading = ref<HTMLElement>();
 const selectedComponentId = ref<string>();
 const selectedDesignNodeId = ref<string>();
 const selectedMemoryItemId = ref<string>();
@@ -182,83 +214,98 @@ let workspaceRefreshQueued = false;
 
 const navigationGroups = computed<NavigationGroup[]>(() => [
   {
-    label: "Project",
+    label: t("Project"),
     items: [
       {
         id: "home",
         icon: "home",
-        label: "Home",
-        hint: "Project state and continuation",
+        label: t("Home"),
+        hint: t("Project state and continuation"),
       },
     ],
   },
   {
-    label: "Explore",
+    label: t("Explore"),
     items: [
       {
         id: "code",
         icon: "code",
-        label: "Code",
-        hint: `${overview.value?.data.counts.components ?? 0} components`,
+        label: t("Code"),
+        hint: t(
+          (overview.value?.data.counts.components ?? 0) === 1
+            ? "{count} component"
+            : "{count} components",
+          { count: overview.value?.data.counts.components ?? 0 },
+        ),
       },
       {
         id: "design",
         icon: "design",
-        label: "Design",
-        hint: `${overview.value?.data.counts.designNodes ?? 0} nodes`,
+        label: t("Design"),
+        hint: t(
+          (overview.value?.data.counts.designNodes ?? 0) === 1
+            ? "{count} node"
+            : "{count} nodes",
+          { count: overview.value?.data.counts.designNodes ?? 0 },
+        ),
       },
       {
         id: "memory",
         icon: "memory",
-        label: "Memory",
-        hint: `${overview.value?.data.counts.memoryItems ?? 0} items`,
+        label: t("Memory"),
+        hint: t(
+          (overview.value?.data.counts.memoryItems ?? 0) === 1
+            ? "{count} item"
+            : "{count} items",
+          { count: overview.value?.data.counts.memoryItems ?? 0 },
+        ),
       },
     ],
   },
   {
-    label: "Work",
+    label: t("Work"),
     items: [
       {
         id: "task",
         icon: "task",
-        label: "Task Workbench",
-        hint: "Prepare, run, continue",
+        label: t("Task Workbench"),
+        hint: t("Prepare, run, continue"),
       },
     ],
   },
   {
-    label: "Review",
+    label: t("Review"),
     items: [
       {
         id: "decisions",
         icon: "risk",
-        label: "Action Center",
+        label: t("Action Center"),
         count: workspace.value?.actionCenterCounts.open,
-        hint: "Decisions, risks, and warnings",
+        hint: t("Decisions, risks, and warnings"),
       },
       {
         id: "inbox",
         icon: "inbox",
-        label: "Memory Inbox",
+        label: t("Memory Inbox"),
         count: overview.value?.data.counts.pendingMemoryProposals,
-        hint: "Review semantic changes",
+        hint: t("Review semantic changes"),
       },
     ],
   },
   {
-    label: "System",
+    label: t("System"),
     items: [
       {
         id: "connections",
         icon: "plug",
-        label: "Connections",
-        hint: "Sources and capabilities",
+        label: t("Connections"),
+        hint: t("Sources and capabilities"),
       },
       {
         id: "settings",
         icon: "settings",
-        label: "Settings",
-        hint: "Budgets and privacy",
+        label: t("Settings"),
+        hint: t("Budgets and privacy"),
       },
     ],
   },
@@ -287,12 +334,13 @@ const attentionQueue = computed(() => {
     section: AvailableSection;
   }> = [];
   for (const risk of openRisks.value.slice(0, 3)) {
+    const localized = localizeWorkspaceRisk(risk, locale.value);
     items.push({
       id: risk.id,
       tone: risk.level === "decision-required" ? "decision" : "warning",
-      title: risk.title,
-      detail: risk.recommendation,
-      action: "Review evidence",
+      title: localized.title,
+      detail: localized.recommendation,
+      action: t("Review evidence"),
       section: "decisions",
     });
   }
@@ -303,9 +351,16 @@ const attentionQueue = computed(() => {
     items.push({
       id: "pending-memory",
       tone: "decision",
-      title: `${pending} memory proposal${pending === 1 ? "" : "s"} need review`,
-      detail: "Nothing becomes durable knowledge without a human decision.",
-      action: "Open Memory Inbox",
+      title: t(
+        pending === 1
+          ? "{count} memory proposal needs review"
+          : "{count} memory proposals need review",
+        { count: pending },
+      ),
+      detail: t(
+        "Nothing becomes durable knowledge without a human decision.",
+      ),
+      action: t("Open Memory Inbox"),
       section: "inbox",
     });
   }
@@ -313,9 +368,16 @@ const attentionQueue = computed(() => {
     items.push({
       id: "dirty-checkout",
       tone: "local",
-      title: `${workspace.value.git.changedFiles} changed file${workspace.value.git.changedFiles === 1 ? "" : "s"} in this checkout`,
-      detail: "Task continuation will preserve and reason about this diff.",
-      action: "Continue in Workbench",
+      title: t(
+        workspace.value.git.changedFiles === 1
+          ? "{count} changed file in this checkout"
+          : "{count} changed files in this checkout",
+        { count: workspace.value.git.changedFiles },
+      ),
+      detail: t(
+        "Task continuation will preserve and reason about this diff.",
+      ),
+      action: t("Continue in Workbench"),
       section: "task",
     });
   }
@@ -332,11 +394,16 @@ const sourceProblems = computed(
 const statusSummary = computed(() => {
   if (sourceProblems.value.length > 0) {
     return {
-      label: `${sourceProblems.value.length} source${sourceProblems.value.length === 1 ? "" : "s"} need attention`,
+      label: t(
+        sourceProblems.value.length === 1
+          ? "{count} source needs attention"
+          : "{count} sources need attention",
+        { count: sourceProblems.value.length },
+      ),
       tone: "warning",
     };
   }
-  return { label: "Local evidence ready", tone: "healthy" };
+  return { label: t("Local evidence ready"), tone: "healthy" };
 });
 
 watch(searchQuery, (query) => {
@@ -357,8 +424,7 @@ watch(searchQuery, (query) => {
       );
     } catch (caught) {
       searchResults.value = undefined;
-      searchError.value =
-        caught instanceof Error ? caught.message : "Local search failed.";
+      searchError.value = atlasErrorSource(caught, "Local search failed.");
     } finally {
       searchPending.value = false;
     }
@@ -383,6 +449,12 @@ function selectSection(section: string): void {
     searchOpen.value = false;
   }
 }
+
+watch(activeSection, () => {
+  nextTick(() => {
+    workspaceScroller.value?.scrollTo({ top: 0, behavior: "auto" });
+  });
+});
 
 function selectSearchResult(result: ProjectSearchResultViewModel): void {
   if (result.target.section === "code") {
@@ -445,18 +517,6 @@ function openActionEvidence(handle: string): void {
   }
 }
 
-function formatDate(value: string | undefined): string {
-  if (!value) return "not indexed";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
 function sourceIcon(source: string): AtlasIconName {
   return source === "repository" || source === "code"
     ? "code"
@@ -465,7 +525,63 @@ function sourceIcon(source: string): AtlasIconName {
       : "memory";
 }
 
-async function activateProject(rootPath = projectPath.value): Promise<void> {
+function localizeSearchReason(reason: string): string {
+  const separator = reason.indexOf(": ");
+  if (separator > 0) {
+    return `${t(reason.slice(0, separator))}: ${reason.slice(separator + 2)}`;
+  }
+  return t(reason);
+}
+
+function uiErrorMessage(caught: unknown, fallback: string): string {
+  return atlasErrorSource(caught, fallback);
+}
+
+watch(projectPath, (value) => {
+  if (
+    projectPreview.value &&
+    projectPreview.value.rootPath.toLowerCase() !== value.trim().toLowerCase()
+  ) {
+    projectPreview.value = undefined;
+  }
+});
+
+async function reviewProject(rootPath = projectPath.value): Promise<void> {
+  const candidate = rootPath.trim();
+  if (!candidate || projectInspectPending.value || projectSwitchPending.value) {
+    return;
+  }
+  projectInspectPending.value = true;
+  projectSwitchError.value = "";
+  try {
+    const session = await $fetch<{ token: string }>("/api/agent/session");
+    projectPreview.value = await $fetch<ProjectDestinationPreview>(
+      "/api/projects/inspect",
+      {
+        method: "POST",
+        headers: { "x-atlas-session": session.token },
+        body: { rootPath: candidate },
+      },
+    );
+    projectPath.value = projectPreview.value.rootPath;
+  } catch (caught) {
+    projectPreview.value = undefined;
+    projectSwitchError.value = uiErrorMessage(
+      caught,
+      "Project Atlas could not inspect that folder.",
+    );
+  } finally {
+    projectInspectPending.value = false;
+  }
+}
+
+function cancelProjectPreview(): void {
+  projectPreview.value = undefined;
+}
+
+async function activateProject(
+  rootPath = projectPreview.value?.rootPath ?? "",
+): Promise<void> {
   const candidate = rootPath.trim();
   if (!candidate || projectSwitchPending.value) return;
   projectSwitchPending.value = true;
@@ -478,6 +594,7 @@ async function activateProject(rootPath = projectPath.value): Promise<void> {
       body: { rootPath: candidate },
     });
     projectPath.value = "";
+    projectPreview.value = undefined;
     projectMenuOpen.value = false;
     activeSection.value = "home";
     selectedComponentId.value = undefined;
@@ -486,8 +603,10 @@ async function activateProject(rootPath = projectPath.value): Promise<void> {
     pinnedHandles.value = [];
     await Promise.all([refreshProjects(), refreshWorkspace()]);
   } catch (caught) {
-    projectSwitchError.value =
-      caught instanceof Error ? caught.message : "Project Atlas could not open that folder.";
+    projectSwitchError.value = uiErrorMessage(
+      caught,
+      "Project Atlas could not open that folder.",
+    );
   } finally {
     projectSwitchPending.value = false;
   }
@@ -497,6 +616,7 @@ async function browseForProject(trigger: HTMLButtonElement | undefined): Promise
   if (folderPickerPending.value) return;
   folderPickerPending.value = true;
   projectSwitchError.value = "";
+  projectPickerMessage.value = "";
   try {
     let selectedPath: string | undefined;
     if (folderPicker.value) {
@@ -513,10 +633,19 @@ async function browseForProject(trigger: HTMLButtonElement | undefined): Promise
       selectedPath =
         result.status === "selected" ? result.absolutePath : undefined;
     }
-    if (selectedPath) projectPath.value = selectedPath;
+    if (selectedPath) {
+      projectPath.value = selectedPath;
+      projectPickerMessage.value =
+        "Folder selected. Review the destination before opening it.";
+    } else {
+      projectPickerMessage.value =
+        "No folder was selected. Paste an absolute path or try the picker again.";
+    }
   } catch (caught) {
-    projectSwitchError.value =
-      caught instanceof Error ? caught.message : "The folder picker failed.";
+    projectSwitchError.value = `${uiErrorMessage(
+      caught,
+      "The folder picker failed.",
+    )} Paste an absolute path in the field to continue.`;
   } finally {
     folderPickerPending.value = false;
     nextTick(() => trigger?.focus());
@@ -541,6 +670,7 @@ function handleProjectDrop(event: DragEvent): void {
   const droppedPath = projectPathFromDrop(event.dataTransfer);
   if (droppedPath) {
     projectPath.value = droppedPath;
+    projectPreview.value = undefined;
     projectSwitchError.value = "";
     return;
   }
@@ -590,8 +720,10 @@ async function runLocalAction(source: "repository" | "memory"): Promise<void> {
         : "Project Memory reindexed approved Markdown.";
     await refreshWorkspace();
   } catch (caught) {
-    localActionError.value =
-      caught instanceof Error ? caught.message : "The local action failed.";
+    localActionError.value = uiErrorMessage(
+      caught,
+      "The local action failed.",
+    );
   } finally {
     localAction.value = "";
   }
@@ -656,21 +788,39 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main :class="['desktop-shell', { 'nav-collapsed': navCollapsed }]">
-    <section v-if="workspaceError" class="project-launcher">
+  <main
+    :class="[
+      'desktop-shell',
+      {
+        'nav-collapsed': navCollapsed,
+        'project-menu-open': projectMenuOpen,
+      },
+    ]"
+    :data-section="activeSection"
+  >
+    <section
+      v-if="!projects?.activeRoot || workspaceError"
+      ref="launcherScroller"
+      class="project-launcher"
+      tabindex="-1"
+      :aria-label="t('Project launcher')"
+    >
       <header class="launcher-brand">
         <AtlasMark />
-        <span><strong>Project Atlas</strong><small>Local evidence workspace</small></span>
+        <span><strong>Project Atlas</strong><small>{{ t("Local evidence workspace") }}</small></span>
       </header>
       <div class="launcher-content">
-        <span class="eyebrow">Open a project</span>
-        <h1>Start from the repository you want to understand.</h1>
+        <span class="eyebrow">{{ t("Open a project") }}</span>
+        <h1 ref="launcherHeading" tabindex="-1">{{ t("Start from the repository you want to understand.") }}</h1>
         <p>
-          Atlas scans locally, keeps project evidence isolated, and prepares
-          compact context only when you ask an agent to help.
+          {{
+            t(
+              "Atlas scans locally, keeps project evidence isolated, and prepares compact context only when you ask an agent to help.",
+            )
+          }}
         </p>
-        <form class="open-project-form" @submit.prevent="activateProject()">
-          <label for="launcher-project-path">Project folder</label>
+        <form class="open-project-form" @submit.prevent="reviewProject()">
+          <label for="launcher-project-path">{{ t("Project folder") }}</label>
           <div
             class="project-folder-dropzone has-folder-picker"
             :class="{ 'is-dragging': folderDropActive }"
@@ -694,45 +844,111 @@ onBeforeUnmount(() => {
               :disabled="folderPickerPending"
               @click="browseForProject(launcherBrowse)"
             >
-              {{ folderPickerPending ? "Choosing…" : "Choose folder…" }}
+              {{ folderPickerPending ? t("Choosing…") : t("Choose folder…") }}
             </button>
-            <button class="primary-button" :disabled="projectSwitchPending">
-              {{ projectSwitchPending ? "Opening…" : "Open project" }}
+            <button
+              class="primary-button"
+              :disabled="projectInspectPending || projectSwitchPending || !projectPath.trim()"
+            >
+              {{
+                projectInspectPending
+                  ? t("Inspecting…")
+                  : t("Review destination")
+              }}
             </button>
           </div>
           <small>
-            Choose or drop a repository folder, review its path, then open it.
-            Atlas never uploads the project.
+            {{
+              t(
+                "Choose or drop a repository folder to inspect it before opening.",
+              )
+            }}
+            {{ t("Atlas never uploads the project.") }}
           </small>
         </form>
-        <p v-if="projectSwitchError" class="inline-error">{{ projectSwitchError }}</p>
+        <p v-if="folderPickerPending" class="inline-info" role="status">
+          {{
+            t(
+              "The system folder picker is open. If it appears behind Atlas, use Alt+Tab. You can also paste an absolute path.",
+            )
+          }}
+        </p>
+        <p v-if="projectPickerMessage" class="inline-info" role="status">
+          {{ t(projectPickerMessage) }}
+        </p>
+        <ProjectDestinationPreview
+          v-if="projectPreview"
+          :destination="projectPreview"
+          :pending="projectSwitchPending"
+          @cancel="cancelProjectPreview"
+          @confirm="activateProject()"
+        />
+        <p v-if="projectSwitchError" class="inline-error">{{ runtimeMessage(projectSwitchError) }}</p>
+        <section
+          v-if="workspaceError && projects?.activeRoot"
+          class="launcher-recovery"
+          role="alert"
+        >
+          <AtlasIcon name="risk" />
+          <div>
+            <strong>{{ t("Workspace could not be loaded") }}</strong>
+            <p>{{ runtimeMessage(workspaceError, "Project Atlas could not load the active project.") }}</p>
+          </div>
+          <button class="secondary-button" @click="refreshWorkspace()">
+            {{ t("Retry workspace") }}
+          </button>
+        </section>
         <div v-if="projects?.projects.length" class="recent-projects">
-          <header><h2>Recent projects</h2><span>Stored only on this computer</span></header>
+          <header><h2>{{ t("Recent projects") }}</h2><span>{{ t("Stored only on this computer") }}</span></header>
           <button
             v-for="project in projects.projects"
             :key="project.rootPath"
-            :disabled="!project.available || projectSwitchPending"
-            @click="activateProject(project.rootPath)"
+            :disabled="!project.available || projectSwitchPending || projectInspectPending"
+            @click="reviewProject(project.rootPath)"
           >
             <AtlasIcon name="folder" />
-            <span><strong>{{ project.name }}</strong><small>{{ project.rootPath }}</small></span>
-            <time>{{ project.available ? formatDate(project.lastOpenedAt) : "Folder missing" }}</time>
+            <span>
+              <strong :title="project.git?.logicalProjectPath ?? project.name">
+                {{ project.git?.logicalProjectName ?? project.name }}
+              </strong>
+              <small :title="project.rootPath">{{ project.rootPath }}</small>
+              <em v-if="project.git">
+                {{ project.git.worktreeName ?? t("Worktree") }}
+                · {{ project.git.branch ?? t("detached") }}
+                ·
+                {{
+                  project.git.dirty
+                    ? t(
+                        project.git.changedFiles === 1
+                          ? "{count} changed file"
+                          : "{count} changed files",
+                        { count: project.git.changedFiles },
+                      )
+                    : t("clean")
+                }}
+              </em>
+            </span>
+            <time>{{ project.available ? formatDate(project.lastOpenedAt) : t("Folder missing") }}</time>
             <AtlasIcon name="arrow-right" />
           </button>
         </div>
         <div v-else class="launcher-empty">
           <AtlasIcon name="folder" />
-          <span><strong>No recent projects yet</strong><small>Open a local repository to create the first entry.</small></span>
+          <span><strong>{{ t("No recent projects yet") }}</strong><small>{{ t("Open a local repository to create the first entry.") }}</small></span>
         </div>
-        <p class="launcher-diagnostic">{{ workspaceError.message }}</p>
       </div>
+      <ScrollToTopButton
+        :target="launcherScroller"
+        :focus-target="launcherHeading"
+        :min-overflow="520"
+      />
     </section>
 
     <template v-else-if="overview && graph && workspace">
-      <nav class="desktop-navigator" aria-label="Project Atlas navigation">
+      <nav class="desktop-navigator" :aria-label="t('Project Atlas navigation')">
         <div class="navigator-brand">
           <AtlasMark />
-          <span><strong>Project Atlas</strong><small>Evidence workspace</small></span>
+          <span><strong>Project Atlas</strong><small>{{ t("Evidence workspace") }}</small></span>
         </div>
 
         <div class="project-switcher-wrap">
@@ -742,38 +958,93 @@ onBeforeUnmount(() => {
             :aria-expanded="projectMenuOpen"
             @click="projectMenuOpen = !projectMenuOpen"
           >
-            <span class="project-badge">{{ overview.projectName.slice(0, 2).toUpperCase() }}</span>
+            <span class="project-badge">{{ (workspace.git.logicalProjectName ?? overview.projectName).slice(0, 2).toUpperCase() }}</span>
             <span>
-              <strong>{{ overview.projectName }}</strong>
-              <small>{{ workspace.git.branch ?? "detached" }} · {{ workspace.git.dirty ? `${workspace.git.changedFiles} changed` : "clean" }}</small>
+              <strong :title="workspace.git.logicalProjectPath ?? overview.projectName">{{ workspace.git.logicalProjectName ?? overview.projectName }}</strong>
+              <small
+                :title="`${workspace.git.worktreePath ?? overview.data.project.rootPath} · ${workspace.git.branch ?? t('detached')}`"
+              >
+                {{ workspace.git.worktreeName ?? t("Worktree") }}
+                · {{ workspace.git.branch ?? t("detached") }}
+              </small>
+              <em :class="{ warning: workspace.git.dirty }">
+                {{
+                  workspace.git.dirty
+                    ? t(
+                        workspace.git.changedFiles === 1
+                          ? "{count} changed file"
+                          : "{count} changed files",
+                        { count: workspace.git.changedFiles },
+                      )
+                    : t("clean")
+                }}
+              </em>
             </span>
             <AtlasIcon name="chevron-down" />
           </button>
-          <section v-if="projectMenuOpen" class="project-popover" role="dialog" aria-label="Change project">
+          <section v-if="projectMenuOpen" class="project-popover" role="dialog" :aria-label="t('Change project')">
             <header>
-              <div><span class="eyebrow">Active checkout</span><strong>{{ overview.projectName }}</strong></div>
-              <button class="icon-button" aria-label="Close project menu" @click="projectMenuOpen = false"><AtlasIcon name="x" /></button>
+              <div><span class="eyebrow">{{ t("Active checkout") }}</span><strong :title="workspace.git.logicalProjectPath ?? overview.projectName">{{ workspace.git.logicalProjectName ?? overview.projectName }}</strong></div>
+              <button class="icon-button" :aria-label="t('Close project menu')" @click="projectMenuOpen = false"><AtlasIcon name="x" /></button>
             </header>
-            <code>{{ overview.data.project.rootPath }}</code>
-            <div class="checkout-summary">
-              <span><AtlasIcon name="branch" />{{ workspace.git.branch ?? "detached" }}</span>
-              <span :class="{ warning: workspace.git.dirty }">{{ workspace.git.dirty ? `${workspace.git.changedFiles} changed files` : "Working tree clean" }}</span>
-            </div>
+            <dl class="active-project-identity">
+              <div><dt>{{ t("Logical project") }}</dt><dd :title="workspace.git.logicalProjectPath ?? overview.projectName">{{ workspace.git.logicalProjectName ?? overview.projectName }}</dd></div>
+              <div>
+                <dt>{{ t("Worktree") }}</dt>
+                <dd :title="workspace.git.worktreePath ?? overview.data.project.rootPath">
+                  {{ workspace.git.worktreeName ?? overview.projectName }}
+                  <small>{{ t(workspace.git.isLinkedWorktree ? "Linked worktree" : "Primary checkout") }}</small>
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t("Branch") }}</dt>
+                <dd :title="workspace.git.branch ?? t('detached')">
+                  {{ workspace.git.branch ?? t("detached") }}
+                  <small>{{ workspace.git.head ?? t("No commits yet") }}</small>
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t("Working tree") }}</dt>
+                <dd :class="{ warning: workspace.git.dirty }">
+                  {{
+                    workspace.git.dirty
+                      ? t(
+                          workspace.git.changedFiles === 1
+                            ? "{count} changed file"
+                            : "{count} changed files",
+                          { count: workspace.git.changedFiles },
+                        )
+                      : t("Working tree clean")
+                  }}
+                </dd>
+              </div>
+            </dl>
+            <code :title="overview.data.project.rootPath">{{ overview.data.project.rootPath }}</code>
             <div class="popover-recents">
-              <span class="field-label">Recent projects</span>
+              <span class="field-label">{{ t("Recent projects") }}</span>
               <button
                 v-for="project in otherRecentProjects"
                 :key="project.rootPath"
-                :disabled="!project.available || projectSwitchPending"
-                @click="activateProject(project.rootPath)"
+                :disabled="!project.available || projectSwitchPending || projectInspectPending"
+                @click="reviewProject(project.rootPath)"
               >
                 <AtlasIcon name="folder" />
-                <span><strong>{{ project.name }}</strong><small>{{ project.rootPath }}</small></span>
+                <span>
+                  <strong :title="project.git?.logicalProjectPath ?? project.name">
+                    {{ project.git?.logicalProjectName ?? project.name }}
+                  </strong>
+                  <small :title="project.rootPath">{{ project.rootPath }}</small>
+                  <em v-if="project.git">
+                    {{ project.git.worktreeName ?? t("Worktree") }}
+                    · {{ project.git.branch ?? t("detached") }}
+                    · {{ project.git.dirty ? t("warning") : t("clean") }}
+                  </em>
+                </span>
               </button>
-              <p v-if="!otherRecentProjects.length">No other projects have been opened from Atlas yet.</p>
+              <p v-if="!otherRecentProjects.length">{{ t("No other projects have been opened from Atlas yet.") }}</p>
             </div>
-            <form class="popover-open-project" @submit.prevent="activateProject()">
-              <label for="project-path">Open another folder</label>
+            <form class="popover-open-project" @submit.prevent="reviewProject()">
+              <label for="project-path">{{ t("Open another folder") }}</label>
               <div
                 class="project-folder-dropzone has-folder-picker"
                 :class="{ 'is-dragging': folderDropActive }"
@@ -782,7 +1053,7 @@ onBeforeUnmount(() => {
                 @dragleave="handleProjectDragLeave"
                 @drop.prevent="handleProjectDrop"
               >
-                <input id="project-path" v-model="projectPath" type="text" autocomplete="off" placeholder="Absolute project path">
+                <input id="project-path" v-model="projectPath" type="text" autocomplete="off" :placeholder="t('Absolute project path')">
                 <button
                   ref="popoverBrowse"
                   type="button"
@@ -790,14 +1061,34 @@ onBeforeUnmount(() => {
                   :disabled="folderPickerPending"
                   @click="browseForProject(popoverBrowse)"
                 >
-                  {{ folderPickerPending ? "Choosing…" : "Choose folder…" }}
+                  {{ folderPickerPending ? t("Choosing…") : t("Choose folder…") }}
                 </button>
-                <button class="primary-button" :disabled="projectSwitchPending">Open</button>
+                <button class="primary-button" :disabled="projectSwitchPending || projectInspectPending || !projectPath.trim()">
+                  {{ projectInspectPending ? t("Inspecting…") : t("Review destination") }}
+                </button>
               </div>
-              <small>Choose or drop a repository folder, review its path, then open it.</small>
+              <small>{{ t("Choose or drop a repository folder to inspect it before opening.") }}</small>
             </form>
-            <p v-if="projectSwitchError" class="inline-error">{{ projectSwitchError }}</p>
-            <button class="text-button" @click="copyProjectPath">Copy active path</button>
+            <p v-if="folderPickerPending" class="inline-info" role="status">
+              {{
+                t(
+                  "The system folder picker is open. If it appears behind Atlas, use Alt+Tab. You can also paste an absolute path.",
+                )
+              }}
+            </p>
+            <p v-if="projectPickerMessage" class="inline-info" role="status">
+              {{ t(projectPickerMessage) }}
+            </p>
+            <ProjectDestinationPreview
+              v-if="projectPreview"
+              :destination="projectPreview"
+              :active-root="activeRoot"
+              :pending="projectSwitchPending"
+              @cancel="cancelProjectPreview"
+              @confirm="activateProject()"
+            />
+            <p v-if="projectSwitchError" class="inline-error">{{ runtimeMessage(projectSwitchError) }}</p>
+            <button class="text-button" @click="copyProjectPath">{{ t("Copy active path") }}</button>
           </section>
         </div>
 
@@ -808,6 +1099,7 @@ onBeforeUnmount(() => {
               v-for="item in group.items"
               :key="item.id"
               :class="{ active: activeSection === item.id }"
+              :aria-label="item.label"
               :title="item.hint"
               @click="selectSection(item.id)"
             >
@@ -818,40 +1110,53 @@ onBeforeUnmount(() => {
           </section>
         </div>
         <div class="navigator-foot">
-          <div><span class="connection-light" /><span><strong>Local workspace</strong><small>Browsing uses 0 tokens</small></span></div>
-          <button class="icon-button nav-toggle" :aria-label="navCollapsed ? 'Expand navigation' : 'Collapse navigation'" @click="navCollapsed = !navCollapsed">
+          <div><span class="connection-light" /><span><strong>{{ t("Local workspace") }}</strong><small>{{ t("Browsing uses 0 tokens") }}</small></span></div>
+          <button class="icon-button nav-toggle" :aria-label="t(navCollapsed ? 'Expand navigation' : 'Collapse navigation')" @click="navCollapsed = !navCollapsed">
             <AtlasIcon name="menu" />
           </button>
         </div>
       </nav>
 
       <header class="project-bar">
-        <button class="global-search-trigger" aria-label="Search code, design, memory, and tasks" @click="searchOpen = true; nextTick(() => searchInput?.focus())">
+        <button class="global-search-trigger" :aria-label="t('Search code, design, memory, and tasks')" @click="searchOpen = true; nextTick(() => searchInput?.focus())">
           <AtlasIcon name="search" />
-          <span>Search components, designs, decisions…</span>
+          <span>{{ t("Search components, designs, decisions…") }}</span>
           <kbd>Ctrl K</kbd>
         </button>
         <div class="project-context">
-          <span><AtlasIcon name="branch" />{{ workspace.git.branch ?? "detached" }}</span>
-          <span>{{ workspace.git.head ?? "no HEAD" }}</span>
-          <span :class="['working-state', { dirty: workspace.git.dirty }]">{{ workspace.git.dirty ? `${workspace.git.changedFiles} changed` : "Clean" }}</span>
+          <span :title="workspace.git.worktreePath ?? overview.data.project.rootPath">{{ workspace.git.worktreeName ?? overview.projectName }}</span>
+          <span :title="workspace.git.branch ?? t('detached')"><AtlasIcon name="branch" />{{ workspace.git.branch ?? t("detached") }}</span>
+          <span>{{ workspace.git.head ?? t("No commits yet") }}</span>
+          <span :class="['working-state', { dirty: workspace.git.dirty }]">
+            {{
+              workspace.git.dirty
+                ? t("{count} changed", { count: workspace.git.changedFiles })
+                : t("Clean")
+            }}
+          </span>
         </div>
-        <button class="status-summary" @click="activeSection = 'connections'">
+        <button class="status-summary" @click="selectSection('connections')">
           <span :class="['state-light', statusSummary.tone]" />
           <span>{{ statusSummary.label }}</span>
         </button>
+        <LanguageSelector />
       </header>
 
-      <section class="desktop-workspace">
+      <section
+        ref="workspaceScroller"
+        class="desktop-workspace"
+        tabindex="-1"
+        :aria-label="t('Project workspace')"
+      >
         <section v-if="activeSection === 'home'" class="home-workspace">
           <header class="workspace-heading">
             <div>
-              <span class="eyebrow">{{ overview.projectName }} / {{ workspace.git.branch ?? "detached" }}</span>
-              <h1>{{ workspace.git.dirty ? "Pick up where you left off." : "Your project, oriented." }}</h1>
-              <p>{{ workspace.git.dirty ? "Atlas keeps the current diff visible and prepares only the evidence affected by your next move." : "Start a task, explore what already exists, or review changes since the last scan." }}</p>
+              <span class="eyebrow">{{ workspace.git.logicalProjectName ?? overview.projectName }} / {{ workspace.git.branch ?? t("detached") }}</span>
+              <h1>{{ t(workspace.git.dirty ? "Pick up where you left off." : "Your project, oriented.") }}</h1>
+              <p>{{ t(workspace.git.dirty ? "Atlas keeps the current diff visible and prepares only the evidence affected by your next move." : "Start a task, explore what already exists, or review changes since the last scan.") }}</p>
             </div>
-            <button class="primary-button large" @click="activeSection = 'task'">
-              <AtlasIcon name="task" />{{ workspace.git.dirty ? "Continue work" : "Prepare a task" }}
+            <button class="primary-button large" @click="selectSection('task')">
+              <AtlasIcon name="task" />{{ t(workspace.git.dirty ? "Continue work" : "Prepare a task") }}
             </button>
           </header>
 
@@ -859,22 +1164,22 @@ onBeforeUnmount(() => {
             <div class="continuation-copy">
               <AtlasIcon :name="workspace.git.dirty ? 'activity' : 'check'" />
               <div>
-                <span class="eyebrow">Current checkout</span>
-                <h2>{{ workspace.git.dirty ? `${workspace.git.changedFiles} files changed` : "Ready for the next task" }}</h2>
-                <p v-if="workspace.git.dirty">{{ workspace.git.stagedFiles }} staged · {{ workspace.git.untrackedFiles }} untracked. Continue or correct without restarting the brief.</p>
-                <p v-else>{{ graph.project.scan?.mode ?? "full" }} scan · {{ graph.components.length }} components · {{ graph.edges.length }} relations.</p>
+                <span class="eyebrow">{{ t("Current checkout") }}</span>
+                <h2>{{ workspace.git.dirty ? t(workspace.git.changedFiles === 1 ? "{count} changed file" : "{count} changed files", { count: workspace.git.changedFiles }) : t("Ready for the next task") }}</h2>
+                <p v-if="workspace.git.dirty">{{ t("{staged} staged · {untracked} untracked. Continue or correct without restarting the brief.", { staged: workspace.git.stagedFiles, untracked: workspace.git.untrackedFiles }) }}</p>
+                <p v-else>{{ t("{mode} scan · {components} components · {relations} relations.", { mode: graph.project.scan?.mode ?? "full", components: graph.components.length, relations: graph.edges.length }) }}</p>
               </div>
             </div>
             <button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('repository')">
-              <AtlasIcon name="refresh" />{{ localAction === "repository" ? "Scanning…" : "Rescan code" }}
+              <AtlasIcon name="refresh" />{{ t(localAction === "repository" ? "Scanning…" : "Rescan code") }}
             </button>
           </section>
 
           <div class="home-columns">
             <section class="home-ledger attention-ledger">
-              <header><div><span class="eyebrow">Review</span><h2>Needs your attention</h2></div><span>{{ attentionQueue.length }}</span></header>
+              <header><div><span class="eyebrow">{{ t("Review") }}</span><h2>{{ t("Needs your attention") }}</h2></div><span>{{ attentionQueue.length }}</span></header>
               <div v-if="attentionQueue.length" class="queue-list">
-                <button v-for="item in attentionQueue" :key="item.id" @click="activeSection = item.section">
+                <button v-for="item in attentionQueue" :key="item.id" @click="selectSection(item.section)">
                   <AtlasIcon :name="item.tone === 'local' ? 'activity' : 'risk'" />
                   <span><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></span>
                   <AtlasIcon name="arrow-right" />
@@ -882,26 +1187,26 @@ onBeforeUnmount(() => {
               </div>
               <div v-else class="inline-empty">
                 <AtlasIcon name="check" />
-                <div><strong>Nothing is blocking the next task</strong><p>There are no unresolved decisions or recovery actions.</p></div>
+                <div><strong>{{ t("Nothing is blocking the next task") }}</strong><p>{{ t("There are no unresolved decisions or recovery actions.") }}</p></div>
               </div>
             </section>
 
             <section class="home-ledger changes-ledger">
-              <header><div><span class="eyebrow">Recent activity</span><h2>What changed</h2></div><span>{{ formatDate(workspace.generatedAt) }}</span></header>
+              <header><div><span class="eyebrow">{{ t("Recent activity") }}</span><h2>{{ t("What changed") }}</h2></div><span>{{ formatDate(workspace.generatedAt) }}</span></header>
               <div class="change-rows">
                 <article>
                   <AtlasIcon name="code" />
-                  <div><strong>Code index</strong><p>{{ graph.project.scan?.mode ?? "full" }} scan · {{ graph.project.scan?.changedFiles ?? graph.project.sourceFiles }} files reconsidered</p></div>
+                  <div><strong>{{ t("Code index") }}</strong><p>{{ t("{mode} scan · {count} files reconsidered", { mode: graph.project.scan?.mode ?? "full", count: graph.project.scan?.changedFiles ?? graph.project.sourceFiles }) }}</p></div>
                   <time>{{ formatDate(graph.project.scannedAt) }}</time>
                 </article>
-                <button @click="activeSection = 'design'">
+                <button @click="selectSection('design')">
                   <AtlasIcon name="design" />
-                  <span><strong>Design map</strong><small>{{ workspace.designIndexes.length ? `${overview.data.counts.designNodes} indexed nodes` : "No design source yet" }}</small></span>
+                  <span><strong>{{ t("Design map") }}</strong><small>{{ workspace.designIndexes.length ? t("{count} indexed nodes", { count: overview.data.counts.designNodes }) : t("No design source yet") }}</small></span>
                   <AtlasIcon name="arrow-right" />
                 </button>
-                <button @click="activeSection = 'memory'">
+                <button @click="selectSection('memory')">
                   <AtlasIcon name="memory" />
-                  <span><strong>Project memory</strong><small>{{ workspace.memoryItems.length ? `${workspace.memoryItems.length} knowledge items` : "Cold start · no approved memory" }}</small></span>
+                  <span><strong>{{ t("Project memory") }}</strong><small>{{ workspace.memoryItems.length ? t("{count} knowledge items", { count: workspace.memoryItems.length }) : t("Cold start · no approved memory") }}</small></span>
                   <AtlasIcon name="arrow-right" />
                 </button>
               </div>
@@ -909,97 +1214,102 @@ onBeforeUnmount(() => {
           </div>
 
           <section class="source-ribbon">
-            <header><div><span class="eyebrow">Evidence health</span><h2>Sources and freshness</h2></div><button class="text-button" @click="activeSection = 'connections'">Manage connections</button></header>
+            <header><div><span class="eyebrow">{{ t("Evidence health") }}</span><h2>{{ t("Sources and freshness") }}</h2></div><button class="text-button" @click="selectSection('connections')">{{ t("Manage connections") }}</button></header>
             <div>
               <article v-for="source in overview.data.sources" :key="source.id">
                 <AtlasIcon :name="sourceIcon(source.source)" />
-                <span><strong>{{ source.label }}</strong><small>{{ source.detail }}</small></span>
-                <em :class="source.status">{{ source.status }}</em>
+                <span><strong>{{ localizeSourceHealth(source, locale).label }}</strong><small>{{ localizeSourceHealth(source, locale).detail }}</small></span>
+                <em :class="source.status">{{ statusLabel(source.status) }}</em>
                 <time>{{ formatDate(source.lastIndexedAt) }}</time>
               </article>
             </div>
           </section>
-          <p v-if="localActionMessage" class="inline-success">{{ localActionMessage }}</p>
-          <p v-if="localActionError" class="inline-error">{{ localActionError }}</p>
+          <p v-if="localActionMessage" class="inline-success">{{ t(localActionMessage) }}</p>
+          <p v-if="localActionError" class="inline-error">{{ runtimeMessage(localActionError) }}</p>
         </section>
 
         <section v-else-if="activeSection === 'code'" class="section-workspace code-section">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Explore / Code</span><h1>What can I reuse, change, or test?</h1><p>Navigate exact consumers separately from explainable similarity.</p></div><button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('repository')"><AtlasIcon name="refresh" />Rescan code</button></header>
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Explore / Code") }}</span><h1>{{ t("What can I reuse, change, or test?") }}</h1><p>{{ t("Navigate exact consumers separately from explainable similarity.") }}</p></div><button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('repository')"><AtlasIcon name="refresh" />{{ t("Rescan code") }}</button></header>
           <LazyCodeAtlasView :graph="graph" :initial-component-id="selectedComponentId" @use-in-task="useEvidenceInTask" />
         </section>
 
         <section v-else-if="activeSection === 'design'" class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Explore / Design</span><h1>Where does this flow live?</h1><p>Orient by file, flow, state, and variant before loading deep design context.</p></div><span class="heading-count">{{ overview.data.counts.designNodes }} indexed nodes</span></header>
-          <LazyDesignAtlasView :indexes="workspace.designIndexes" :initial-node-id="selectedDesignNodeId" :sync-state="designSyncState" @use-in-task="useEvidenceInTask" @prepare-task="prepareTask" />
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Explore / Design") }}</span><h1>{{ t("Where does this flow live?") }}</h1><p>{{ t("Orient by file, flow, state, and variant before loading deep design context.") }}</p></div><span class="heading-count">{{ t("{count} indexed nodes", { count: overview.data.counts.designNodes }) }}</span></header>
+          <LazyDesignAtlasView :indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :initial-node-id="selectedDesignNodeId" :sync-state="designSyncState" @use-in-task="useEvidenceInTask" @prepare-task="prepareTask" />
         </section>
 
         <section v-else-if="activeSection === 'memory'" class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Explore / Memory</span><h1>What has this project learned?</h1><p>Trace decisions, conventions, outcomes, authority, and freshness.</p></div><button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('memory')"><AtlasIcon name="refresh" />Reindex memory</button></header>
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Explore / Memory") }}</span><h1>{{ t("What has this project learned?") }}</h1><p>{{ t("Trace decisions, conventions, outcomes, authority, and freshness.") }}</p></div><button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('memory')"><AtlasIcon name="refresh" />{{ t("Reindex memory") }}</button></header>
           <LazyProjectMemoryView :items="workspace.memoryItems" :initial-item-id="selectedMemoryItemId" :include-inactive="preferences.includeInactive" @use-in-task="useEvidenceInTask" @prepare-task="prepareTask" />
         </section>
 
         <section v-else-if="activeSection === 'task'" class="section-workspace task-section">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Work / Task Workbench</span><h1>Prepare the next move.</h1><p>Describe the outcome first. Sources and context controls appear only when useful.</p></div><span :class="['heading-count', { warning: workspace.git.dirty }]">{{ workspace.git.dirty ? `${workspace.git.changedFiles} changed` : "Clean checkout" }}</span></header>
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Work / Task Workbench") }}</span><h1>{{ t("Prepare the next move.") }}</h1><p>{{ t("Describe the outcome first. Sources and context controls appear only when useful.") }}</p></div><span :class="['heading-count', { warning: workspace.git.dirty }]">{{ workspace.git.dirty ? t("{count} changed", { count: workspace.git.changedFiles }) : t("Clean checkout") }}</span></header>
           <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" @update-task="taskSeed = $event" @workspace-changed="refreshSnapshot" @figma-sync-state="designSyncState = $event" />
         </section>
 
         <section v-else-if="activeSection === 'decisions'" class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Review / Action Center</span><h1>What needs action, and why?</h1><p>Resolve decisions, contradictions, risks, warnings, and missing evidence without losing provenance.</p></div><span class="heading-count">{{ workspace.actionCenterCounts.open }} open</span></header>
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Review / Action Center") }}</span><h1>{{ t("What needs action, and why?") }}</h1><p>{{ t("Resolve decisions, contradictions, risks, warnings, and missing evidence without losing provenance.") }}</p></div><span class="heading-count">{{ t("{count} open", { count: workspace.actionCenterCounts.open }) }}</span></header>
           <LazyRisksView @prepare-task="prepareActionTask" @open-evidence="openActionEvidence" @changed="refreshSnapshot" />
         </section>
 
         <section v-else-if="activeSection === 'inbox'" class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Review / Memory Inbox</span><h1>What should the project remember?</h1><p>Approve compact knowledge proposals, never raw transcripts.</p></div><span class="heading-count">{{ workspace.memoryProposals.filter((item) => item.status === "pending").length }} pending</span></header>
+          <header ref="inboxHeading" class="workspace-heading compact" tabindex="-1"><div><span class="eyebrow">{{ t("Review / Memory Inbox") }}</span><h1>{{ t("What should the project remember?") }}</h1><p>{{ t("Approve compact knowledge proposals, never raw transcripts.") }}</p></div><span class="heading-count">{{ t("{count} pending", { count: workspace.memoryProposals.filter((item) => item.status === "pending").length }) }}</span></header>
           <LazyMemoryInboxView :proposals="workspace.memoryProposals" @changed="refreshSnapshot" />
         </section>
 
         <section v-else-if="activeSection === 'connections'" class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">System / Connections</span><h1>What evidence can Atlas actually reach?</h1><p>Connector state, optional capabilities, permissions, and cached evidence remain distinct.</p></div><span class="heading-count">Local-first</span></header>
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("System / Connections") }}</span><h1>{{ t("What evidence can Atlas actually reach?") }}</h1><p>{{ t("Connector state, optional capabilities, permissions, and cached evidence remain distinct.") }}</p></div><span class="heading-count">{{ t("Local-first") }}</span></header>
           <LazyHealthView :sources="overview.data.sources" :capabilities="workspace.capabilities" :agent="workspace.agent" :root-path="overview.data.project.rootPath" :local-health="workspace.localHealth" @refreshed="refreshSnapshot" />
         </section>
 
         <section v-else class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">System / Settings</span><h1>How much context may leave Atlas?</h1><p>Browsing stays complete locally; agent packages remain hard-capped and reviewable.</p></div><span class="heading-count">Local preferences</span></header>
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("System / Settings") }}</span><h1>{{ t("How much context may leave Atlas?") }}</h1><p>{{ t("Browsing stays complete locally; agent packages remain hard-capped and reviewable.") }}</p></div><span class="heading-count">{{ t("Local preferences") }}</span></header>
           <LazySettingsView v-model="preferences" :evaluation-count="workspace.evaluations.length + workspace.agentRuns.length" @clear-metrics="clearLocalMetrics" />
         </section>
       </section>
 
+      <ScrollToTopButton
+        :target="workspaceScroller"
+        :focus-target="activeSection === 'inbox' ? inboxHeading : workspaceScroller"
+      />
+
       <div v-if="searchOpen" class="search-backdrop" role="presentation" @click.self="searchOpen = false">
-        <section class="search-palette command-palette" role="dialog" aria-modal="true" aria-label="Search Project Atlas">
+        <section class="search-palette command-palette" role="dialog" aria-modal="true" :aria-label="t('Search Project Atlas')">
           <label class="palette-input">
             <AtlasIcon name="search" />
-            <input ref="searchInput" v-model="searchQuery" type="search" autocomplete="off" placeholder="Component, consumer, test, frame, decision, or task" aria-label="Search Project Atlas">
+            <input ref="searchInput" v-model="searchQuery" type="search" autocomplete="off" :placeholder="t('Component, consumer, test, frame, decision, or task')" :aria-label="t('Search Project Atlas')">
             <kbd>Esc</kbd>
           </label>
           <div class="palette-body">
-            <div v-if="searchPending" class="palette-state"><span class="mini-loader" />Searching local evidence…</div>
-            <div v-else-if="searchError" class="palette-state error">{{ searchError }}</div>
+            <div v-if="searchPending" class="palette-state"><span class="mini-loader" />{{ t("Searching local evidence…") }}</div>
+            <div v-else-if="searchError" class="palette-state error">{{ runtimeMessage(searchError) }}</div>
             <div v-else-if="!searchQuery.trim()" class="palette-empty">
               <AtlasIcon name="search" />
-              <span>Search the whole project</span>
-              <p>Open indexed evidence or pin it directly to a task. Local search uses no agent tokens.</p>
-              <div><span>Ctrl 1 · Home</span><span>Ctrl 2 · Code</span><span>Ctrl 3 · Workbench</span></div>
+              <span>{{ t("Search the whole project") }}</span>
+              <p>{{ t("Open indexed evidence or pin it directly to a task. Local search uses no agent tokens.") }}</p>
+              <div><span>Ctrl 1 · {{ t("Home") }}</span><span>Ctrl 2 · {{ t("Code") }}</span><span>Ctrl 3 · {{ t("Task Workbench") }}</span></div>
             </div>
             <template v-else-if="searchResults?.results.length">
               <div v-for="group in resultGroups" :key="group.source" class="result-group">
-                <header v-if="group.results.length"><span>{{ group.source }}</span><small>{{ group.results.length }}</small></header>
+                <header v-if="group.results.length"><span>{{ statusLabel(group.source) }}</span><small>{{ group.results.length }}</small></header>
                 <article v-for="result in group.results" :key="`${result.source}:${result.id}`" class="search-result-row">
                   <button class="search-result" @click="selectSearchResult(result)">
                     <AtlasIcon :name="sourceIcon(result.source)" />
-                    <span class="result-copy"><strong>{{ result.title }}</strong><small>{{ result.subtitle }}</small><em>{{ result.reasons.slice(0, 2).join(" · ") }}</em></span>
-                    <span class="result-status">{{ result.status ?? result.kind }}</span>
+                    <span class="result-copy"><strong>{{ result.title }}</strong><small>{{ result.subtitle }}</small><em>{{ result.reasons.slice(0, 2).map(localizeSearchReason).join(" · ") }}</em></span>
+                    <span class="result-status">{{ statusLabel(result.status ?? result.kind) }}</span>
                   </button>
-                  <button class="pin-result" :aria-label="`Use ${result.title} in Task Workbench`" @click="pinSearchResult(result)">Use in task</button>
+                  <button class="pin-result" :aria-label="t('Use {title} in Task Workbench', { title: result.title })" @click="pinSearchResult(result)">{{ t("Use in task") }}</button>
                 </article>
               </div>
             </template>
-            <div v-else class="palette-state">No indexed evidence matches “{{ searchQuery }}”.</div>
+            <div v-else class="palette-state">{{ t("No indexed evidence matches “{query}”.", { query: searchQuery }) }}</div>
           </div>
-          <footer class="palette-foot"><span>{{ searchResults?.totalMatches ?? 0 }} local results</span><span>Open evidence or use it in a task</span></footer>
+          <footer class="palette-foot"><span>{{ t("{count} local results", { count: searchResults?.totalMatches ?? 0 }) }}</span><span>{{ t("Open evidence or use it in a task") }}</span></footer>
         </section>
       </div>
     </template>
 
-    <div v-else class="loading-state"><div class="loader" /><p>Opening the local evidence workspace…</p></div>
+    <div v-else class="loading-state"><div class="loader" /><p>{{ t("Opening the local evidence workspace…") }}</p></div>
   </main>
 </template>

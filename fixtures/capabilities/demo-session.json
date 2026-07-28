@@ -1,0 +1,37 @@
+[
+  {
+    "id": "figma",
+    "state": "connected",
+    "detail": "Synthetic audit session; no live account or credential was used."
+  },
+  {
+    "id": "atlassian-rovo",
+    "state": "permission-required",
+    "detail": "Synthetic permission state used to validate the Connections UI."
+  },
+  {
+    "id": "github",
+    "state": "degraded",
+    "detail": "Synthetic degraded state used to validate recovery guidance."
+  },
+  {
+    "id": "ready-for-dev",
+    "state": "detected",
+    "detail": "Status is supplied by the local Figma metadata fixture."
+  },
+  {
+    "id": "figma-variables",
+    "state": "detected",
+    "detail": "Variable summaries are supplied by the local enrichment fixture."
+  },
+  {
+    "id": "code-connect",
+    "state": "detected",
+    "detail": "Mappings are supplied by the local enrichment fixture."
+  },
+  {
+    "id": "figma-libraries",
+    "state": "not-exposed",
+    "detail": "Synthetic unavailable field used to validate optional evidence."
+  }
+]

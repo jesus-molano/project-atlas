@@ -5,6 +5,8 @@ import type {
 } from "@component-atlas/core/types";
 import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
 
+const { t } = useAtlasI18n();
+
 const props = defineProps<{
   components: ComponentNode[];
   edges: GraphEdge[];
@@ -19,6 +21,10 @@ const container = ref<HTMLElement>();
 let cy: Core | undefined;
 let resizeObserver: ResizeObserver | undefined;
 
+function graphLabel(value: string): string {
+  return value.replace(/(?<=[a-z0-9])(?=[A-Z])/gu, "\u200b");
+}
+
 function graphElements(): ElementDefinition[] {
   const componentIds = new Set(props.components.map((component) => component.id));
   const degrees = new Map<string, number>();
@@ -29,7 +35,7 @@ function graphElements(): ElementDefinition[] {
   const nodes: ElementDefinition[] = props.components.map((component) => ({
     data: {
       id: component.id,
-      label: component.effectiveName,
+      label: graphLabel(component.effectiveName),
       visibility: component.visibility,
       feature: component.feature ?? "shared",
       degree: degrees.get(component.id) ?? 0,
@@ -149,14 +155,22 @@ function renderGraph(): void {
       {
         selector: "node:selected",
         style: {
-          width: 39,
-          height: 39,
+          width: 42,
+          height: 42,
           "border-width": 4,
           "border-color": graphColors.selected,
           "overlay-color": graphColors.selectedOverlay,
           "overlay-opacity": 0.1,
           color: graphColors.selected,
           "font-size": 12,
+          "text-halign": "center",
+          "text-valign": "bottom",
+          "text-margin-y": 13,
+          "text-wrap": "wrap",
+          "text-max-width": "100px",
+          "text-background-padding": "5px",
+          "text-opacity": 1,
+          "z-index": 10,
         },
       },
       {
@@ -165,7 +179,17 @@ function renderGraph(): void {
       },
       {
         selector: ".neighbor",
-        style: { opacity: 1 },
+        style: {
+          opacity: 1,
+          "text-opacity": 0.45,
+        },
+      },
+      {
+        selector: "node:selected",
+        style: {
+          "text-opacity": 1,
+          "z-index": 10,
+        },
       },
     ],
     layout: {
@@ -193,7 +217,12 @@ function renderGraph(): void {
 }
 
 function selectCurrent(): void {
-  if (!cy || !props.selectedId) return;
+  if (!cy) return;
+  if (!props.selectedId) {
+    cy.elements().unselect();
+    cy.elements().removeClass("faded neighbor");
+    return;
+  }
   const node = cy.getElementById(props.selectedId);
   if (node.nonempty()) {
     cy.elements().unselect();
@@ -213,16 +242,14 @@ function fitGraph(): void {
   cy.animate({ fit: { eles: cy.nodes(), padding: 42 }, duration: 180 });
 }
 
-function fitSelection(): void {
+function fitSelection(offsetX = 0): void {
   if (!cy || !props.selectedId) return;
   const node = cy.getElementById(props.selectedId);
   if (node.empty()) return;
   cy.stop();
-  cy.animate({
-    center: { eles: node },
-    zoom: Math.min(1.25, Math.max(0.7, cy.zoom())),
-    duration: 180,
-  });
+  cy.center(node);
+  cy.zoom(Math.min(1.25, Math.max(0.7, cy.zoom())));
+  if (offsetX) cy.panBy({ x: offsetX, y: 0 });
 }
 
 function resetView(): void {
@@ -261,6 +288,6 @@ defineExpose({ fitGraph, fitSelection, resetView, resize: () => cy?.resize() });
     ref="container"
     class="atlas-graph"
     role="application"
-    aria-label="Interactive component relationship map"
+    :aria-label="t('Interactive component relationship map')"
   />
 </template>
