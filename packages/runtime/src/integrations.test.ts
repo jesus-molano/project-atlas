@@ -7,9 +7,11 @@ import {
   clearTaskEvaluations,
   getProjectCapabilities,
   listTaskEvaluations,
+  mapFigmaDesign,
   recordTaskEvaluation,
   reportProjectCapabilities,
   scanProject,
+  syncFigmaDesignVariables,
 } from "./index.js";
 
 const temporary: string[] = [];
@@ -111,5 +113,59 @@ describe("capability observations and private evaluation metrics", () => {
     ).rejects.toThrow("contextChars");
     expect(await clearTaskEvaluations(root)).toEqual({ cleared: 1 });
     expect(await listTaskEvaluations(root)).toEqual([]);
+  });
+
+  it("audits Variables access without treating a non-exposed field as absence", async () => {
+    const root = await fixture();
+    await scanProject(root, { writeArtifacts: false });
+    await mapFigmaDesign({
+      rootPath: root,
+      figmaUrl: "https://www.figma.com/design/CapabilityFixture/Capability",
+      metadata:
+        '<canvas id="1:1" name="Page"><frame id="2:1" name="Card" /></canvas>',
+      format: "figma-mcp-xml",
+    });
+    expect(
+      (await getProjectCapabilities(root)).observations.find(
+        (item) => item.id === "figma-variables",
+      ),
+    ).toMatchObject({
+      state: "not-exposed",
+      detail: expect.stringContaining("no absence is inferred"),
+    });
+
+    await syncFigmaDesignVariables({
+      rootPath: root,
+      figmaFile: "CapabilityFixture",
+      catalog: {
+        availability: "permission-required",
+        source: "none",
+      },
+    });
+    expect(
+      (await getProjectCapabilities(root)).observations.find(
+        (item) => item.id === "figma-variables",
+      ),
+    ).toMatchObject({
+      state: "permission-required",
+      detail: expect.stringContaining("no absence is inferred"),
+    });
+
+    await syncFigmaDesignVariables({
+      rootPath: root,
+      figmaFile: "CapabilityFixture",
+      catalog: {
+        availability: "selection-only",
+        source: "figma-selection",
+      },
+    });
+    expect(
+      (await getProjectCapabilities(root)).observations.find(
+        (item) => item.id === "figma-variables",
+      ),
+    ).toMatchObject({
+      state: "detected",
+      detail: expect.stringContaining("not a global Variables catalog"),
+    });
   });
 });

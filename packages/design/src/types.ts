@@ -1,4 +1,4 @@
-export const DESIGN_INDEX_SCHEMA_VERSION = 2 as const;
+export const DESIGN_INDEX_SCHEMA_VERSION = 3 as const;
 
 export type DesignMetadataFormat = "auto" | "figma-mcp-xml" | "figma-rest";
 export type DesignMetadataSource = Exclude<DesignMetadataFormat, "auto">;
@@ -98,38 +98,72 @@ export interface DesignComponentSummary {
   variantProperties: string[];
 }
 
+export type DesignVariableAvailability =
+  | "global"
+  | "selection-only"
+  | "unavailable"
+  | "permission-required";
+export type DesignVariableSource =
+  | "figma-desktop-mcp-global"
+  | "figma-variables-rest"
+  | "figma-selection"
+  | "none";
+export type DesignVariableDetailLevel = "catalog" | "expanded";
+export type DesignVariableResolvedType =
+  | "BOOLEAN"
+  | "FLOAT"
+  | "STRING"
+  | "COLOR"
+  | "UNKNOWN";
+export type DesignVariableOrigin = "local" | "remote";
+export interface DesignVariableColorValue {
+  r: number;
+  g: number;
+  b: number;
+  a?: number;
+}
 export type DesignVariableValue =
   | string
   | number
   | boolean
-  | { aliasTo: string }
-  | { summary: string };
+  | DesignVariableColorValue
+  | { aliasTo: string };
 
 export interface DesignVariableCollectionSummary {
   id: string;
   name: string;
   modes: Array<{ id: string; name: string }>;
+  defaultModeId?: string;
   variableCount: number;
   remoteVariables: number;
-  resolvedTypes: string[];
+  resolvedTypes: DesignVariableResolvedType[];
 }
 
 export interface DesignVariableToken {
   id: string;
   name: string;
   collectionId: string;
-  resolvedType: string;
-  origin: "local" | "remote";
+  resolvedType: DesignVariableResolvedType;
+  origin: DesignVariableOrigin;
   scopes: string[];
   valuesByMode?: Record<string, DesignVariableValue>;
 }
 
 export interface DesignVariableCatalog {
-  availability: "global" | "selection-only" | "unavailable";
-  source: "figma-variables-api" | "figma-selection" | "none";
+  availability: DesignVariableAvailability;
+  source: DesignVariableSource;
+  detailLevel: DesignVariableDetailLevel;
   valuesIncluded: boolean;
+  syncedAt?: string;
+  totalCollections: number;
+  totalVariables: number;
   collections: DesignVariableCollectionSummary[];
   variables: DesignVariableToken[];
+  truncated: {
+    collections: boolean;
+    variables: boolean;
+    values: boolean;
+  };
   note?: string;
 }
 
@@ -250,12 +284,20 @@ export interface DesignIndexSummary {
   devStatus: DesignFileIndex["devStatus"];
   variables: {
     availability: DesignVariableCatalog["availability"];
+    source: DesignVariableCatalog["source"];
+    detailLevel: DesignVariableCatalog["detailLevel"];
+    valuesIncluded: boolean;
+    syncedAt?: string;
+    totalCollections: number;
+    totalVariables: number;
+    truncated: DesignVariableCatalog["truncated"];
+    note?: string;
     collections: Array<{
       id: string;
       name: string;
       modes: string[];
       variableCount: number;
-      resolvedTypes: string[];
+      resolvedTypes: DesignVariableResolvedType[];
     }>;
   };
   findings: DesignFinding[];
@@ -369,4 +411,36 @@ export interface DesignNodeInspection {
     };
     instruction: string;
   };
+}
+
+export interface DesignVariableQueryOptions {
+  collectionId?: string;
+  variableIds?: string[];
+  includeVariables?: boolean;
+  includeValues?: boolean;
+  limit?: number;
+}
+
+export interface DesignVariableQueryResult {
+  file: DesignFileIndex["file"];
+  availability: DesignVariableCatalog["availability"];
+  source: DesignVariableCatalog["source"];
+  detailLevel: DesignVariableCatalog["detailLevel"];
+  valuesIncluded: boolean;
+  syncedAt?: string;
+  totalCollections: number;
+  totalVariables: number;
+  collections: DesignVariableCollectionSummary[];
+  variables: DesignVariableToken[];
+  expansion: {
+    requested: boolean;
+    persisted: boolean;
+    valuesRequested: boolean;
+    valuesPersisted: boolean;
+    requiresGlobalSync: boolean;
+  };
+  truncated: DesignVariableCatalog["truncated"] & {
+    response: boolean;
+  };
+  note?: string;
 }

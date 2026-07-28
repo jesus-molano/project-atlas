@@ -358,7 +358,7 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
       </section>
       <section>
         <span class="eyebrow">Global variables</span>
-        <h3>{{ activeFile?.variables.collections.length }} collections</h3>
+        <h3>{{ activeFile?.variables.totalCollections }} collections</h3>
         <p>{{ activeFile?.variables.note ?? "Availability follows the connected Figma permissions." }}</p>
         <div class="token-list">
           <div v-for="collection in activeFile?.variables.collections" :key="collection.id">
@@ -368,7 +368,15 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
         </div>
         <small>
           {{ activeFile?.variables.availability }} ·
-          {{ activeFile?.variables.valuesIncluded ? "values indexed" : "values on demand" }}
+          {{
+            activeFile?.variables.availability !== "global"
+              ? "no global catalog"
+              : activeFile?.variables.valuesIncluded
+                ? "exact values indexed"
+                : activeFile?.variables.detailLevel === "expanded"
+                  ? "names and types indexed"
+                  : "catalog only"
+          }}
         </small>
       </section>
       <section>

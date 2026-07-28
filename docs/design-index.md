@@ -21,8 +21,9 @@ Direct route:
 4. If it is a large screen/frame, use its sparse child metadata to identify the
    smallest task-relevant subtree. The outer frame is orientation, not the
    default deep-context target.
-5. Retrieve `get_design_context`, `get_screenshot`, and exact selection
-   variables only for that subtree.
+5. Retrieve `get_design_context` and `get_screenshot` only for that subtree.
+   Use expanded file-global Variables when available. `get_variable_defs` is
+   only a node/selection fallback when the audited state is `selection-only`.
 6. Reserve the response budget for the target. Shell, navigation, repeated
    assets, and peripheral siblings are omitted first. If the target cannot be
    isolated, ask for a manual selection instead of silently accepting a
@@ -52,8 +53,12 @@ never requests or stores the access token.
 - Figma MCP `get_metadata` XML or REST file JSON;
 - optional file version, modification date, and scope node;
 - optional parent page ID/name for section or frame-only snapshots;
-- optional enrichment for dev status/resources, libraries, Code Connect, and
-  global Variables.
+- optional enrichment for dev status/resources, libraries, and Code Connect.
+
+Variables can arrive with the initial map for backwards compatibility, but the
+normal route is the independent `sync_figma_variables` operation. This prevents
+an unchanged sparse metadata hash from hiding a Variables update and lets Atlas
+record access/permission changes without remapping nodes.
 
 The cache lives in the repository's Atlas SQLite database under local
 application data. An identical source/scope hash returns `unchanged`. New page
@@ -145,35 +150,59 @@ Findings have three levels:
    or boolean-heavy API before another prop is added. The finding explains how
    to verify it.
 3. `resolved`: keep low-impact fallbacks in the result without interrupting the
-   user. For example, missing global Variables access falls back to
-   `get_variable_defs` for the confirmed node.
+   user. For example, `selection-only` allows `get_variable_defs` for a
+   confirmed node, while explicitly stating that it is not the global catalog.
 
 This gate is shared by `frontend-task`. It does not turn every uncertainty into
 a question.
 
 ## Global Variables and modes
 
-The model supports a cheap file-level catalog:
+The model supports a bounded file-level catalog:
 
 - collection ID and name;
 - modes such as Light/Dark;
 - variable count and resolved types;
-- local or remote origin;
-- aliases and optional values by mode.
+- local or remote origin in an explicitly expanded result;
+- exact colors, scalars, strings, booleans, aliases, and values by mode only
+  when the authorized source returned them.
 
-The normal map summary exposes collections, modes, counts, and types—not every
-value. Exact values belong to the confirmed-node step. If a permitted Variables
-API response is supplied, Atlas can normalize its collections and variables;
-values are omitted unless the input explicitly marks them as included.
+The normal sync and query expose collections, modes, counts, and types—not every
+variable. Persistence is catalog-only by default. A caller must explicitly
+request `expanded` detail before names/types/origins/scopes are retained, and
+must separately mark exact values as included before Atlas retains values or
+aliases. Queries also omit persisted values unless `include_values` is
+explicitly requested. Inputs and responses have collection, variable, mode,
+value, and character-budget limits with truncation flags.
+
+Atlas audits four access states:
+
+- `global`: a confirmed file-global source returned the catalog;
+- `selection-only`: `get_variable_defs` is available for a concrete node or
+  selection, but no global catalog is available;
+- `permission-required`: the global read was denied by authorization, plan, or
+  account policy;
+- `unavailable`: no confirmed global read was exposed.
+
+`selection-only`, `permission-required`, and `unavailable` never mean that the
+file has no variables. A selection result is discarded from the global catalog
+shape, even if it happens to contain token names and values.
+
+As of this implementation, the documented Figma Desktop MCP tools include
+`get_variable_defs` for variables used by a selection/node, but no documented
+file-global Variables enumeration tool. Atlas therefore does not claim a
+Desktop-global read. It can accept one only if a future active Desktop MCP
+explicitly advertises and successfully returns that scope. The current Plugin
+API methods that enumerate local collections/variables are available through
+Figma's remote `use_figma` path, not the documented Desktop path, so they are
+not relabeled as Desktop evidence.
 
 The Figma `GET /v1/files/:file_key/variables/local` endpoint is currently
 Enterprise-gated, requires an eligible organization member/seat, view access to
 the file, and the `file_variables:read` scope. Corporate policy can still deny
-it. Atlas therefore records availability as `global`, `selection-only`, or
-`unavailable`. `selection-only` is a supported operating mode: continue with
-the sparse map and call `get_variable_defs` after node confirmation. Atlas never
-requests `file_variables:write` and never creates, edits, or publishes Figma
-variables.
+it. A caller may submit its authorized response as `figma-variables-rest`;
+Atlas never receives or persists the token. Atlas never requests
+`file_variables:write` and never creates, edits, or publishes Figma variables.
 
 ## Optional evidence
 
@@ -205,20 +234,23 @@ component-atlas figma find <root> <task> [--file <url-or-key>]
 component-atlas figma inspect <root> <url-or-key> <confirmed-node>
 ```
 
-MCP equivalents are `map_figma_file`, `list_figma_indexes`,
-`find_design_candidates`, and `inspect_design_node`.
+MCP equivalents are `map_figma_file`, `sync_figma_variables`,
+`get_figma_variables`, `list_figma_indexes`, `find_design_candidates`, and
+`inspect_design_node`.
 
 ## Validation boundary
 
-Fixtures validate REST and MCP XML normalization, incremental cache behavior,
-Ready for dev as an optional boost, ranking with zero Ready nodes,
-mobile/desktop ranking, Code Connect evidence, variable modes, and
-confirmed-node handoff. The remaining environment validation is to map one real
-team file and run five real tasks. That requires a file link or active selection
-plus read permission; it does not require Atlas to receive a token.
+Synthetic fixtures validate REST and MCP XML normalization, incremental cache
+behavior, Ready for dev as an optional boost, ranking with zero Ready nodes,
+mobile/desktop ranking, Code Connect evidence, all four Variables access
+states, bounded catalog/expanded persistence, exact color and alias
+normalization, MCP synchronization, and confirmed-node handoff. No test uses a
+real token or team file. Live validation of a future Desktop-global operation
+is deliberately deferred until Figma exposes and documents such an operation.
 
 ## Figma references
 
 - [MCP tools and prompts](https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/)
+- [Plugin API variable reads](https://developers.figma.com/docs/plugins/working-with-variables/)
 - [REST file endpoints](https://developers.figma.com/docs/rest-api/file-endpoints/)
 - [Variables REST endpoints](https://developers.figma.com/docs/rest-api/variables-endpoints/)

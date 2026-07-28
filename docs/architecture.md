@@ -101,8 +101,10 @@ not duplicate a full JSON result into the text channel.
 
 The Design Index is optional. It stores sparse node identity, hierarchy,
 dimensions, dev-status value and source availability, annotations, component/variant summaries, resource
-links, optional Code Connect evidence, and a cheap global variable catalog. It
-never stores screenshots or generated implementation code.
+links, optional Code Connect evidence, and a bounded global variable catalog.
+The default persists collection/mode summaries; expanded variable names,
+aliases, and exact values are stored only after an explicit authorized global
+read. It never stores screenshots or generated implementation code.
 
 `find_design_candidates` combines task terms, hierarchy, optional Ready for dev
 descriptions/status, annotations, contained components, optional Code Connect,

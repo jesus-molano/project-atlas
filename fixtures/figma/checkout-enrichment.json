@@ -27,6 +27,9 @@
     }
   ],
   "variableCatalog": {
+    "availability": "global",
+    "source": "figma-variables-rest",
+    "detailLevel": "catalog",
     "valuesIncluded": false,
     "meta": {
       "variableCollections": {

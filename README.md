@@ -117,7 +117,7 @@ never scans, uploads, or starts an agent until you confirm **Open project**.
 | Figma | Required only for a declared source-of-truth design | Continue for non-design work; ask for a link/selection when design is material |
 | GitHub | Useful for remote issues, PRs, or history | Continue with the local checkout |
 | Ready for dev | A ranking and confidence signal | Semantic design matching still works |
-| Global Variables | Useful for file-level collections and modes | Read variables from the confirmed node when available |
+| Global Variables | Useful for file-level collections and modes | Record the access state; a confirmed-node read is only a selection-scoped fallback, never an equivalent catalog |
 | Code Connect | Strong Figma-to-code evidence | Use semantic names, structure, imports, tests, and consumers |
 
 Almost every external source is optional. Missing optional capabilities do not

@@ -30,7 +30,10 @@ import {
   inspectDesignNode,
   isDesignSnapshotCurrent,
   mergeDesignIndexes,
+  normalizeDesignIndex,
+  normalizeDesignVariableCatalog,
   parseFigmaReference,
+  queryDesignVariables,
   rankDesignCandidates,
   type BuildFigmaDesignIndexInput,
   type DesignCandidateResult,
@@ -38,6 +41,8 @@ import {
   type DesignFinding,
   type DesignIndexSummary,
   type DesignNodeInspection,
+  type DesignVariableQueryOptions,
+  type DesignVariableQueryResult,
 } from "@component-atlas/design";
 import {
   AtlasStore,
@@ -96,6 +101,18 @@ export interface MapFigmaDesignResult {
   summary: DesignIndexSummary;
 }
 
+export interface SyncFigmaDesignVariablesInput {
+  rootPath: string;
+  figmaFile: string;
+  catalog: unknown;
+  syncedAt?: string;
+}
+
+export interface SyncFigmaDesignVariablesResult {
+  status: "updated" | "unchanged";
+  variables: DesignIndexSummary["variables"];
+}
+
 export interface TaskDesignCandidateResult extends DesignCandidateResult {
   task: string;
   project: {
@@ -105,6 +122,13 @@ export interface TaskDesignCandidateResult extends DesignCandidateResult {
   };
   designFile: DesignFileIndex["file"];
   atlasCandidates: ReturnType<typeof searchComponentContext>;
+}
+
+function variableCatalogFingerprint(
+  catalog: DesignFileIndex["variables"],
+): string {
+  const { syncedAt: _syncedAt, ...content } = catalog;
+  return JSON.stringify(content);
 }
 
 async function exists(filePath: string): Promise<boolean> {
@@ -828,15 +852,23 @@ export async function mapFigmaDesign(
       graph.project.id,
       incoming.file.key,
     );
+    const replaceVariables =
+      input.enrichment?.variableCatalog !== undefined;
+    const variablesChanged =
+      replaceVariables &&
+      (!existing ||
+        variableCatalogFingerprint(existing.variables) !==
+          variableCatalogFingerprint(incoming.variables));
     if (
       existing &&
       !input.force &&
-      isDesignSnapshotCurrent(existing, incoming)
+      isDesignSnapshotCurrent(existing, incoming) &&
+      !variablesChanged
     ) {
       return { status: "unchanged", summary: designIndexSummary(existing) };
     }
     const next = existing
-      ? mergeDesignIndexes(existing, incoming)
+      ? mergeDesignIndexes(existing, incoming, { replaceVariables })
       : incoming;
     store.saveDesignIndex(graph.project.id, next);
     return {
@@ -846,6 +878,68 @@ export async function mapFigmaDesign(
   } finally {
     store.close();
   }
+}
+
+export async function syncFigmaDesignVariables(
+  input: SyncFigmaDesignVariablesInput,
+): Promise<SyncFigmaDesignVariablesResult> {
+  const rootPath = path.resolve(input.rootPath);
+  const graph = await loadProjectGraph(rootPath);
+  const reference = parseFigmaReference(input.figmaFile);
+  const store = new AtlasStore(graph.project.id);
+  try {
+    const existing = store.loadDesignIndex(
+      graph.project.id,
+      reference.fileKey,
+    );
+    if (!existing) {
+      throw new Error(
+        `No Design Index exists for Figma file ${reference.fileKey}. Map sparse metadata before synchronizing Variables.`,
+      );
+    }
+    const syncedAt = input.syncedAt ?? new Date().toISOString();
+    if (!Number.isFinite(Date.parse(syncedAt))) {
+      throw new Error("Variables syncedAt must be a valid date-time.");
+    }
+    const variables = normalizeDesignVariableCatalog(input.catalog, syncedAt);
+    if (
+      variables.syncedAt &&
+      !Number.isFinite(Date.parse(variables.syncedAt))
+    ) {
+      throw new Error("Variables catalog syncedAt must be a valid date-time.");
+    }
+    if (
+      variableCatalogFingerprint(existing.variables) ===
+      variableCatalogFingerprint(variables)
+    ) {
+      const next =
+        existing.variables.syncedAt === variables.syncedAt
+          ? existing
+          : normalizeDesignIndex({ ...existing, variables });
+      if (next !== existing) store.saveDesignIndex(graph.project.id, next);
+      return {
+        status: "unchanged",
+        variables: designIndexSummary(next).variables,
+      };
+    }
+    const next = normalizeDesignIndex({ ...existing, variables });
+    store.saveDesignIndex(graph.project.id, next);
+    return {
+      status: "updated",
+      variables: designIndexSummary(next).variables,
+    };
+  } finally {
+    store.close();
+  }
+}
+
+export async function getFigmaDesignVariables(
+  rootPath: string,
+  figmaFile: string,
+  options: DesignVariableQueryOptions = {},
+): Promise<DesignVariableQueryResult> {
+  const index = await loadFigmaDesignIndex(rootPath, figmaFile);
+  return queryDesignVariables(index, options);
 }
 
 export async function listFigmaDesignIndexes(
