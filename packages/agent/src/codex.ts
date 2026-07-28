@@ -268,6 +268,25 @@ function buildPrompt(request: AgentRunRequest): string {
           )
           .join("\n")
       : "- Empty: no source connector is authorized for this task.";
+  const confirmedFigmaSources = request.sourceDecisions
+    .filter(
+      (source) => source.kind === "figma" && source.state === "confirmed",
+    )
+    .map((source) => `  - ${source.reference}`);
+  const figmaIngestion =
+    confirmedFigmaSources.length > 0
+      ? [
+          "Confirmed Figma ingestion (required before repository investigation):",
+          ...confirmedFigmaSources,
+          "- Connect to and use Figma Desktop MCP, the local MCP server exposed by the Figma desktop application, when it is available and authorized.",
+          "- For each confirmed reference, read sparse metadata with the appropriate Figma Desktop MCP operation (`get_metadata` for the supported file, page, or node scope), then immediately call Project Atlas `map_figma_file` with the exact project root, confirmed reference, and returned metadata.",
+          "- `map_figma_file` is required even for a direct node reference: it persists the sparse nodes and relationships in Design Atlas before code components are created or the task finishes.",
+          "- Codex/Figma skills are instructions or operation prerequisites only; they never replace or precede the Figma Desktop MCP route.",
+          "- Use another connector, manual selection, or supplied evidence only when Figma Desktop MCP is not connected, not authorized, or does not cover the operation. Report that condition explicitly and never fabricate metadata from the URL.",
+          "- After mapping, refresh Project Atlas task/design context before continuing.",
+          "",
+        ]
+      : [];
   const answer = request.answer
     ? `\nMaterial answer supplied by the user:\n${request.answer}\n`
     : "";
@@ -288,6 +307,7 @@ function buildPrompt(request: AgentRunRequest): string {
     "Reviewed compact Project Atlas context:",
     request.compactContext || '{"status":"no-local-context"}',
     "",
+    ...figmaIngestion,
     "Execution rules:",
     `- Work only in ${request.rootPath}.`,
     `- This turn is ${request.sandbox}.`,

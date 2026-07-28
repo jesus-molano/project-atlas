@@ -9,13 +9,18 @@ A new task starts in the Task Workbench before Codex runs:
 
 1. Atlas classifies risk from the objective.
 2. Small repository-only changes continue without a requirements interview.
-3. Medium/high-risk objectives require an explicit scope confirmation.
+3. Medium/high-risk objectives require an explicit scope confirmation. Every
+   new high-risk task first gets one grouped Jira, Confluence, Figma, and
+   OpenAPI/Swagger source confirmation before repository investigation, even
+   when no reference or connector was detected. Each source can be confirmed,
+   supplied/replaced, or explicitly omitted.
 4. Every detected Jira, Confluence, Figma, GitHub, OpenAPI/Swagger, or other
    reference starts `pending`. An unequivocal instruction to use one exact
    OpenAPI specification may count as confirmation.
 5. The user confirms it, replaces/adds a source, omits it, or marks it
    unavailable. Optional omitted sources never block the task.
-6. Only confirmed sources enter task context or authorize connector access.
+6. Only confirmed sources enter task context or authorize connector access;
+   connector health, credentials, and searches are not probed beforehand.
    OpenAPI is loaded directly only after confirmation; Atlas extracts a bounded
    task-relevant subset of operations, parameters, schemas, responses, and
    authentication instead of injecting the full specification.

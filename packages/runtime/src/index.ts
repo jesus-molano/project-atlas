@@ -415,7 +415,10 @@ function isComponentSource(file: string, framework: Framework): boolean {
   if (framework === "vue") {
     return (
       /\.vue$/i.test(file) &&
-      /(^|\/)(?:app\/)?(?:components|pages|layouts)\//i.test(file)
+      (
+        /(^|\/)(?:app\/)?(?:components|pages|layouts)\//i.test(file) ||
+        /^(?:src\/)?app\.vue$/i.test(file)
+      )
     );
   }
   return (

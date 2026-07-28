@@ -74,6 +74,33 @@ describe("desktop evidence workspace contract", () => {
     expect(workbench).toContain("Context inspector");
   });
 
+  it("explains and live-refreshes confirmed Figma ingestion", async () => {
+    const [page, design, workbench, agent] = await Promise.all([
+      source("apps/viewer/app/pages/index.vue"),
+      source("apps/viewer/app/components/DesignAtlasView.vue"),
+      source("apps/viewer/app/components/TaskWorkbenchView.vue"),
+      source("packages/agent/src/codex.ts"),
+    ]);
+    for (const status of [
+      "Figma · loading",
+      "Figma · available",
+      "Figma · no access or sync error",
+      "Figma · confirmed, not synchronized",
+    ]) {
+      expect(workbench).toContain(status);
+    }
+    expect(workbench).toContain('emit("workspaceChanged")');
+    expect(workbench).toContain("pendingFigmaSources");
+    expect(page).toContain('@workspace-changed="refreshSnapshot"');
+    expect(page).toContain(':sync-state="designSyncState"');
+    expect(design).toContain("Synchronizing confirmed Figma source");
+    expect(design).toContain("Figma source could not be synchronized");
+    expect(design).toContain("Figma source confirmed, not synchronized");
+    expect(agent).toContain("Confirmed Figma ingestion");
+    expect(agent).toContain("Figma Desktop MCP");
+    expect(agent).toContain("`map_figma_file`");
+  });
+
   it("keeps Action Center resolutions evidence-bound and human-gated", async () => {
     const [view, domain, server, actionRoute, bulkRoute, workbench] =
       await Promise.all([

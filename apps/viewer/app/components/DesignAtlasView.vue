@@ -9,6 +9,15 @@ import type {
 const props = defineProps<{
   indexes: DesignFileIndex[];
   initialNodeId?: string;
+  syncState?: {
+    status:
+      | "idle"
+      | "confirmed-unsynced"
+      | "loading"
+      | "available"
+      | "error";
+    message: string;
+  };
 }>();
 const emit = defineEmits<{
   useInTask: [handle: string, intent: string];
@@ -76,6 +85,24 @@ const durableResources = computed(() =>
     }
   }),
 );
+const emptyStateTitle = computed(() => {
+  if (props.syncState?.status === "loading") {
+    return "Synchronizing confirmed Figma source";
+  }
+  if (props.syncState?.status === "error") {
+    return "Figma source could not be synchronized";
+  }
+  if (props.syncState?.status === "confirmed-unsynced") {
+    return "Figma source confirmed, not synchronized";
+  }
+  return "No design metadata is indexed";
+});
+const emptyStateCopy = computed(() => {
+  if (props.syncState && props.syncState.status !== "idle") {
+    return props.syncState.message;
+  }
+  return "Add a Figma file or page in the Task Workbench. Atlas builds a sparse map first and uses Ready for Dev only as an optional confidence signal.";
+});
 
 function selectInitialNode(value: string | undefined): void {
   if (!value) return;
@@ -162,16 +189,15 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
 <template>
   <div v-if="!indexes.length" class="section-empty">
     <AtlasIcon name="design" />
-    <h2>No design metadata is indexed</h2>
-    <p>
-      Add a Figma file or page in the Task Workbench. Atlas builds a sparse map
-      first and uses Ready for Dev only as an optional confidence signal.
-    </p>
+    <span v-if="syncState?.status === 'loading'" class="mini-loader" />
+    <h2>{{ emptyStateTitle }}</h2>
+    <p>{{ emptyStateCopy }}</p>
     <button
       class="primary-button"
+      :disabled="syncState?.status === 'loading'"
       @click="emit('prepareTask', 'Map a Figma file or page for this project.')"
     >
-      Map a Figma file
+      {{ syncState?.status === "error" ? "Review Figma access" : "Map a Figma file" }}
     </button>
   </div>
 

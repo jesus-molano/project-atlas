@@ -34,6 +34,9 @@
       "expected": {
         "atlas": "compact-context",
         "figma": "confirm-reference-then-inspect-node",
+        "figmaRoute": "figma-desktop-mcp-first",
+        "codexFigmaSkillRole": "instructions-or-operation-prerequisite",
+        "fallbackOnlyWhen": ["desktop-mcp-not-connected", "desktop-mcp-unauthorized", "operation-unsupported"],
         "readyForDevRequired": false,
         "questionMode": "source-confirmation",
         "gate": "confirm-explicit-source-before-connector"
@@ -69,7 +72,8 @@
       "sources": ["conversation", "repository", "specification", "design-node-url"],
       "expected": {
         "risk": "high",
-        "checkpoint": "required-before-edit",
+        "checkpoint": "required-during-planning-before-investigation",
+        "sourceIntake": "grouped-jira-confluence-figma-openapi",
         "decision": "immediate-persistence-vs-save",
         "questionMode": "native-selector-or-one-chat-question",
         "maxQuestions": 3
@@ -81,7 +85,8 @@
       "sources": ["conversation", "repository", "ticket-url", "specification-url", "design-node-url"],
       "expected": {
         "risk": "high",
-        "checkpoint": "required-before-edit",
+        "checkpoint": "required-during-planning-before-investigation",
+        "sourceIntake": "grouped-jira-confluence-figma-openapi",
         "linksCountAsConfirmation": false,
         "questionMode": "native-selector-or-one-chat-question"
       }
@@ -92,9 +97,47 @@
       "sources": ["conversation", "repository"],
       "expected": {
         "risk": "high",
-        "checkpoint": "satisfied-by-current-turn-confirmation",
+        "checkpoint": "required-during-planning-before-investigation",
+        "sourceIntake": "grouped-jira-confluence-figma-openapi",
+        "productDecisionCheckpoint": "satisfied-by-current-turn-confirmation",
         "confirmedDecision": "immediate-persistence",
-        "questionMode": "none-for-confirmed-decision"
+        "questionMode": "grouped-source-confirmation-only"
+      }
+    },
+    {
+      "id": "new-high-risk-biometry-reuse-example-no-links",
+      "request": "En Problem Tags, igual que en Back Office, habilitar biometría para el doble factor.",
+      "sources": ["conversation", "repository", "prior-flow-reference"],
+      "capabilities": [],
+      "expected": {
+        "mode": "new",
+        "priorFlowReference": "reuse-evidence-not-continuation",
+        "risk": "high",
+        "checkpoint": "required-during-planning-before-investigation",
+        "sourceIntake": "one-grouped-confirmation",
+        "groupedSources": ["jira", "confluence", "figma", "openapi"],
+        "perSourceChoices": ["confirm", "provide-or-replace", "continue-without"],
+        "emptySourceLedgerSatisfiesCheckpoint": false,
+        "openapiClassification": "recommended",
+        "connectorProbeBeforeConfirmation": false,
+        "absentSourceMeansNotNeeded": false
+      }
+    },
+    {
+      "id": "required-openapi-contract-not-yet-linked",
+      "request": "Implementa la integración de autenticación biométrica contra el contrato Swagger que consumirá el frontend; todavía no tengo el enlace.",
+      "sources": ["conversation", "repository"],
+      "capabilities": [],
+      "expected": {
+        "mode": "new",
+        "risk": "high",
+        "checkpoint": "required-during-planning-before-investigation",
+        "sourceIntake": "one-grouped-confirmation",
+        "groupedSources": ["jira", "confluence", "figma", "openapi"],
+        "emptySourceLedgerSatisfiesCheckpoint": false,
+        "openapiClassification": "required",
+        "omitOpenapiOutcome": "blocked-no-contract-invention",
+        "connectorProbeBeforeConfirmation": false
       }
     },
     {

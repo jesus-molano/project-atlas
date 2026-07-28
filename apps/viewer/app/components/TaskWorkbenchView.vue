@@ -21,6 +21,7 @@ import {
   type ProjectIdentityMetadata,
 } from "@component-atlas/core/browser";
 import type { DesignFileIndex } from "@component-atlas/design";
+import { parseFigmaReference } from "@component-atlas/design/browser";
 import {
   capabilityDisplayState,
   isSimulatedCapability,
@@ -78,6 +79,18 @@ interface RunResponse {
   nextCursor: number;
 }
 
+type FigmaSyncStatus =
+  | "idle"
+  | "confirmed-unsynced"
+  | "loading"
+  | "available"
+  | "error";
+
+interface FigmaSyncState {
+  status: FigmaSyncStatus;
+  message: string;
+}
+
 const props = defineProps<{
   designIndexes: DesignFileIndex[];
   capabilities: ProjectCapabilityReport;
@@ -96,6 +109,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   updateTask: [value: string];
+  workspaceChanged: [];
+  figmaSyncState: [value: FigmaSyncState];
 }>();
 
 const task = ref(props.initialTask ?? "");
@@ -115,6 +130,8 @@ const agentStatus = ref<AgentAdapterStatus>();
 const agentToken = ref("");
 const actions = ref<ActionCapabilityManifest[]>([]);
 const activeRun = ref<RunResponse>();
+const figmaSyncAttemptRunId = ref<string>();
+const figmaSyncAttemptSourceIds = ref<string[]>([]);
 const runEvents = ref<Array<{ cursor: number; event: AgentRunEvent }>>([]);
 const runError = ref("");
 const launchReviewOpen = ref(false);
@@ -154,12 +171,88 @@ const sourceCounts = computed(() => ({
     (source) => source.state === "unavailable",
   ).length,
 }));
+const confirmedFigmaSources = computed(() =>
+  sourceDecisions.value.filter(
+    (source) => source.kind === "figma" && source.state === "confirmed",
+  ),
+);
+const indexedFigmaKeys = computed(
+  () => new Set(props.designIndexes.map((index) => index.file.key)),
+);
+const pendingFigmaSources = computed(() =>
+  confirmedFigmaSources.value.filter((source) => {
+    const key = figmaFileKey(source.reference);
+    return !key || !indexedFigmaKeys.value.has(key);
+  }),
+);
+const figmaSyncState = computed<FigmaSyncState>(() => {
+  if (!confirmedFigmaSources.value.length) {
+    return { status: "idle", message: "No Figma source confirmed for this task." };
+  }
+  const attemptCoversConfirmed = confirmedFigmaSources.value.every((source) =>
+    figmaSyncAttemptSourceIds.value.includes(source.id),
+  );
+  const attemptedRun =
+    attemptCoversConfirmed && activeRun.value?.id === figmaSyncAttemptRunId.value
+      ? activeRun.value
+      : undefined;
+  if (attemptedRun && ["queued", "running"].includes(attemptedRun.state)) {
+    return {
+      status: "loading",
+      message: "Synchronizing the confirmed source through Figma Desktop MCP.",
+    };
+  }
+  if (attemptedRun && ["failed", "cancelled"].includes(attemptedRun.state)) {
+    return {
+      status: "error",
+      message:
+        "Figma source could not be synchronized. Check Figma Desktop MCP access and the agent result.",
+    };
+  }
+  if (!pendingFigmaSources.value.length) {
+    return {
+      status: "available",
+      message: "Design Atlas available from the confirmed Figma source.",
+    };
+  }
+  if (
+    attemptedRun &&
+    attemptedRun.state === "completed"
+  ) {
+    return {
+      status: "error",
+      message:
+        "Figma source could not be synchronized. Check Figma Desktop MCP access and the agent result.",
+    };
+  }
+  return {
+    status: "confirmed-unsynced",
+    message:
+      "Figma source confirmed, not synchronized. Start Codex preparation to ingest it.",
+  };
+});
+const figmaSyncLabel = computed(() => {
+  if (figmaSyncState.value.status === "loading") return "Figma · loading";
+  if (figmaSyncState.value.status === "available") return "Figma · available";
+  if (figmaSyncState.value.status === "error") {
+    return "Figma · no access or sync error";
+  }
+  return "Figma · confirmed, not synchronized";
+});
 const taskSessionKey = computed(
   () =>
     `atlas-task:${props.identity?.logicalId ?? props.projectName}:${
       props.identity?.checkoutId ?? props.projectRoot
     }`,
 );
+
+function figmaFileKey(reference: string): string | undefined {
+  try {
+    return parseFigmaReference(reference.replace(/^figma:/, "")).fileKey;
+  } catch {
+    return undefined;
+  }
+}
 
 const capabilitySummary = computed(() =>
   props.capabilities.observations.filter(
@@ -369,6 +462,12 @@ async function startRun(): Promise<void> {
         expectedFingerprint: props.workspaceFingerprint,
       },
     });
+    if (confirmedFigmaSources.value.length) {
+      figmaSyncAttemptRunId.value = activeRun.value.id;
+      figmaSyncAttemptSourceIds.value = confirmedFigmaSources.value.map(
+        (source) => source.id,
+      );
+    }
     pollRun();
   } catch (caught) {
     runError.value = caught instanceof Error ? caught.message : "Codex did not start.";
@@ -384,6 +483,9 @@ async function pollRun(): Promise<void> {
     );
     activeRun.value = response;
     runEvents.value.push(...response.events);
+    if (response.id === figmaSyncAttemptRunId.value) {
+      emit("workspaceChanged");
+    }
     if (
       props.localMetricsEnabled &&
       response.state === "completed" &&
@@ -495,6 +597,8 @@ function newTask(): void {
   sourceDecisions.value = [];
   context.value = undefined;
   activeRun.value = undefined;
+  figmaSyncAttemptRunId.value = undefined;
+  figmaSyncAttemptSourceIds.value = [];
   runEvents.value = [];
   runError.value = "";
   sessionStorage.removeItem(taskSessionKey.value);
@@ -512,6 +616,8 @@ function persistTaskSession(): void {
       sourceDecisions: sourceDecisions.value,
       context: context.value,
       activeRun: activeRun.value,
+      figmaSyncAttemptRunId: figmaSyncAttemptRunId.value,
+      figmaSyncAttemptSourceIds: figmaSyncAttemptSourceIds.value,
       runEvents: runEvents.value,
       budgetChars: budgetChars.value,
       topK: topK.value,
@@ -532,6 +638,8 @@ function restoreTaskSession(): void {
       sourceDecisions?: TaskSourceDecision[];
       context?: CompactContext;
       activeRun?: RunResponse;
+      figmaSyncAttemptRunId?: string;
+      figmaSyncAttemptSourceIds?: string[];
       runEvents?: Array<{ cursor: number; event: AgentRunEvent }>;
       budgetChars?: number;
       topK?: number;
@@ -543,6 +651,8 @@ function restoreTaskSession(): void {
     sourceDecisions.value = saved.sourceDecisions ?? [];
     context.value = saved.context;
     activeRun.value = saved.activeRun;
+    figmaSyncAttemptRunId.value = saved.figmaSyncAttemptRunId;
+    figmaSyncAttemptSourceIds.value = saved.figmaSyncAttemptSourceIds ?? [];
     runEvents.value = saved.runEvents ?? [];
     budgetChars.value = saved.budgetChars ?? budgetChars.value;
     topK.value = saved.topK ?? topK.value;
@@ -606,6 +716,8 @@ watch(
     sourceDecisions,
     context,
     activeRun,
+    figmaSyncAttemptRunId,
+    figmaSyncAttemptSourceIds,
     runEvents,
     budgetChars,
     topK,
@@ -613,6 +725,11 @@ watch(
   ],
   persistTaskSession,
   { deep: true },
+);
+watch(
+  figmaSyncState,
+  (value) => emit("figmaSyncState", value),
+  { deep: true, immediate: true },
 );
 watch(
   () => props.initialTask,
@@ -745,6 +862,19 @@ onBeforeUnmount(() => {
           <button class="secondary-button" :disabled="!sourceValue.trim()" @click="addSource">
             Add
           </button>
+        </div>
+      </div>
+
+      <div
+        v-if="figmaSyncState.status !== 'idle'"
+        :class="['figma-sync-band', figmaSyncState.status]"
+        role="status"
+      >
+        <span v-if="figmaSyncState.status === 'loading'" class="mini-loader" />
+        <AtlasIcon v-else :name="figmaSyncState.status === 'available' ? 'check' : 'design'" />
+        <div>
+          <strong>{{ figmaSyncLabel }}</strong>
+          <span>{{ figmaSyncState.message }}</span>
         </div>
       </div>
 
@@ -912,7 +1042,11 @@ onBeforeUnmount(() => {
             :disabled="agentStatus?.state !== 'detected'"
             @click="reviewLaunch('read-only')"
           >
-            Prepare with Codex
+            {{
+              confirmedFigmaSources.length
+                ? "Prepare with Codex & sync Figma"
+                : "Prepare with Codex"
+            }}
           </button>
         </section>
 

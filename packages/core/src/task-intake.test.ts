@@ -25,6 +25,17 @@ describe("task intake", () => {
       level: "medium",
       requiresObjectiveConfirmation: true,
     });
+    expect(
+      assessTaskRisk(
+        "En Problem Tags, igual que en Back Office, habilitar biometría para el doble factor.",
+      ),
+    ).toMatchObject({
+      level: "high",
+      reasons: expect.arrayContaining([
+        "Biometric or multi-factor authentication",
+      ]),
+      requiresObjectiveConfirmation: true,
+    });
   });
 
   it("detects links and inferred issue keys without confirming them", () => {

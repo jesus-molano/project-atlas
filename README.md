@@ -44,10 +44,11 @@ That is the recommended workflow. You do not need to run `scan`, `memory`,
 
 1. detects the current repository, task text, explicit links, and capabilities
    that are actually connected;
-2. classifies repository, Atlas, Jira/Confluence, Figma, and GitHub for this
-   specific task;
-3. confirms every detected external reference before connector access and asks
-   about objective scope only when risk or ambiguity warrants it;
+2. classifies repository, Atlas, Jira/Confluence, Figma, Swagger/OpenAPI, and
+   GitHub for this specific task;
+3. confirms every detected external reference before connector access; every
+   new high-risk task first gets one grouped Jira, Confluence, Figma, and
+   Swagger/OpenAPI intake even when no links or connectors were detected;
 4. scans the local code with Code Atlas;
 5. indexes existing allowed Project Memory when the project has any;
 6. uses Design Atlas only when Figma is relevant and a file, page, or node is

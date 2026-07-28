@@ -1,10 +1,15 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { scanProject } from "./index.js";
 
 const temporary: string[] = [];
+const vueSrcFixture = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../fixtures/vue-src",
+);
 
 afterEach(async () => {
   delete process.env.COMPONENT_ATLAS_HOME;
@@ -16,6 +21,46 @@ afterEach(async () => {
 });
 
 describe("incremental repository scans", () => {
+  it("indexes every existing Vue src component and route before task deltas", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-vue-src-"));
+    const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
+    temporary.push(root, dataHome);
+    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    await cp(vueSrcFixture, root, { recursive: true });
+
+    const initial = await scanProject(root, { writeArtifacts: false });
+    expect(initial.project.scan?.mode).toBe("full");
+    expect(initial.components).toHaveLength(6);
+    expect(initial.components.map((component) => component.relativePath)).toEqual(
+      expect.arrayContaining([
+        "src/app.vue",
+        "src/components/account/AccountCard.vue",
+        "src/components/ui/BaseButton.vue",
+        "src/layouts/DefaultLayout.vue",
+        "src/pages/HomePage.vue",
+        "src/pages/settings/SettingsPage.vue",
+      ]),
+    );
+    expect(initial.components.filter((component) => component.kind === "route"))
+      .toHaveLength(2);
+
+    await writeFile(
+      path.join(root, "src", "components", "account", "TaskCreatedBadge.vue"),
+      "<template><span>New</span></template>",
+    );
+    const incremental = await scanProject(root, { writeArtifacts: false });
+    expect(incremental.project.scan?.mode).toBe("incremental");
+    expect(incremental.components).toHaveLength(7);
+    expect(
+      incremental.components.filter((component) => component.kind === "route"),
+    ).toHaveLength(2);
+    expect(
+      incremental.components.some(
+        (component) => component.relativePath === "src/pages/HomePage.vue",
+      ),
+    ).toBe(true);
+  }, 15_000);
+
   it("reuses unchanged snapshots, reparses component deltas, and falls back safely", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-incremental-"));
     const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));

@@ -1,55 +1,79 @@
 ---
 name: frontend-task
-description: Prepare and execute frontend tasks from repository and conversation context plus any optional Jira, Confluence, Figma, screenshot, or pasted evidence. Use when the user says "prepara esta tarea", asks to implement or review frontend UI, supplies a design or ticket, or needs requirements clarified and existing Vue, Nuxt, React, or Next components evaluated before code changes.
+description: Prepare and execute frontend tasks from repository and conversation context plus any optional Jira, Confluence, Figma, Swagger/OpenAPI, screenshot, or pasted evidence. Use when the user says "prepara esta tarea", asks to implement or review frontend UI, supplies a design, ticket, or API contract, or needs requirements clarified and existing Vue, Nuxt, React, or Next components evaluated before code changes.
 ---
 
 # Frontend Task
 
 Turn uneven task evidence into a minimal implementation brief, make an explicit
 reuse decision, and scale questions and verification to actual risk. Repository
-and conversation are the baseline; every external source is optional.
+and conversation are the baseline; never assume an external source exists.
 
 ## Prepare the task
 
-1. Detect whether this is a new task or a continuation/correction. Treat
-   “continue”, “correct”, “finish what is pending”, a dirty worktree, or
-   relevant prior outcome as a continuation signal. Follow
-   `references/continuation-mode.md` before repeating source onboarding.
+1. Detect whether this is a new task or a continuation/correction. Default to
+   `new`. Enter continuation mode only when the user unequivocally says they
+   are resuming, correcting, or finishing the same task and the prior objective
+   can be tied to it. A dirty worktree, prior outcome, or reference to an
+   earlier flow, component, screen, or implementation is reuse evidence, not a
+   continuation signal by itself. Follow `references/continuation-mode.md`
+   only after establishing same-task identity.
 2. Run the cheap source/capability precheck in
    `references/source-precheck.md`. Detect the repository, task text, explicit
-   source links/IDs, and callable capabilities before asking anything.
+   source links/IDs (including Swagger/OpenAPI), and callable capabilities
+   before asking anything.
    A detected or inferred external reference starts as `pending`, never as
    permission to access a connector.
-3. Classify repository, Figma, Jira, Confluence, Atlas, and GitHub for this task
-   as `required`, `recommended`, `optional`, `unavailable`, or
-   `not-applicable`, with one short reason. Atlas is always optional.
-4. Show a compact task intake proportional to risk. For each detected external
-   reference ask whether it is the correct source, and allow the user to
-   confirm it, replace it, add another source, or continue without it. In the
-   Project Atlas GUI, use the source ledger already presented by the Workbench;
-   outside it, use one grouped native selector or brief chat question. Never
-   access a connector while its source is pending, omitted, or unavailable.
-5. Read repository instructions and determine the target package, framework,
-   validation commands, and likely ownership boundary.
-6. Inventory only sources actually present:
-   - conversation, pasted text, local files, screenshots, and repository;
-   - Jira or Confluence when a link or connected source is available;
-   - Figma when a node, selection, page, file, screenshot, or cached Design
-     Index exists.
-7. Never require a fixed Jira-to-Confluence-to-Figma chain. Do not block because
-   a connector, credential, Dev Mode, Ready for dev, or global Variables access
-   is absent.
-   Optional sources that the user omits or marks unavailable are resolved
-   choices, not blockers.
-8. Build the brief defined in `references/brief-contract.md`. Keep unknowns
-   explicit; do not fill them with invented product behavior.
-9. Classify risk:
+3. Classify risk before investigation:
    - low: localized visual or copy change with an established pattern;
    - medium: new states, responsive behavior, component API change, or several
      consumers;
    - high: authentication, biometrics, privacy or personal data, permissions,
      destructive or financial flows, accessibility-critical interaction,
      cross-feature/shared API, conflicting sources, or unclear target.
+4. Classify repository, Figma, Jira, Confluence, Swagger/OpenAPI, Atlas, and
+   GitHub for this task as `required`, `recommended`, `optional`,
+   `unavailable`, or `not-applicable`, with one short reason. Atlas is always
+   optional. Swagger/OpenAPI is recommended for API integration,
+   authentication, or biometrics and required when it is the contract of the
+   API the frontend must consume.
+5. Show a compact task intake proportional to risk:
+   - For every **new high-risk task**, make the first checkpoint during
+     preparation/planning, immediately after this cheap classification and
+     before repository investigation or external retrieval. Ask one grouped
+     confirmation covering Jira, Confluence, Figma, and Swagger/OpenAPI even
+     when no links or connectors were detected. For each source, allow the user
+     to confirm a detected reference, provide or replace it, or explicitly
+     continue without it. Do not claim that an absent or undetected source is
+     unnecessary.
+   - Otherwise, resolve each detected external reference with the same choices
+     when it can materially affect the task.
+   In the Project Atlas GUI, use the source ledger already presented by the
+   Workbench only for decisions it actually records. For a new high-risk task,
+   an empty or detected-links-only ledger does not satisfy the checkpoint: it
+   must record an explicit decision for Jira, Confluence, Figma, and
+   Swagger/OpenAPI. Ask one grouped question for any unresolved rows. Outside
+   the GUI, use one grouped native selector or one brief grouped chat question.
+   Never access or probe a connector while its source is pending, omitted, or
+   unavailable.
+6. Read repository instructions and determine the target package, framework,
+   validation commands, and likely ownership boundary.
+7. Inventory only sources actually present:
+   - conversation, pasted text, local files, screenshots, and repository;
+   - Jira or Confluence when a link or connected source is available;
+   - Figma when a node, selection, page, file, screenshot, or cached Design
+     Index exists;
+   - Swagger/OpenAPI when a confirmed URL, local contract, or pasted contract
+     is available.
+8. Never require a fixed Jira-to-Confluence-to-Figma-to-OpenAPI chain. Do not
+   block because a connector, credential, Dev Mode, Ready for dev, or global
+   Variables access is absent.
+   Optional sources that the user omits or marks unavailable are resolved
+   choices, not blockers. If the API contract is required, choosing to continue
+   without it is a valid intake decision but leaves preparation blocked rather
+   than authorizing invented request or response behavior.
+9. Build the brief defined in `references/brief-contract.md`. Keep unknowns
+   explicit; do not fill them with invented product behavior.
 
 ## Apply the decision and uncertainty gate
 
@@ -58,13 +82,17 @@ assumption. Surface a warning with evidence and a recommendation for suspected
 duplication, inconsistent variants, suspicious props, missing states, or weak
 Figma/code alignment.
 
-Before editing, apply this checkpoint policy:
+Apply this checkpoint policy during preparation/planning:
 
-- High risk always requires a checkpoint in the current turn. Present the
-  provisional brief, detected sources or conflicts, and each material decision.
-  If no decision remains unresolved, still request explicit confirmation to
-  proceed. Links, a long earlier conversation, or prior task context do not
-  count as current-turn confirmation.
+- A new high-risk task always requires the grouped four-source intake checkpoint
+  before investigation, as defined above. After resolving source choices,
+  present the provisional brief, source conflicts, and material product
+  decisions during planning. If no material decision remains unresolved, still
+  request explicit confirmation of the prepared scope before implementation.
+  A later pre-edit/write confirmation may enforce permissions, but it must not
+  be the first high-risk checkpoint. Links, a long earlier conversation, prior
+  task context, or a referenced earlier implementation do not count as
+  current-turn confirmation.
 - Medium risk requires a checkpoint when sources conflict, persistence versus
   cancel/save semantics are unclear, states are missing, the target is
   uncertain, or a shared API changes.
@@ -80,6 +108,8 @@ native selector. Otherwise ask one brief grouped question in chat and wait.
 Ask one question by default and never more than three material questions. A
 decision explicitly confirmed by the user in the current turn satisfies that
 specific checkpoint; record the evidence in the brief and do not ask it again.
+Once the user explicitly omits an optional source, do not ask for it again
+unless the scope changes or the user reopens that source.
 
 Each question must contain:
 
@@ -126,15 +156,38 @@ exact MCP/CLI routes or fallbacks are needed.
 
 ## Use Figma proportionally
 
+When the task needs Figma and its source is confirmed, connect to and use
+**Figma Desktop MCP**—the local MCP server exposed by the Figma desktop
+application—as the first route for both reads and writes whenever it is
+connected and authorized for the operation. Load and follow the applicable
+Codex/Figma skill when it provides instructions or is a mandatory prerequisite
+for the intended Figma Desktop MCP operation; the skill guides that operation
+and never replaces, bypasses, or gets ahead of the desktop MCP. Use another
+connector, manual selection, cached Atlas evidence, screenshots, supplied
+exports, or other alternatives only when Figma Desktop MCP is not connected,
+not authorized, or does not cover the required operation. Record which
+condition caused the fallback.
+
+At the start of preparation, before investigating code, ingest every confirmed
+Figma source through that route: retrieve sparse metadata from Figma Desktop
+MCP and immediately call Project Atlas `map_figma_file` with the exact project
+root and confirmed reference. Do this for file, page, and direct-node links so
+Design Atlas persists the available nodes and relationships while preparation
+is still running. Refresh the task/design snapshot after mapping. Never probe
+Figma Desktop MCP before the source is confirmed. If ingestion cannot run,
+surface `confirmed-unsynced` or the concrete access/sync error instead of
+presenting an unexplained empty Design Atlas.
+
 Use either route; neither depends on Ready for dev:
 
 - Direct: a user-confirmed node URL or active selection is authoritative enough
-  to inspect it. If it is a large screen, treat it as orientation: inspect
-  sparse children, select the smallest task-relevant subtree, then retrieve
-  deep context, screenshot, and exact variables only for that subtree. Omit
-  shell, navigation, repeated assets, and peripheral siblings before target
-  evidence. If the subtree cannot be isolated, ask for a manual selection
-  instead of silently accepting truncated context.
+  to skip candidate ranking, but it must still be sparsely mapped for Design
+  Atlas persistence before deep inspection. If it is a large screen, treat it
+  as orientation: inspect sparse children, select the smallest task-relevant
+  subtree, then retrieve deep context, screenshot, and exact variables only for
+  that subtree. Omit shell, navigation, repeated assets, and peripheral
+  siblings before target evidence. If the subtree cannot be isolated, ask for
+  a manual selection instead of silently accepting truncated context.
 - General: map sparse file/page metadata, call `find_design_candidates`, show a
   few candidates with reasons and confidence, and confirm one before deep
   retrieval.

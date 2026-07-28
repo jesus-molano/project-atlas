@@ -38,10 +38,11 @@ Validated locally on 2026-07-26 without corporate data:
   time, without credential probing;
 - opt-in task evaluation that persists only bounded metrics and a one-way task
   fingerprint, with clear and retention behavior;
-- `frontend-task` metadata/reference validation and 16 capability-routing cases:
-  repository-only, Jira, Figma, all sources, absent plugins, absent Atlas,
-  design-required, non-visual, native selector, chat fallback, continuation,
-  and correction against an existing worktree;
+- `frontend-task` metadata/reference validation and 21 capability-routing cases:
+  repository-only, Jira, Figma, Swagger/OpenAPI, all sources, absent plugins,
+  absent Atlas, design-required, non-visual, native selector, chat fallback,
+  continuation, correction, new high-risk biometrics using an earlier flow as
+  reuse evidence, and a required API contract without a supplied link;
 - portable installer PowerShell parse, dry run, isolated link/copy, and
   idempotency checks;
 - optional managed `AGENTS.md` routing block: preservation, replacement,

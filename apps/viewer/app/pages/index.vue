@@ -44,6 +44,16 @@ interface ProjectRisk {
   memoryIds: string[];
 }
 
+interface FigmaSyncState {
+  status:
+    | "idle"
+    | "confirmed-unsynced"
+    | "loading"
+    | "available"
+    | "error";
+  message: string;
+}
+
 interface NavigationGroup {
   label: string;
   items: Array<{
@@ -147,6 +157,10 @@ const selectedDesignNodeId = ref<string>();
 const selectedMemoryItemId = ref<string>();
 const pinnedHandles = ref<string[]>([]);
 const taskSeed = ref("");
+const designSyncState = ref<FigmaSyncState>({
+  status: "idle",
+  message: "No Figma source confirmed for this task.",
+});
 const searchQuery = ref("");
 const searchResults = ref<ProjectSearchViewModel>();
 const searchPending = ref(false);
@@ -163,6 +177,8 @@ const preferences = ref({
   localMetrics: false,
 });
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
+let workspaceRefreshPending = false;
+let workspaceRefreshQueued = false;
 
 const navigationGroups = computed<NavigationGroup[]>(() => [
   {
@@ -533,7 +549,19 @@ function handleProjectDrop(event: DragEvent): void {
 }
 
 async function refreshSnapshot(): Promise<void> {
-  await refreshWorkspace();
+  if (workspaceRefreshPending) {
+    workspaceRefreshQueued = true;
+    return;
+  }
+  workspaceRefreshPending = true;
+  try {
+    do {
+      workspaceRefreshQueued = false;
+      await refreshWorkspace();
+    } while (workspaceRefreshQueued);
+  } finally {
+    workspaceRefreshPending = false;
+  }
 }
 
 async function clearLocalMetrics(): Promise<void> {
@@ -902,7 +930,7 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'design'" class="section-workspace">
           <header class="workspace-heading compact"><div><span class="eyebrow">Explore / Design</span><h1>Where does this flow live?</h1><p>Orient by file, flow, state, and variant before loading deep design context.</p></div><span class="heading-count">{{ overview.data.counts.designNodes }} indexed nodes</span></header>
-          <LazyDesignAtlasView :indexes="workspace.designIndexes" :initial-node-id="selectedDesignNodeId" @use-in-task="useEvidenceInTask" @prepare-task="prepareTask" />
+          <LazyDesignAtlasView :indexes="workspace.designIndexes" :initial-node-id="selectedDesignNodeId" :sync-state="designSyncState" @use-in-task="useEvidenceInTask" @prepare-task="prepareTask" />
         </section>
 
         <section v-else-if="activeSection === 'memory'" class="section-workspace">
@@ -912,7 +940,7 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'task'" class="section-workspace task-section">
           <header class="workspace-heading compact"><div><span class="eyebrow">Work / Task Workbench</span><h1>Prepare the next move.</h1><p>Describe the outcome first. Sources and context controls appear only when useful.</p></div><span :class="['heading-count', { warning: workspace.git.dirty }]">{{ workspace.git.dirty ? `${workspace.git.changedFiles} changed` : "Clean checkout" }}</span></header>
-          <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" @update-task="taskSeed = $event" />
+          <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" @update-task="taskSeed = $event" @workspace-changed="refreshSnapshot" @figma-sync-state="designSyncState = $event" />
         </section>
 
         <section v-else-if="activeSection === 'decisions'" class="section-workspace">

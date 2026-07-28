@@ -16,41 +16,61 @@ No manual scan, memory, context, or Figma command is required first.
 ## Adaptive sequence
 
 1. Detect whichever sources are actually available. Repository and conversation
-   form the baseline; Jira, Confluence, Figma, screenshots, and pasted
-   requirements are optional.
+   form the baseline; Jira, Confluence, Figma, Swagger/OpenAPI, screenshots, and
+   pasted requirements may add evidence.
 2. Classify relevant sources as required, recommended, optional, unavailable,
    or not applicable. Report the cheap precheck before deep retrieval.
-3. Build the minimal brief from
+3. For every new high-risk task, pause during preparation before repository
+   investigation or external retrieval and ask one grouped confirmation for
+   Jira, Confluence, Figma, and Swagger/OpenAPI, even when no links or
+   connectors were detected. Each source can be confirmed, supplied/replaced,
+   or explicitly omitted. Do not probe connectors first. An omitted optional
+   source does not block; a required API contract remains blocking.
+4. Treat earlier flows, components, or implementations as reuse evidence. Use
+   continuation mode only when the user unequivocally resumes the same task.
+5. Build the minimal brief from
    `skills/frontend-task/references/brief-contract.md`.
-4. Ask only questions that can change behavior, ownership, accessibility,
+6. Ask only questions that can change behavior, ownership, accessibility,
    architecture, design target, or component strategy. Every question includes
    evidence and a recommendation.
    Authentication, biometrics, privacy/data, permissions, destructive,
    financial, and accessibility-critical tasks always require a current-turn
-   pre-edit checkpoint. If their material decisions are resolved, ask for
-   explicit confirmation to proceed. Earlier conversation and source URLs do
-   not silently satisfy the checkpoint.
-5. Use the native `request_user_input` selector when available for a material
-   missing source (one question by default, three maximum). Otherwise ask one
-   brief chat question. Do not build a separate form.
-6. Reduce the brief to one implementation intent.
-7. Call `scan_repository` and one budgeted `get_task_context`. This composes the
+   planning checkpoint before implementation. If their material decisions are
+   resolved, ask for explicit confirmation to proceed. Earlier conversation
+   and source URLs do not silently satisfy the checkpoint.
+7. Use the native `request_user_input` selector when available for the grouped
+   high-risk intake or another material missing source (one question by
+   default, three maximum). Otherwise ask one brief chat question. Do not build
+   a separate form.
+8. Reduce the brief to one implementation intent.
+9. Call `scan_repository` and one budgeted `get_task_context`. This composes the
    most relevant memory, code, and cached-design signals under a shared cap.
-8. If a concrete Figma node is confirmed, use it directly. If only a file/page
-   exists, map sparse metadata and call `find_design_candidates`.
-9. Treat Ready for dev as a ranking boost, never a filter or prerequisite.
+10. At the start of preparation, ingest every confirmed Figma reference into
+   Design Atlas: retrieve sparse metadata and call `map_figma_file`, including
+   for a concrete node. A concrete node skips candidate ranking; a file/page
+   continues with `find_design_candidates`. Refresh the task/design snapshot so
+   persisted nodes are visible before code work or task completion. Use the
+   Figma Desktop MCP—the local MCP server exposed by the Figma desktop
+   application—first for reads and writes. Codex/Figma skills provide
+   instructions or mandatory prerequisites for the corresponding desktop MCP
+   operation, not a replacement route. Use another connector, manual selection,
+   or alternative evidence only when Figma Desktop MCP is not connected, not
+   authorized, or does not cover the operation. Never probe it before source
+   confirmation, and surface loading, available, confirmed-unsynchronized, or
+   access/sync-error state instead of an unexplained empty design view.
+11. Treat Ready for dev as a ranking boost, never a filter or prerequisite.
    Treat `source-unavailable` as a connector limitation, not a missing state.
-10. Stop for `decision-required`, surface `warning` with its recommendation, and
+12. Stop for `decision-required`, surface `warning` with its recommendation, and
    retain `resolved` findings without interrupting the user.
     Medium-risk work also stops when sources conflict, persistence/cancel
     semantics are unclear, states are missing, the target is uncertain, or a
     shared API changes. Group one question by default and no more than three.
-11. After node confirmation, narrow a large frame to the smallest relevant
+13. After node confirmation, narrow a large frame to the smallest relevant
    subtree before deep context. Retrieve screenshot and exact variables for the
    same target; ask for a manual selection if it cannot be isolated.
-12. Run `check_before_change`, record the component decision, implement,
+14. Run `check_before_change`, record the component decision, implement,
     validate, and rescan.
-13. Record the observed/verified outcome. Propose any durable memory delta;
+15. Record the observed/verified outcome. Propose any durable memory delta;
     apply it only after explicit confirmation.
 
 Focused Atlas queries remain compact. The retrieval ladder is orientation,
@@ -90,7 +110,9 @@ degrades to repository plus conversation.
 
 ## Test matrix
 
-`fixtures/frontend-task/cases.json` describes the portable source combinations.
+`fixtures/frontend-task/cases.json` describes 21 portable source combinations,
+including new high-risk biometrics with a prior-flow reuse reference and no
+links, plus a required Swagger/OpenAPI contract that has not yet been supplied.
 `fixtures/figma/personal-no-dev-mode.xml` and the design-package tests prove that
 a file with zero Ready for dev nodes still yields semantic and device-specific
 candidates.

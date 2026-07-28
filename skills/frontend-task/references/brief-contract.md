@@ -10,11 +10,15 @@ intake:
   objective_confirmed: true | false
   readiness: ready | needs-confirmation | blocked
   source_ledger:
-    - kind: jira | confluence | figma | github | other
+    - kind: jira | confluence | figma | github | openapi | other
       reference: Exact task-scoped URL or ID
       state: pending | confirmed | omitted | unavailable | replaced
       origin: explicit | inferred | manual
 mode: new | continue | correct | finish
+planning_checkpoint:
+  phase: pre-investigation | post-evidence | not-required
+  high_risk_source_intake: pending | confirmed | not-required
+  grouped_sources: [jira, confluence, figma, openapi]
 delta:
   preserved:
     - Existing user changes or completed behavior
@@ -38,12 +42,14 @@ capabilities:
   jira: required | recommended | optional | unavailable | not-applicable
   confluence: required | recommended | optional | unavailable | not-applicable
   figma: required | recommended | optional | unavailable | not-applicable
+  openapi: required | recommended | optional | unavailable | not-applicable
   github: required | recommended | optional | unavailable | not-applicable
 sources:
   conversation: Present or absent
   jira: Issue key/link or absent/unavailable
   confluence: Page/link or absent/unavailable
   figma: Confirmed node, indexed file/page, screenshot, or absent/unavailable
+  openapi: Confirmed Swagger/OpenAPI URL, local path, pasted contract, or absent/unavailable
 acceptance:
   - Observable behavior
 states:

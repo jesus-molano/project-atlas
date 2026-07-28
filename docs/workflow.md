@@ -14,20 +14,25 @@ local code, design, impact, and memory evidence when connected and useful.
 
 The skill performs this sequence:
 
-1. **Precheck.** Detect the repository, task, explicit links, and callable
-   capabilities. Classify each source as required, recommended, optional,
+1. **Precheck.** Detect the repository, task, explicit links (including
+   Swagger/OpenAPI), and callable capabilities without probing connectors.
+   Classify risk and each source as required, recommended, optional,
    unavailable, or not applicable.
-2. **Material question.** Use the native question selector for a missing source
-   or decision that can change the implementation. Do not ask about every
-   possible integration.
+2. **Source checkpoint.** For every new high-risk task, use one grouped
+   confirmation for Jira, Confluence, Figma, and Swagger/OpenAPI before code
+   investigation, even when none was detected. Each source can be confirmed,
+   supplied/replaced, or explicitly omitted. Other tasks ask only for a source
+   or decision that can materially change implementation.
 3. **Code index.** Call `scan_repository` for the current checkout. Code Atlas
    derives components, routes, layouts, imports, composition, consumers,
    similarity, tests, and impact.
 4. **Memory index.** `get_task_context` indexes allowed Markdown when no memory
    index exists. An explicit refresh is used when approved memory files changed.
-5. **Design index.** Use cached sparse Figma metadata only when design is
-   relevant. A confirmed node takes the direct route. A file/page is mapped
-   sparsely and ranked before any deep retrieval.
+5. **Design index.** When a Figma source is confirmed, preparation first reads
+   sparse metadata through Figma Desktop MCP and persists it with
+   `map_figma_file`. A confirmed node skips ranking but is still mapped; a
+   file/page is mapped and ranked before deep retrieval. The workspace refreshes
+   during the run so Design Atlas is visible before code work or task completion.
 6. **Bounded context.** Retrieve a few task-relevant memory, code, and optional
    design candidates under one shared hard cap.
 7. **Decision gate.** Check contradictions, current decisions, fragile areas,
@@ -57,12 +62,14 @@ and expandable IDs instead of every indexed record.
 
 ## Continue or correct an existing task
 
-`$frontend-task` enters continuation mode for requests such as “continue”,
-“correct this”, or “finish what is pending”, and whenever a relevant dirty
-worktree or prior outcome exists. It first inspects Git status, the focused
-diff, current validation failures, and the nearest prior brief/outcome. It then
-builds a delta brief containing only preserved work, remaining behavior,
-affected evidence, and pending validation.
+`$frontend-task` enters continuation mode only when the user unequivocally
+resumes, corrects, or finishes the same task and its prior objective can be
+recovered. A dirty worktree, prior outcome, or request to match an earlier flow,
+component, or implementation is reuse evidence, not continuation by itself. A
+confirmed continuation first inspects Git status, the focused diff, current
+validation failures, and the nearest prior brief/outcome, then builds a delta
+brief containing only preserved work, remaining behavior, affected evidence,
+and pending validation.
 
 Continuation never resets or broadly rewrites existing changes. It consults
 only affected Atlas handles or external evidence and does not repeat source
@@ -99,7 +106,8 @@ The GUI is an alternative entry point to the same workflow:
 4. Review sources, findings, estimated tokens, snapshot, branch, and checkout.
 5. Choose read-only preparation or workspace-write implementation.
 6. Review the launch boundary, then start Codex. Atlas shows compact progress,
-   supports cancellation, and renders material questions in place.
+   supports cancellation, renders material questions in place, and reports
+   confirmed Figma ingestion as loading, available, unsynchronized, or failed.
 7. Correct or continue the same Codex task without rebuilding onboarding.
 
 Local navigation and index actions consume zero agent tokens. Agent execution

@@ -191,6 +191,76 @@ describe("Codex Agent Adapter", () => {
     expect(JSON.stringify(events)).not.toContain("command");
   });
 
+  it("ingests a confirmed Figma source through Figma Desktop MCP before repository investigation", async () => {
+    const observed: { prompt?: string; signal?: AbortSignal } = {};
+    const client = fakeClient(
+      [
+        { type: "thread.started", thread_id: "thread-figma" },
+        {
+          type: "item.completed",
+          item: {
+            id: "message-figma",
+            type: "agent_message",
+            text: completedResult(),
+          },
+        },
+      ],
+      observed,
+    );
+    const adapter = new CodexAgentAdapter(client);
+    const input = request(await root());
+    const reference =
+      "https://www.figma.com/design/atlas-file/Problem-Tags?node-id=10-20";
+    input.sources = [{ kind: "figma", value: reference }];
+    input.sourceDecisions = [
+      {
+        id: "source-figma-confirmed",
+        kind: "figma",
+        reference,
+        origin: "manual",
+        state: "confirmed",
+        required: false,
+      },
+    ];
+
+    await collect(adapter.run(input).events);
+
+    expect(observed.prompt).toContain("Confirmed Figma ingestion");
+    expect(observed.prompt).toContain("Figma Desktop MCP");
+    expect(observed.prompt).toContain("local MCP server exposed by the Figma desktop application");
+    expect(observed.prompt).toContain("`get_metadata`");
+    expect(observed.prompt).toContain("`map_figma_file`");
+    expect(observed.prompt).toContain("persists the sparse nodes and relationships");
+    expect(observed.prompt?.indexOf("Confirmed Figma ingestion")).toBeLessThan(
+      observed.prompt?.indexOf("Preserve existing user changes") ?? -1,
+    );
+  });
+
+  it("does not probe Figma when no Figma source was confirmed", async () => {
+    const observed: { prompt?: string; signal?: AbortSignal } = {};
+    const client = fakeClient(
+      [
+        { type: "thread.started", thread_id: "thread-local" },
+        {
+          type: "item.completed",
+          item: {
+            id: "message-local",
+            type: "agent_message",
+            text: completedResult(),
+          },
+        },
+      ],
+      observed,
+    );
+    const adapter = new CodexAgentAdapter(client);
+
+    await collect(adapter.run(request(await root())).events);
+
+    expect(observed.prompt).not.toContain("Confirmed Figma ingestion");
+    expect(observed.prompt).not.toContain("`get_metadata`");
+    expect(observed.prompt).not.toContain("`map_figma_file`");
+  });
+
   it("surfaces a material question and resumes the confirmed thread", async () => {
     const observed: { prompt?: string; resumed?: string; signal?: AbortSignal } =
       {};

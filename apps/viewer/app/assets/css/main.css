@@ -2267,6 +2267,54 @@ textarea::placeholder {
   border-color: var(--atlas-success);
 }
 
+.figma-sync-band {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--atlas-design-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--atlas-design) 8%, transparent);
+  color: var(--atlas-design);
+}
+
+.figma-sync-band.loading {
+  border-color: var(--atlas-info);
+  color: var(--atlas-info);
+}
+
+.figma-sync-band.available {
+  border-color: var(--atlas-success);
+  background: var(--atlas-success-soft);
+  color: var(--atlas-success);
+}
+
+.figma-sync-band.error {
+  border-color: var(--atlas-danger-rule);
+  background: var(--atlas-danger-soft);
+  color: var(--atlas-danger);
+}
+
+.figma-sync-band > div {
+  min-width: 0;
+}
+
+.figma-sync-band strong,
+.figma-sync-band span:not(.mini-loader) {
+  display: block;
+}
+
+.figma-sync-band strong {
+  font-size: 0.78rem;
+}
+
+.figma-sync-band span:not(.mini-loader) {
+  margin-top: 2px;
+  color: var(--atlas-ink-muted);
+  font-size: 0.72rem;
+}
+
 .source-decision > div:first-child span,
 .source-decision > div:first-child strong,
 .source-decision > div:first-child small {

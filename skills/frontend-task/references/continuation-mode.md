@@ -1,11 +1,21 @@
 # Continuation and correction mode
 
-Use this mode for “continue”, “correct”, “finish what is pending”, a dirty
-worktree, or a clearly related prior outcome.
+Use this mode only when the user unequivocally resumes, corrects, or finishes
+the same task and the previous objective can be recovered from the current
+thread, an explicitly identified task/brief, or a directly tied outcome.
 
-1. Inspect `git status --short`, the focused diff, current branch, and relevant
-   tests before retrieving external detail. Treat every existing change as
-   user-owned unless the current task proves otherwise.
+Default to a new task when same-task identity is not explicit. A dirty
+worktree, related prior outcome, or request to behave “like”, “as in”, or
+“following” an earlier flow, component, screen, or implementation is not
+continuation evidence by itself. Treat those references as candidates for
+reuse, parity, constraints, and regression coverage. For example, “enable
+biometrics in Problem Tags like Back Office” is a new Problem Tags task unless
+the user explicitly says they are resuming the same prior task.
+
+1. After establishing same-task identity, inspect `git status --short`, the
+   focused diff, current branch, and relevant tests before retrieving external
+   detail. Treat every existing change as user-owned unless the current task
+   proves otherwise.
 2. Recover the previous objective from the current conversation, a supplied
    brief, and the nearest relevant Atlas outcome or decision. Do not search all
    history or paste a previous response.
@@ -33,6 +43,6 @@ worktree, or a clearly related prior outcome.
    task/thread state expired, start a new read-only intake and cite the prior
    outcome only as evidence.
 
-If no reliable prior objective can be recovered, present the observed diff and
-ask one evidence-backed question about the intended outcome. Do not infer that a
-dirty tree is disposable.
+If no reliable prior objective can be recovered, leave continuation mode. Start
+a new-task intake, treat related code or outcomes as reuse evidence, preserve
+the dirty tree, and ask only the checkpoint required by the new task's risk.

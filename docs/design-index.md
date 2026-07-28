@@ -13,18 +13,21 @@ no Design Atlas CLI bootstrap is required.
 Direct route:
 
 1. The user provides or selects one concrete frame or component.
-2. If the node is cached, call `inspect_design_node`; otherwise the calling
-   agent can use the confirmed Figma link directly.
-3. If it is a large screen/frame, use its sparse child metadata to identify the
+2. At the start of preparation, read sparse metadata for the confirmed scope
+   through Figma Desktop MCP and pass it to `map_figma_file`. A direct link
+   skips candidate ranking, not Design Atlas persistence.
+3. If the node is cached, call `inspect_design_node`; otherwise use the
+   just-mapped node identity.
+4. If it is a large screen/frame, use its sparse child metadata to identify the
    smallest task-relevant subtree. The outer frame is orientation, not the
    default deep-context target.
-4. Retrieve `get_design_context`, `get_screenshot`, and exact selection
+5. Retrieve `get_design_context`, `get_screenshot`, and exact selection
    variables only for that subtree.
-5. Reserve the response budget for the target. Shell, navigation, repeated
+6. Reserve the response budget for the target. Shell, navigation, repeated
    assets, and peripheral siblings are omitted first. If the target cannot be
    isolated, ask for a manual selection instead of silently accepting a
    truncated response.
-6. Combine the result with Atlas component context before implementation.
+7. Combine the result with Atlas component context before implementation.
 
 General route:
 
@@ -56,6 +59,10 @@ The cache lives in the repository's Atlas SQLite database under local
 application data. An identical source/scope hash returns `unchanged`. New page
 snapshots merge into the same version. A different `version` or `lastModified`
 starts a fresh map so nodes removed from Figma do not remain indefinitely.
+The Task Workbench refreshes the workspace snapshot while confirmed Figma
+ingestion runs, so the Design view can show the persisted map before code
+components are created or the task completes. It reports loading, available,
+confirmed-but-unsynchronized, and access/sync-error states explicitly.
 
 The stored node model is deliberately sparse: ID, URL, name, type, page,
 breadcrumbs, dimensions, Ready for dev/Completed state, change description,

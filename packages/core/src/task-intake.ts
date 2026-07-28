@@ -100,6 +100,7 @@ const MAX_SOURCE_REFERENCE_CHARS = 1_000;
 
 const HIGH_RISK_PATTERNS: Array<[RegExp, string]> = [
   [/\b(?:auth|authentication|authorization|permission|role|access control|autenticaci[oó]n|autorizaci[oó]n|permiso|rol)\b/i, "Identity or access control"],
+  [/\b(?:biometric(?:s)?|biom[eé]tric[oa]s?|biometr[ií]a|2fa|mfa|multi-?factor|two-?factor|doble factor|segundo factor)\b/i, "Biometric or multi-factor authentication"],
   [/\b(?:security|secret|credential|token|privacy|personal data|pii|seguridad|secreto|credencial|privacidad|datos personales)\b/i, "Security or sensitive data"],
   [/\b(?:payment|billing|checkout|invoice|money|pago|facturaci[oó]n|dinero)\b/i, "Financial workflow"],
   [/\b(?:delete|drop|erase|destructive|migration|schema|eliminar|borrar|destructivo|migraci[oó]n|esquema)\b/i, "Destructive or data-model change"],

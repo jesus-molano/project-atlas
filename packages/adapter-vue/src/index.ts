@@ -41,10 +41,14 @@ interface TestFacts {
 const SOURCE_PATTERNS = [
   "app/components/**/*.vue",
   "components/**/*.vue",
+  "src/components/**/*.vue",
   "app/pages/**/*.vue",
   "pages/**/*.vue",
+  "src/pages/**/*.vue",
   "app/layouts/**/*.vue",
   "layouts/**/*.vue",
+  "src/layouts/**/*.vue",
+  "src/app.vue",
 ];
 const TEST_PATTERNS = [
   "test/**/*.{test,spec}.{ts,tsx,js,jsx}",
@@ -408,6 +412,7 @@ function componentRoot(relativePath: string): string[] {
 }
 
 function effectiveNuxtName(relativePath: string): string {
+  if (/^(?:src\/)?app\.vue$/i.test(slash(relativePath))) return "App";
   const parts = componentRoot(relativePath);
   const file = parts.pop() ?? "";
   const base = file.replace(/\.vue$/i, "");
@@ -419,6 +424,9 @@ function classify(relativePath: string): {
   visibility: ComponentVisibility;
   feature?: string;
 } {
+  if (/^(?:src\/)?app\.vue$/i.test(slash(relativePath))) {
+    return { visibility: "private" };
+  }
   if (/(^|\/)(?:pages|layouts)\//i.test(slash(relativePath))) {
     return { visibility: "private" };
   }
@@ -452,6 +460,7 @@ function sourceCandidates(
     const relative = specifier.slice(2);
     bases.push(path.resolve(rootPath, relative));
     bases.push(path.resolve(rootPath, "app", relative));
+    bases.push(path.resolve(rootPath, "src", relative));
   }
   return [...new Set(
     bases.flatMap((base) => [
