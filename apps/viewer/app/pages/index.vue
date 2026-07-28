@@ -22,6 +22,11 @@ import {
   projectPathFromDrop,
   type AtlasDesktopFolderPicker,
 } from "~/utils/folder-picker";
+import {
+  memoryText,
+  type AtlasLocale,
+  type MemoryMessageKey,
+} from "~/utils/memory-i18n";
 
 type AvailableSection =
   | "home"
@@ -156,12 +161,26 @@ const searchInput = ref<HTMLInputElement>();
 const localAction = ref("");
 const localActionMessage = ref("");
 const localActionError = ref("");
-const preferences = ref({
+const preferences = ref<{
+  budgetChars: number;
+  topK: number;
+  includeInactive: boolean;
+  localMetrics: boolean;
+  locale: AtlasLocale;
+}>({
   budgetChars: 3_600,
   topK: 5,
   includeInactive: false,
   localMetrics: false,
+  locale: "en",
 });
+const memoryT = (
+  key: MemoryMessageKey,
+  variables?: Record<string, string | number>,
+) => memoryText(preferences.value.locale, key, variables);
+useHead(() => ({
+  htmlAttrs: { lang: preferences.value.locale },
+}));
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 const navigationGroups = computed<NavigationGroup[]>(() => [
@@ -194,8 +213,10 @@ const navigationGroups = computed<NavigationGroup[]>(() => [
       {
         id: "memory",
         icon: "memory",
-        label: "Memory",
-        hint: `${overview.value?.data.counts.memoryItems ?? 0} items`,
+        label: memoryT("navMemory"),
+        hint: memoryT("navMemoryHint", {
+          count: overview.value?.data.counts.memoryItems ?? 0,
+        }),
       },
     ],
   },
@@ -223,9 +244,9 @@ const navigationGroups = computed<NavigationGroup[]>(() => [
       {
         id: "inbox",
         icon: "inbox",
-        label: "Memory Inbox",
+        label: memoryT("navInbox"),
         count: overview.value?.data.counts.pendingMemoryProposals,
-        hint: "Review semantic changes",
+        hint: memoryT("navInboxHint"),
       },
     ],
   },
@@ -595,7 +616,14 @@ onMounted(() => {
   folderPicker.value = desktopFolderPicker(window.projectAtlasDesktopHost);
   try {
     const stored = localStorage.getItem("project-atlas:preferences");
-    if (stored) preferences.value = { ...preferences.value, ...JSON.parse(stored) };
+    if (stored) {
+      const parsed = JSON.parse(stored) as Partial<typeof preferences.value>;
+      preferences.value = {
+        ...preferences.value,
+        ...parsed,
+        locale: parsed.locale === "es" ? "es" : "en",
+      };
+    }
     navCollapsed.value =
       localStorage.getItem("project-atlas:navigation-collapsed") === "true";
   } catch {
@@ -771,6 +799,8 @@ onBeforeUnmount(() => {
               v-for="item in group.items"
               :key="item.id"
               :class="{ active: activeSection === item.id }"
+              :aria-label="item.label"
+              :aria-current="activeSection === item.id ? 'page' : undefined"
               :title="item.hint"
               @click="selectSection(item.id)"
             >
@@ -897,8 +927,8 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="activeSection === 'memory'" class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Explore / Memory</span><h1>What has this project learned?</h1><p>Trace decisions, conventions, outcomes, authority, and freshness.</p></div><button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('memory')"><AtlasIcon name="refresh" />Reindex memory</button></header>
-          <LazyProjectMemoryView :items="workspace.memoryItems" :initial-item-id="selectedMemoryItemId" :include-inactive="preferences.includeInactive" @use-in-task="useEvidenceInTask" @prepare-task="prepareTask" />
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ memoryT("exploreEyebrow") }}</span><h1>{{ memoryT("exploreTitle") }}</h1><p>{{ memoryT("exploreCopy") }}</p></div><button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('memory')"><AtlasIcon name="refresh" />{{ memoryT("reindex") }}</button></header>
+          <LazyProjectMemoryView :items="workspace.memoryItems" :initial-item-id="selectedMemoryItemId" :include-inactive="preferences.includeInactive" :locale="preferences.locale" @use-in-task="useEvidenceInTask" @prepare-task="prepareTask" />
         </section>
 
         <section v-else-if="activeSection === 'task'" class="section-workspace task-section">
@@ -912,8 +942,8 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="activeSection === 'inbox'" class="section-workspace">
-          <header class="workspace-heading compact"><div><span class="eyebrow">Review / Memory Inbox</span><h1>What should the project remember?</h1><p>Approve compact knowledge proposals, never raw transcripts.</p></div><span class="heading-count">{{ workspace.memoryProposals.filter((item) => item.status === "pending").length }} pending</span></header>
-          <LazyMemoryInboxView :proposals="workspace.memoryProposals" @changed="refreshSnapshot" />
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ memoryT("reviewEyebrow") }}</span><h1>{{ memoryT("reviewTitle") }}</h1><p>{{ memoryT("reviewCopy") }}</p></div><span class="heading-count">{{ memoryT("pendingCount", { count: workspace.memoryProposals.filter((item) => item.status === "pending").length }) }}</span></header>
+          <LazyMemoryInboxView :proposals="workspace.memoryProposals" :memory-items="workspace.memoryItems" :locale="preferences.locale" @changed="refreshSnapshot" />
         </section>
 
         <section v-else-if="activeSection === 'connections'" class="section-workspace">

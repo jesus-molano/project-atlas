@@ -13,6 +13,7 @@ type MemoryProposalAction =
       proposalId: string;
       confirmed: boolean;
       target?: "local" | "canonical";
+      canonicalConfirmed?: boolean;
     }
   | {
       action: "reject";
@@ -45,6 +46,9 @@ export default defineEventHandler(async (event) => {
       return applyMemoryUpdate(rootPath, body.proposalId, {
         confirmed: body.confirmed,
         ...(body.target ? { target: body.target } : {}),
+        ...(body.canonicalConfirmed !== undefined
+          ? { canonicalConfirmed: body.canonicalConfirmed }
+          : {}),
       });
     case "reject":
       return rejectMemoryUpdate(rootPath, body.proposalId, {

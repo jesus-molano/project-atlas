@@ -12,15 +12,15 @@ describe("desktop evidence workspace contract", () => {
       "Home",
       "Code",
       "Design",
-      "Memory",
       "Task Workbench",
       "Action Center",
-      "Memory Inbox",
       "Connections",
       "Settings",
     ]) {
       expect(page).toContain(`label: "${label}"`);
     }
+    expect(page).toContain('label: memoryT("navMemory")');
+    expect(page).toContain('label: memoryT("navInbox")');
     expect(page).toContain("useEvidenceInTask");
     expect(page).toContain('aria-label="Project Atlas navigation"');
     expect(page).toContain('aria-label="Search code, design, memory, and tasks"');
@@ -48,16 +48,20 @@ describe("desktop evidence workspace contract", () => {
   });
 
   it("turns each Atlas evidence plane into an action for the Workbench", async () => {
-    const [code, design, memory, workbench] = await Promise.all([
+    const [code, design, memory, memoryI18n, workbench] = await Promise.all([
       source("apps/viewer/app/components/CodeAtlasView.vue"),
       source("apps/viewer/app/components/DesignAtlasView.vue"),
       source("apps/viewer/app/components/ProjectMemoryView.vue"),
+      source("apps/viewer/app/utils/memory-i18n.ts"),
       source("apps/viewer/app/components/TaskWorkbenchView.vue"),
     ]);
-    for (const view of [code, design, memory]) {
+    for (const view of [code, design]) {
       expect(view).toContain("useInTask");
       expect(view).toContain("Use in task");
     }
+    expect(memory).toContain("useInTask");
+    expect(memory).toContain('t("useInTask")');
+    expect(memoryI18n).toContain('useInTask: "Use in task"');
     expect(code).toContain("Reuse");
     expect(code).toContain("Change impact");
     expect(code).toContain("Associated tests");
@@ -65,9 +69,11 @@ describe("desktop evidence workspace contract", () => {
     expect(design).toContain("indexed metadata");
     expect(design).toContain("fixture claims, not live Figma verification");
     expect(design).toContain("Indexed code mappings");
-    expect(memory).toContain("Concept map");
-    expect(memory).toContain("Timeline");
-    expect(memory).toContain("Active by default");
+    expect(memory).toContain('t("conceptMap")');
+    expect(memory).toContain('t("timeline")');
+    expect(memory).toContain('t("activeDefault")');
+    expect(memoryI18n).toContain('conceptMap: "Concept map"');
+    expect(memoryI18n).toContain('conceptMap: "Mapa conceptual"');
     expect(workbench).toContain("Review before Codex starts");
     expect(workbench).toContain("Cancel safely");
     expect(workbench).toContain("Continue same Codex task");
@@ -125,7 +131,7 @@ describe("desktop evidence workspace contract", () => {
       code.indexOf('aria-label="Component details"'),
     );
     expect(code).toContain('"Inspect selected component"');
-    expect(code).toContain('"Hide component details"');
+    expect(code).toContain("@click=\"toggleInspector\"");
     expect(code).toContain('aria-label="Close component details"');
     expect(code).toContain('event.key === "Escape"');
     expect(code).toContain("inspectorReturnFocus");

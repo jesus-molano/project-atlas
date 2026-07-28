@@ -31,8 +31,10 @@ import {
   type MemoryItem,
   type MemoryItemDraft,
   type MemoryProposal,
+  type MemoryProposalReview,
   type MemoryScope,
   type MemorySearchOptions,
+  type MemoryWriteTarget,
 } from "@component-atlas/memory";
 import { AtlasStore } from "@component-atlas/store";
 import fg from "fast-glob";
@@ -344,7 +346,7 @@ export async function orientProject(
 
 function memoryGate(findings: MemoryFinding[]) {
   const required = findings.filter(
-    (finding) => finding.level === "decision-required" && finding.question,
+    (finding) => finding.level === "decision-required",
   );
   return {
     status:
@@ -355,7 +357,9 @@ function memoryGate(findings: MemoryFinding[]) {
           : ("clear" as const),
     questions: required.map((finding) => ({
       findingId: finding.id,
-      question: finding.question!,
+      question:
+        finding.question ??
+        "Resolve this decision-required finding before applying the proposal.",
       evidence: finding.evidence
         .slice(0, 2)
         .map((item) => (item.length > 180 ? `${item.slice(0, 179)}…` : item)),
@@ -1020,10 +1024,90 @@ function safeFileName(id: string): string {
   return id.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "").slice(0, 80);
 }
 
+function proposalReview(
+  proposal: MemoryProposal,
+  graph: ComponentGraph,
+  target: MemoryWriteTarget,
+): MemoryProposalReview {
+  const gate = memoryGate(proposal.findings);
+  const directory =
+    target === "canonical"
+      ? ("project-memory" as const)
+      : (".component-atlas/memory" as const);
+  const items = proposal.items.map((draft) => {
+    const item = itemFromDraft(
+      draft,
+      graph,
+      proposal.createdAt,
+      target === "canonical"
+        ? "canonical"
+        : draft.scope === "episodic"
+          ? "episodic"
+          : "local",
+    );
+    return {
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      scope: item.scope,
+      path: `${directory}/${safeFileName(item.id)}.md`,
+      supersedes: item.supersedes,
+    };
+  });
+  const blockingFindingIds = proposal.findings
+    .filter((finding) => finding.level === "decision-required")
+    .map((finding) => finding.id);
+  const warningFindingIds = proposal.findings
+    .filter((finding) => finding.level === "warning")
+    .map((finding) => finding.id);
+  return {
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    proposalId: proposal.id,
+    proposalStatus: proposal.status,
+    target,
+    canApply: proposal.status === "pending" && blockingFindingIds.length === 0,
+    requiresCanonicalConfirmation: target === "canonical",
+    gate: {
+      status: gate.status,
+      blockingFindingIds,
+      warningFindingIds,
+    },
+    impact: {
+      directory,
+      itemCount: items.length,
+      supersededIds: [
+        ...new Set(items.flatMap((item) => item.supersedes)),
+      ],
+      items,
+    },
+  };
+}
+
+export async function reviewMemoryProposal(
+  rootPath: string,
+  proposalIdValue: string,
+  options: { target?: MemoryWriteTarget } = {},
+): Promise<MemoryProposalReview> {
+  const graph = await loadProjectGraph(rootPath);
+  const store = memoryStore(graph);
+  try {
+    const proposal = store.loadMemoryProposal(
+      graph.project.id,
+      proposalIdValue,
+    );
+    if (!proposal) {
+      throw new Error(`Memory proposal "${proposalIdValue}" was not found.`);
+    }
+    return proposalReview(proposal, graph, options.target ?? "local");
+  } finally {
+    store.close();
+  }
+}
+
 async function writeMemoryItem(
   rootPath: string,
   item: MemoryItem,
-  target: "local" | "canonical",
+  target: MemoryWriteTarget,
 ): Promise<MemoryItem> {
   const directory =
     target === "canonical"
@@ -1078,7 +1162,8 @@ export async function applyMemoryUpdate(
   proposalIdValue: string,
   options: {
     confirmed: boolean;
-    target?: "local" | "canonical";
+    target?: MemoryWriteTarget;
+    canonicalConfirmed?: boolean;
     budgetChars?: number;
   },
 ) {
@@ -1100,9 +1185,24 @@ export async function applyMemoryUpdate(
         `Memory proposal "${proposalIdValue}" is already ${proposal.status}.`,
       );
     }
+    const target = options.target ?? "local";
+    const review = proposalReview(proposal, graph, target);
+    if (!review.canApply) {
+      const titles = proposal.findings
+        .filter((finding) => finding.level === "decision-required")
+        .map((finding) => finding.title)
+        .join("; ");
+      throw new Error(
+        `Memory proposal "${proposalIdValue}" has unresolved decision-required findings and cannot be applied${titles ? `: ${titles}` : "."}`,
+      );
+    }
+    if (target === "canonical" && options.canonicalConfirmed !== true) {
+      throw new Error(
+        "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the versionable project-memory paths.",
+      );
+    }
     assertMemoryContentSafe(proposal);
     const appliedAt = new Date().toISOString();
-    const target = options.target ?? "local";
     const applied: MemoryItem[] = [];
     for (const draft of proposal.items) {
       let item = itemFromDraft(
@@ -1144,6 +1244,7 @@ export async function applyMemoryUpdate(
         proposalId: updated.id,
         status: updated.status,
         target,
+        impact: review.impact,
         applied: applied.map((item) => ({
           id: item.id,
           type: item.type,

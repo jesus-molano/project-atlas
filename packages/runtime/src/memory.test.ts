@@ -17,6 +17,7 @@ import {
   recordDecision,
   recordProjectOutcome,
   rejectMemoryUpdate,
+  reviewMemoryProposal,
   reviseMemoryProposal,
   scanProject,
   searchProjectMemory,
@@ -390,6 +391,110 @@ describe.sequential("Project Atlas runtime", () => {
         }),
       ]),
     );
+  });
+
+  it("shares proposal impact and hard gates across local and canonical writes", async () => {
+    const blocked = await proposeMemoryUpdate({
+      rootPath,
+      rationale: "Replace the current search URL rule.",
+      items: [
+        {
+          id: "blocked-search-rule",
+          type: "decision",
+          title: "Keep filters outside the URL",
+          summary: "Store search filters only in local component state.",
+          confidence: 0.8,
+          authority: "decided",
+          relations: [
+            {
+              kind: "contradicts",
+              targetId: "decision-search-url-v2",
+            },
+          ],
+        },
+      ],
+    });
+    const blockedReview = await reviewMemoryProposal(
+      rootPath,
+      blocked.proposal.id,
+      { target: "local" },
+    );
+    expect(blockedReview).toMatchObject({
+      canApply: false,
+      gate: {
+        status: "blocked",
+        blockingFindingIds: [expect.stringContaining("memory-contradiction")],
+      },
+      impact: {
+        directory: ".component-atlas/memory",
+        itemCount: 1,
+      },
+    });
+    await expect(
+      applyMemoryUpdate(rootPath, blocked.proposal.id, {
+        confirmed: true,
+        target: "local",
+      }),
+    ).rejects.toThrow(/unresolved decision-required findings/);
+
+    const canonical = await proposeMemoryUpdate({
+      rootPath,
+      rationale: "Record a distinct reviewed canonical note.",
+      items: [
+        {
+          id: "canonical-review-contract",
+          type: "note",
+          title: "Canonical review contract",
+          summary: "Canonical writes expose their exact versionable path.",
+          body: "The complete proposed body must be visible before approval.",
+          confidence: 0.9,
+          authority: "verified",
+          tags: ["memory", "review"],
+        },
+      ],
+    });
+    const canonicalReview = await reviewMemoryProposal(
+      rootPath,
+      canonical.proposal.id,
+      { target: "canonical" },
+    );
+    expect(canonicalReview).toMatchObject({
+      canApply: true,
+      requiresCanonicalConfirmation: true,
+      impact: {
+        directory: "project-memory",
+        items: [
+          {
+            id: "canonical-review-contract",
+            scope: "canonical",
+            path: "project-memory/canonical-review-contract.md",
+          },
+        ],
+      },
+    });
+    await expect(
+      applyMemoryUpdate(rootPath, canonical.proposal.id, {
+        confirmed: true,
+        target: "canonical",
+      }),
+    ).rejects.toThrow(/canonicalConfirmed=true/);
+    const applied = await applyMemoryUpdate(
+      rootPath,
+      canonical.proposal.id,
+      {
+        confirmed: true,
+        canonicalConfirmed: true,
+        target: "canonical",
+      },
+    );
+    expect(applied).toMatchObject({
+      status: "applied",
+      target: "canonical",
+      impact: {
+        directory: "project-memory",
+        itemCount: 1,
+      },
+    });
   });
 
   it("supports auditable revise, combine, and reject inbox actions", async () => {

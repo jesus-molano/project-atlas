@@ -797,12 +797,13 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     "apply_memory_update",
-    "Apply one reviewed proposal to local or canonical Markdown. Requires explicit confirmed=true and rejects secret-like content.",
+    "Apply one reviewed proposal to local or canonical Markdown. Requires explicit confirmed=true, blocks unresolved decision-required findings, and requires canonical_confirmed=true for versionable canonical writes.",
     {
       root_path: z.string(),
       proposal_id: z.string(),
       confirmed: z.boolean(),
       target: z.enum(["local", "canonical"]).optional(),
+      canonical_confirmed: z.boolean().optional(),
       budget_chars: z.number().int().min(800).max(12000).optional(),
     },
     async ({
@@ -810,12 +811,16 @@ export function createMcpServer(): McpServer {
       proposal_id,
       confirmed,
       target,
+      canonical_confirmed,
       budget_chars,
     }) =>
       text(
         await applyMemoryUpdate(root_path, proposal_id, {
           confirmed,
           ...(target ? { target } : {}),
+          ...(canonical_confirmed !== undefined
+            ? { canonicalConfirmed: canonical_confirmed }
+            : {}),
           ...(budget_chars ? { budgetChars: budget_chars } : {}),
         }),
       ),

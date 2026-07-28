@@ -1,9 +1,16 @@
 <script setup lang="ts">
+import {
+  memoryText,
+  type AtlasLocale,
+  type MemoryMessageKey,
+} from "../utils/memory-i18n";
+
 interface SettingsModel {
   budgetChars: number;
   topK: number;
   includeInactive: boolean;
   localMetrics: boolean;
+  locale: AtlasLocale;
 }
 
 const props = defineProps<{
@@ -15,6 +22,7 @@ const emit = defineEmits<{
   clearMetrics: [];
 }>();
 const local = reactive({ ...props.modelValue });
+const t = (key: MemoryMessageKey) => memoryText(local.locale, key);
 watch(local, (value) => emit("update:modelValue", { ...value }), { deep: true });
 </script>
 
@@ -33,6 +41,16 @@ watch(local, (value) => emit("update:modelValue", { ...value }), { deep: true })
         <input v-model.number="local.topK" type="range" min="1" max="10" step="1">
       </label>
       <label class="toggle-setting"><span><strong>Include inactive memory in diagnostics</strong><small>Superseded and archived knowledge stays excluded from normal task retrieval.</small></span><input v-model="local.includeInactive" type="checkbox"></label>
+      <label class="settings-language">
+        <span>
+          <strong>{{ t("language") }}</strong>
+          <small>{{ t("languageCopy") }}</small>
+        </span>
+        <select v-model="local.locale" :aria-label="t('language')">
+          <option value="en">{{ t("languageEnglish") }}</option>
+          <option value="es">{{ t("languageSpanish") }}</option>
+        </select>
+      </label>
       <label class="toggle-setting">
         <span>
           <strong>Local product metrics</strong>
