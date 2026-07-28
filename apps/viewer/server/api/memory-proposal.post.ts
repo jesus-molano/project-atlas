@@ -5,6 +5,7 @@ import {
   reviseMemoryProposal,
 } from "@component-atlas/runtime";
 import type { MemoryItemDraft } from "@component-atlas/memory";
+import { assertAgentSession } from "../utils/agent-session";
 import { projectRootPath } from "../utils/project";
 
 type MemoryProposalAction =
@@ -35,6 +36,7 @@ type MemoryProposalAction =
     };
 
 export default defineEventHandler(async (event) => {
+  assertAgentSession(event);
   const body = await readBody<MemoryProposalAction>(event);
   if (!body) {
     throw createError({ statusCode: 400, statusMessage: "Request body is required." });

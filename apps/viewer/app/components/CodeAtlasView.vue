@@ -219,6 +219,12 @@ const impactSignal = computed(() => {
   return { label: "Contained impact", tone: "low", consumers };
 });
 
+const inspectorActionLabel = computed(() =>
+  inspectorOpen.value
+    ? "Hide component details"
+    : "Inspect selected component",
+);
+
 function scopeLabel(visibility: ComponentNode["visibility"]): string {
   return (
     scopeOptions.find((item) => item.value === visibility)?.label ?? visibility
@@ -491,8 +497,8 @@ onBeforeUnmount(() => {
             ref="inspectorTrigger"
             :class="['icon-button', 'graph-icon-button', { active: inspectorOpen }]"
             :disabled="!selected"
-            aria-label="Inspect selected component"
-            title="Inspect selected component"
+            :aria-label="inspectorActionLabel"
+            :title="inspectorActionLabel"
             @click="toggleInspector"
           >
             <AtlasIcon name="inspect" />

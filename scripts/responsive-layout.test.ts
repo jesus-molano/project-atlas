@@ -47,12 +47,11 @@ describe("evidence workspace responsive layout", () => {
   });
 
   it("uses compact, accessible icon controls for the graph viewport", () => {
-    for (const label of [
-      "Inspect selected component",
-      "Fit selection",
-      "Fit graph",
-      "Reset graph view",
-    ]) {
+    expect(codeAtlas).toContain(':aria-label="inspectorActionLabel"');
+    expect(codeAtlas).toContain(':title="inspectorActionLabel"');
+    expect(codeAtlas).toContain('"Inspect selected component"');
+    expect(codeAtlas).toContain('"Hide component details"');
+    for (const label of ["Fit selection", "Fit graph", "Reset graph view"]) {
       expect(codeAtlas).toContain(`aria-label="${label}"`);
       expect(codeAtlas).toContain(`title="${label}"`);
     }

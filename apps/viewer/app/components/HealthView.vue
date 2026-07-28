@@ -48,7 +48,12 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
   pending.value = source;
   error.value = "";
   try {
-    await $fetch("/api/refresh", { method: "POST", body: { source } });
+    const session = await $fetch<{ token: string }>("/api/agent/session");
+    await $fetch("/api/refresh", {
+      method: "POST",
+      headers: { "x-atlas-session": session.token },
+      body: { source },
+    });
     message.value =
       source === "repository"
         ? "Code Atlas rescanned this checkout."

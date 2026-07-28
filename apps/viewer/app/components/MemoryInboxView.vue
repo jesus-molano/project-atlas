@@ -37,8 +37,10 @@ async function act(body: Record<string, unknown>): Promise<void> {
   error.value = "";
   message.value = "";
   try {
+    const session = await $fetch<{ token: string }>("/api/agent/session");
     const result = await $fetch<{ status?: string }>("/api/memory-proposal", {
       method: "POST",
+      headers: { "x-atlas-session": session.token },
       body,
     });
     message.value = result.status ? `Proposal ${result.status}.` : "Proposal updated.";
