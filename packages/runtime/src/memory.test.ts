@@ -8,9 +8,11 @@ import {
   checkBeforeChange,
   combineMemoryProposals,
   getProjectMemoryItem,
+  getFigmaDesignVariables,
   getTaskContext,
   indexProjectMemory,
   listFigmaDesignIndexes,
+  loadFigmaDesignIndex,
   mapFigmaDesign,
   orientProject,
   proposeMemoryUpdate,
@@ -20,6 +22,7 @@ import {
   reviseMemoryProposal,
   scanProject,
   searchProjectMemory,
+  syncFigmaDesignVariables,
 } from "./index.js";
 
 const vueFixture = fileURLToPath(
@@ -243,6 +246,150 @@ describe.sequential("Project Atlas runtime", () => {
       candidates: [],
     });
     expect(JSON.stringify(withoutDesign).length).toBeLessThanOrEqual(1_400);
+  });
+
+  it("synchronizes bounded global Variables independently from sparse metadata", async () => {
+    const metadata = await readFile(figmaFixture, "utf8");
+    await mapFigmaDesign({
+      rootPath,
+      figmaUrl: "https://www.figma.com/design/PersonalShop/Personal-shop",
+      metadata,
+      format: "figma-mcp-xml",
+    });
+    const globalCatalog = {
+      availability: "global",
+      source: "figma-desktop-mcp-global",
+      meta: {
+        variableCollections: {
+          "VariableCollectionId:theme": {
+            id: "VariableCollectionId:theme",
+            name: "Theme",
+            modes: [
+              { modeId: "mode:light", name: "Light" },
+              { modeId: "mode:dark", name: "Dark" },
+            ],
+            variableIds: ["VariableID:surface", "VariableID:background"],
+          },
+        },
+        variables: {
+          "VariableID:surface": {
+            id: "VariableID:surface",
+            name: "color/surface",
+            variableCollectionId: "VariableCollectionId:theme",
+            resolvedType: "COLOR",
+            valuesByMode: {
+              "mode:light": { r: 1, g: 1, b: 1, a: 1 },
+            },
+          },
+          "VariableID:background": {
+            id: "VariableID:background",
+            name: "color/background",
+            variableCollectionId: "VariableCollectionId:theme",
+            resolvedType: "COLOR",
+            valuesByMode: {
+              "mode:light": {
+                type: "VARIABLE_ALIAS",
+                id: "VariableID:surface",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const catalogSync = await syncFigmaDesignVariables({
+      rootPath,
+      figmaFile: "PersonalShop",
+      catalog: globalCatalog,
+      syncedAt: "2026-07-28T10:00:00.000Z",
+    });
+    expect(catalogSync).toMatchObject({
+      status: "updated",
+      variables: {
+        availability: "global",
+        detailLevel: "catalog",
+        totalCollections: 1,
+        totalVariables: 2,
+      },
+    });
+    const catalogQuery = await getFigmaDesignVariables(
+      rootPath,
+      "PersonalShop",
+    );
+    expect(catalogQuery).toMatchObject({
+      collections: [expect.objectContaining({ name: "Theme" })],
+      variables: [],
+      expansion: {
+        requested: false,
+        persisted: false,
+        requiresGlobalSync: false,
+      },
+    });
+    expect(
+      (await loadFigmaDesignIndex(rootPath, "PersonalShop")).variables.variables,
+    ).toEqual([]);
+    expect(
+      await syncFigmaDesignVariables({
+        rootPath,
+        figmaFile: "PersonalShop",
+        catalog: globalCatalog,
+        syncedAt: "2026-07-28T11:00:00.000Z",
+      }),
+    ).toMatchObject({ status: "unchanged" });
+    expect(
+      (await loadFigmaDesignIndex(rootPath, "PersonalShop")).variables.syncedAt,
+    ).toBe("2026-07-28T11:00:00.000Z");
+
+    await syncFigmaDesignVariables({
+      rootPath,
+      figmaFile: "PersonalShop",
+      catalog: {
+        ...globalCatalog,
+        detailLevel: "expanded",
+        valuesIncluded: true,
+      },
+      syncedAt: "2026-07-28T12:00:00.000Z",
+    });
+    const exact = await getFigmaDesignVariables(rootPath, "PersonalShop", {
+      includeVariables: true,
+      includeValues: true,
+    });
+    expect(exact).toMatchObject({
+      valuesIncluded: true,
+      expansion: {
+        persisted: true,
+        valuesPersisted: true,
+        requiresGlobalSync: false,
+      },
+      variables: expect.arrayContaining([
+        expect.objectContaining({
+          id: "VariableID:background",
+          valuesByMode: {
+            "mode:light": { aliasTo: "VariableID:surface" },
+          },
+        }),
+      ]),
+    });
+
+    await syncFigmaDesignVariables({
+      rootPath,
+      figmaFile: "PersonalShop",
+      catalog: {
+        availability: "selection-only",
+        source: "figma-selection",
+      },
+    });
+    expect(
+      await getFigmaDesignVariables(rootPath, "PersonalShop", {
+        includeVariables: true,
+      }),
+    ).toMatchObject({
+      availability: "selection-only",
+      source: "figma-selection",
+      collections: [],
+      variables: [],
+      expansion: { persisted: false },
+    });
   });
 
   it("loads OpenAPI only after confirmation and excludes omitted API context", async () => {

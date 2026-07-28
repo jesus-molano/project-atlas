@@ -26,6 +26,8 @@ describe("Project Atlas MCP surface", () => {
       expect(names).toContain("get_reuse_context");
       expect(names).toContain("scan_repository");
       expect(names).toContain("map_figma_file");
+      expect(names).toContain("sync_figma_variables");
+      expect(names).toContain("get_figma_variables");
       expect(names).toContain("find_design_candidates");
       expect(names).toContain("inspect_design_node");
       expect(names).toContain("orient_project");
@@ -82,6 +84,26 @@ describe("Project Atlas MCP surface", () => {
             minimum: 1,
             maximum: 10,
           },
+        },
+      });
+      expect(
+        tools.tools.find((tool) => tool.name === "sync_figma_variables")
+          ?.inputSchema,
+      ).toMatchObject({
+        required: expect.arrayContaining([
+          "root_path",
+          "figma_file",
+          "catalog",
+        ]),
+      });
+      expect(
+        tools.tools.find((tool) => tool.name === "get_figma_variables")
+          ?.inputSchema,
+      ).toMatchObject({
+        properties: {
+          include_variables: { type: "boolean" },
+          include_values: { type: "boolean" },
+          limit: { type: "integer", maximum: 500 },
         },
       });
       expect(
@@ -203,6 +225,76 @@ describe("Project Atlas MCP surface", () => {
       expect(JSON.stringify(mapped.structuredContent).length).toBeLessThanOrEqual(
         1_600,
       );
+
+      const invalidGlobalVariables = await client.callTool({
+        name: "sync_figma_variables",
+        arguments: {
+          root_path: rootPath,
+          figma_file: "PersonalShop",
+          catalog: {
+            availability: "global",
+            source: "figma-selection",
+          },
+        },
+      });
+      expect(invalidGlobalVariables.isError).toBe(true);
+
+      const variableSync = await client.callTool({
+        name: "sync_figma_variables",
+        arguments: {
+          root_path: rootPath,
+          figma_file: "PersonalShop",
+          synced_at: "2026-07-28T12:00:00.000Z",
+          catalog: {
+            availability: "global",
+            source: "figma-desktop-mcp-global",
+            meta: {
+              variableCollections: {
+                "VariableCollectionId:theme": {
+                  id: "VariableCollectionId:theme",
+                  name: "Theme",
+                  modes: [{ modeId: "mode:light", name: "Light" }],
+                  variableIds: ["VariableID:space"],
+                },
+              },
+              variables: {
+                "VariableID:space": {
+                  id: "VariableID:space",
+                  name: "space/control",
+                  variableCollectionId: "VariableCollectionId:theme",
+                  resolvedType: "FLOAT",
+                  valuesByMode: { "mode:light": 8 },
+                },
+              },
+            },
+          },
+        },
+      });
+      expect(variableSync.structuredContent).toMatchObject({
+        status: "updated",
+        variables: {
+          availability: "global",
+          detailLevel: "catalog",
+          totalCollections: 1,
+          totalVariables: 1,
+        },
+      });
+      const variableCatalog = await client.callTool({
+        name: "get_figma_variables",
+        arguments: {
+          root_path: rootPath,
+          figma_file: "PersonalShop",
+        },
+      });
+      expect(variableCatalog.structuredContent).toMatchObject({
+        availability: "global",
+        collections: [expect.objectContaining({ name: "Theme" })],
+        variables: [],
+        expansion: {
+          requested: false,
+          persisted: false,
+        },
+      });
 
       const candidates = await client.callTool({
         name: "find_design_candidates",

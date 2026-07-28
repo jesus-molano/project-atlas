@@ -7,7 +7,9 @@ import {
   isDesignSnapshotCurrent,
   mergeDesignIndexes,
   normalizeDesignIndex,
+  normalizeDesignVariableCatalog,
   parseFigmaReference,
+  queryDesignVariables,
   rankDesignCandidates,
   type DesignIndexEnrichment,
 } from "./index.js";
@@ -52,7 +54,11 @@ describe("Figma Design Index", () => {
     });
     expect(index.variables).toMatchObject({
       availability: "global",
+      source: "figma-variables-rest",
+      detailLevel: "catalog",
       valuesIncluded: false,
+      totalCollections: 1,
+      totalVariables: 2,
       collections: [
         expect.objectContaining({
           name: "Theme",
@@ -63,7 +69,7 @@ describe("Figma Design Index", () => {
         }),
       ],
     });
-    expect(index.variables.variables[0]?.valuesByMode).toBeUndefined();
+    expect(index.variables.variables).toEqual([]);
 
     const promo = index.nodes.find((node) => node.id === "10:1");
     expect(promo).toMatchObject({
@@ -104,6 +110,242 @@ describe("Figma Design Index", () => {
     ).toMatchObject({ "1:0": 8, "1:1": 8 });
   });
 
+  it("keeps global, selection, unavailable, and permission states distinct", () => {
+    const unavailable = normalizeDesignVariableCatalog(undefined);
+    expect(unavailable).toMatchObject({
+      availability: "unavailable",
+      source: "none",
+      collections: [],
+      variables: [],
+    });
+    expect(unavailable.note).toContain("not evidence");
+
+    const selection = normalizeDesignVariableCatalog({
+      availability: "selection-only",
+      source: "figma-selection",
+      meta: {
+        variableCollections: {
+          "selection:not-global": { name: "Must not persist" },
+        },
+      },
+    });
+    expect(selection).toMatchObject({
+      availability: "selection-only",
+      source: "figma-selection",
+      totalCollections: 0,
+      totalVariables: 0,
+      collections: [],
+      variables: [],
+    });
+    expect(selection.note).toContain("not a file-global");
+    expect(
+      normalizeDesignVariableCatalog({
+        variables: {
+          "selection/token": {
+            name: "selection/token",
+            value: 8,
+          },
+        },
+      }),
+    ).toMatchObject({
+      availability: "unavailable",
+      source: "none",
+      collections: [],
+      variables: [],
+    });
+
+    expect(
+      normalizeDesignVariableCatalog({
+        availability: "permission-required",
+        source: "figma-variables-rest",
+      }),
+    ).toMatchObject({
+      availability: "permission-required",
+      source: "figma-variables-rest",
+    });
+    expect(() =>
+      normalizeDesignVariableCatalog({
+        availability: "global",
+        source: "figma-selection",
+        meta: {
+          variableCollections: {
+            "VariableCollectionId:1": { name: "Theme" },
+          },
+        },
+      }),
+    ).toThrow(/file-global source/);
+  });
+
+  it("persists a catalog by default and exact aliases and colors only on expanded demand", () => {
+    const payload = {
+      availability: "global",
+      source: "figma-desktop-mcp-global",
+      meta: {
+        variableCollections: {
+          "VariableCollectionId:1": {
+            id: "VariableCollectionId:1",
+            name: "Theme",
+            defaultModeId: "1:0",
+            modes: [
+              { modeId: "1:0", name: "Light" },
+              { modeId: "1:1", name: "Dark" },
+            ],
+            variableIds: ["VariableID:surface", "VariableID:alias"],
+          },
+        },
+        variables: {
+          "VariableID:surface": {
+            id: "VariableID:surface",
+            name: "color/surface",
+            variableCollectionId: "VariableCollectionId:1",
+            resolvedType: "COLOR",
+            valuesByMode: {
+              "1:0": { r: 1, g: 1, b: 1, a: 1 },
+              "1:1": { r: 0, g: 0, b: 0, a: 1 },
+            },
+          },
+          "VariableID:alias": {
+            id: "VariableID:alias",
+            name: "color/background",
+            variableCollectionId: "VariableCollectionId:1",
+            resolvedType: "COLOR",
+            valuesByMode: {
+              "1:0": {
+                type: "VARIABLE_ALIAS",
+                id: "VariableID:surface",
+              },
+            },
+          },
+        },
+      },
+    };
+    const catalog = normalizeDesignVariableCatalog(payload);
+    expect(catalog).toMatchObject({
+      availability: "global",
+      source: "figma-desktop-mcp-global",
+      detailLevel: "catalog",
+      valuesIncluded: false,
+      totalCollections: 1,
+      totalVariables: 2,
+      variables: [],
+      collections: [
+        expect.objectContaining({
+          name: "Theme",
+          defaultModeId: "1:0",
+          resolvedTypes: ["COLOR"],
+        }),
+      ],
+    });
+
+    const expanded = normalizeDesignVariableCatalog({
+      ...payload,
+      detailLevel: "expanded",
+      valuesIncluded: true,
+    });
+    expect(expanded.variables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "VariableID:surface",
+          valuesByMode: {
+            "1:0": { r: 1, g: 1, b: 1, a: 1 },
+            "1:1": { r: 0, g: 0, b: 0, a: 1 },
+          },
+        }),
+        expect.objectContaining({
+          id: "VariableID:alias",
+          valuesByMode: {
+            "1:0": { aliasTo: "VariableID:surface" },
+          },
+        }),
+      ]),
+    );
+
+    const base = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/VariablesFixture/Variables",
+      metadata:
+        '<canvas id="1:1" name="Page"><frame id="2:1" name="Card" /></canvas>',
+      format: "figma-mcp-xml",
+      enrichment: { variableCatalog: expanded },
+    });
+    const namesOnly = queryDesignVariables(base, {
+      includeVariables: true,
+    });
+    expect(JSON.stringify(namesOnly.variables)).not.toContain("valuesByMode");
+    const exact = queryDesignVariables(base, {
+      includeVariables: true,
+      includeValues: true,
+    });
+    expect(exact.expansion).toMatchObject({
+      persisted: true,
+      valuesPersisted: true,
+      requiresGlobalSync: false,
+    });
+    expect(exact.variables[1]?.valuesByMode).toEqual({
+      "1:0": { aliasTo: "VariableID:surface" },
+    });
+  });
+
+  it("bounds expanded Variables persistence and never truncates a value into a fake exact value", () => {
+    const variableIds = Array.from(
+      { length: 1_005 },
+      (_, index) => `VariableID:${index}`,
+    );
+    const variables = Object.fromEntries(
+      variableIds.map((id, index) => [
+        id,
+        {
+          id,
+          name: `token/${index}`,
+          variableCollectionId: "VariableCollectionId:large",
+          resolvedType: "STRING",
+          valuesByMode: {
+            "mode:default": index === 0 ? "x".repeat(4_001) : `value-${index}`,
+          },
+        },
+      ]),
+    );
+    const catalog = normalizeDesignVariableCatalog({
+      availability: "global",
+      source: "figma-variables-rest",
+      detailLevel: "expanded",
+      valuesIncluded: true,
+      meta: {
+        variableCollections: {
+          "VariableCollectionId:large": {
+            id: "VariableCollectionId:large",
+            name: "Large",
+            modes: [{ modeId: "mode:default", name: "Default" }],
+            variableIds,
+          },
+        },
+        variables,
+      },
+    });
+
+    expect(catalog).toMatchObject({
+      totalVariables: 1_005,
+      truncated: {
+        variables: true,
+        values: true,
+      },
+    });
+    expect(catalog.variables).toHaveLength(1_000);
+    expect(catalog.variables[0]?.valuesByMode).toBeUndefined();
+    const index = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/BoundedVariables/Bounded",
+      metadata:
+        '<canvas id="1:1" name="Page"><frame id="2:1" name="Card" /></canvas>',
+      format: "figma-mcp-xml",
+      enrichment: { variableCatalog: catalog },
+    });
+    expect(
+      queryDesignVariables(index, {
+        includeVariables: true,
+        includeValues: true,
+      }).expansion.requiresGlobalSync,
+    ).toBe(true);
+  });
+
   it("ranks task candidates explainably and waits for node confirmation", async () => {
     const index = await checkoutIndex();
     const result = rankDesignCandidates(
@@ -132,7 +374,7 @@ describe("Figma Design Index", () => {
       confirmedNodeId: "10:1",
       strategy: "confirmed-subtree",
       requiredTools: ["get_design_context", "get_screenshot"],
-      recommendedTools: ["get_variable_defs"],
+      recommendedTools: ["get_figma_variables"],
       budgetPolicy: {
         preserveTargetFirst: true,
         onUnisolatedTarget: "ask-for-selection",
@@ -231,6 +473,24 @@ describe("Figma Design Index", () => {
         level: "warning",
       }),
     );
+    expect(
+      inspectDesignNode(index, "60:2").deepContextRequest.recommendedTools,
+    ).not.toContain("get_variable_defs");
+    const selectionFallback = buildFigmaDesignIndex({
+      figmaUrl: "https://www.figma.com/design/PersonalShop/Personal-shop",
+      metadata,
+      format: "figma-mcp-xml",
+      enrichment: {
+        variableCatalog: {
+          availability: "selection-only",
+          source: "figma-selection",
+        },
+      },
+    });
+    expect(
+      inspectDesignNode(selectionFallback, "60:2").deepContextRequest
+        .recommendedTools,
+    ).toContain("get_variable_defs");
 
     const desktop = rankDesignCandidates(
       index,
@@ -443,7 +703,7 @@ describe("Figma Design Index", () => {
     const upgraded = normalizeDesignIndex(
       legacy as unknown as Parameters<typeof normalizeDesignIndex>[0],
     );
-    expect(upgraded.schemaVersion).toBe(2);
+    expect(upgraded.schemaVersion).toBe(3);
     expect(upgraded.devStatus.availability).toBe("available");
     expect(upgraded.nodes.find((node) => node.id === "10:1")).toMatchObject({
       devStatusAvailability: "available",

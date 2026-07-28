@@ -107,6 +107,9 @@ function derivedObservations(
   const hasSelectionVariables = indexes.some(
     (index) => index.variables.availability === "selection-only",
   );
+  const variablesNeedPermission = indexes.some(
+    (index) => index.variables.availability === "permission-required",
+  );
   const codeConnections = indexes.reduce(
     (total, index) => total + index.stats.codeConnections,
     0,
@@ -157,6 +160,8 @@ function derivedObservations(
       kind: "enrichment",
       state: hasGlobalVariables || hasSelectionVariables
         ? "detected"
+        : variablesNeedPermission
+          ? "permission-required"
         : hasDesign
           ? "not-exposed"
           : "unknown",
@@ -165,9 +170,11 @@ function derivedObservations(
       detail: hasGlobalVariables
         ? "Global collection summaries are indexed."
         : hasSelectionVariables
-          ? "Selection-scoped variables are available."
+          ? "Only the node/selection fallback is available; it is not a global Variables catalog."
+          : variablesNeedPermission
+            ? "The confirmed global Variables source requires additional permission or eligible plan access; no absence is inferred."
           : hasDesign
-            ? "No variable catalog is exposed by the indexed source."
+            ? "No file-global variable catalog is exposed by the indexed source; no absence is inferred."
             : "No design source is indexed.",
     },
     {

@@ -10,6 +10,8 @@ import type {
   DesignIndexNode,
   DesignIndexSummary,
   DesignNodeInspection,
+  DesignVariableQueryOptions,
+  DesignVariableQueryResult,
   RankDesignCandidatesOptions,
 } from "./types.js";
 
@@ -598,6 +600,21 @@ export function designIndexSummary(
     devStatus: index.devStatus,
     variables: {
       availability: index.variables.availability,
+      source: index.variables.source,
+      detailLevel: index.variables.detailLevel,
+      valuesIncluded: index.variables.valuesIncluded,
+      ...(index.variables.syncedAt
+        ? { syncedAt: index.variables.syncedAt }
+        : {}),
+      totalCollections: index.variables.totalCollections,
+      totalVariables: index.variables.totalVariables,
+      truncated: {
+        ...index.variables.truncated,
+        collections:
+          index.variables.truncated.collections ||
+          index.variables.collections.length > 20,
+      },
+      ...(index.variables.note ? { note: index.variables.note } : {}),
       collections: index.variables.collections.slice(0, 20).map((collection) => ({
         id: collection.id,
         name: collection.name,
@@ -631,17 +648,107 @@ export function designIndexSummary(
       "Confirm one node, then use inspect_design_node to obtain the exact Figma retrieval plan.",
       ...(index.variables.availability === "global"
         ? [
-            "Use the global collection and mode summary for theme context; retrieve exact values only for the confirmed node.",
+            "Use the file-global collection and mode summary by default. Request an expanded global variable sync only when exact names, aliases, or values are needed.",
           ]
-        : [
-            "Global variables are unavailable; retrieve exact node variables with get_variable_defs after confirmation.",
-          ]),
+        : index.variables.availability === "selection-only"
+          ? [
+              "No file-global Variables read is available. get_variable_defs may be used only as a node/selection fallback after confirmation and is not equivalent to the global catalog.",
+            ]
+          : index.variables.availability === "permission-required"
+            ? [
+                "File-global Variables need additional permission or plan access. Continue without them and do not infer that the file has no variables.",
+              ]
+            : [
+                "The confirmed source did not expose file-global Variables. Continue without them and do not infer that the file has no variables.",
+              ]),
       ...(index.devStatus.availability === "source-unavailable"
         ? [
             "Ready for Dev status is unavailable through this metadata source. Use a REST or enriched source, or confirm the selected node in Figma; do not infer that no status exists.",
           ]
         : []),
     ],
+  };
+}
+
+export function queryDesignVariables(
+  index: DesignFileIndex,
+  options: DesignVariableQueryOptions = {},
+): DesignVariableQueryResult {
+  const includeVariables =
+    options.includeVariables === true || options.includeValues === true;
+  const includeValues = includeVariables && options.includeValues === true;
+  const limit = Math.max(1, Math.min(options.limit ?? 100, 500));
+  const requestedIds = new Set((options.variableIds ?? []).slice(0, 500));
+  const collections = index.variables.collections
+    .filter(
+      (collection) =>
+        !options.collectionId || collection.id === options.collectionId,
+    )
+    .slice(0, options.collectionId ? 1 : 50);
+  const matchingVariables = includeVariables
+    ? index.variables.variables.filter(
+        (variable) =>
+          (!options.collectionId ||
+            variable.collectionId === options.collectionId) &&
+          (requestedIds.size === 0 || requestedIds.has(variable.id)),
+      )
+    : [];
+  const variables = matchingVariables.slice(0, limit).map((variable) => {
+    if (includeValues) return { ...variable };
+    const { valuesByMode: _valuesByMode, ...summary } = variable;
+    return summary;
+  });
+  const expansionPersisted =
+    index.variables.detailLevel === "expanded" &&
+    (index.variables.variables.length > 0 ||
+      index.variables.totalVariables === 0);
+  const valuesPersisted =
+    expansionPersisted && index.variables.valuesIncluded;
+  const requestedCoverageMissing =
+    requestedIds.size > 0 &&
+    [...requestedIds].some(
+      (id) => !matchingVariables.some((variable) => variable.id === id),
+    );
+  const expandedCoverageIncomplete =
+    index.variables.truncated.variables &&
+    (requestedIds.size === 0 || requestedCoverageMissing);
+  const exactCoverageIncomplete =
+    includeValues && index.variables.truncated.values;
+  return {
+    file: index.file,
+    availability: index.variables.availability,
+    source: index.variables.source,
+    detailLevel: index.variables.detailLevel,
+    valuesIncluded: includeValues && valuesPersisted,
+    ...(index.variables.syncedAt
+      ? { syncedAt: index.variables.syncedAt }
+      : {}),
+    totalCollections: index.variables.totalCollections,
+    totalVariables: index.variables.totalVariables,
+    collections,
+    variables,
+    expansion: {
+      requested: includeVariables,
+      persisted: expansionPersisted,
+      valuesRequested: includeValues,
+      valuesPersisted,
+      requiresGlobalSync:
+        index.variables.availability === "global" &&
+        includeVariables &&
+        (!expansionPersisted ||
+          requestedCoverageMissing ||
+          expandedCoverageIncomplete ||
+          (includeValues && !valuesPersisted) ||
+          exactCoverageIncomplete),
+    },
+    truncated: {
+      ...index.variables.truncated,
+      response:
+        matchingVariables.length > variables.length ||
+        (!options.collectionId &&
+          index.variables.collections.length > collections.length),
+    },
+    ...(index.variables.note ? { note: index.variables.note } : {}),
   };
 }
 
@@ -719,7 +826,12 @@ export function inspectDesignNode(
         relatedVariants(index, node).some((variant) => variant.id === nodeId),
       ),
   );
-  const recommendedTools = ["get_variable_defs"];
+  const recommendedTools: string[] =
+    index.variables.availability === "global"
+      ? ["get_figma_variables"]
+      : index.variables.availability === "selection-only"
+        ? ["get_variable_defs"]
+        : [];
   if (node.codeConnections.length === 0) recommendedTools.push("get_code_connect_map");
   const candidateSubtreeIds = node.childIds
     .map((childId) => byId.get(childId))
@@ -771,8 +883,8 @@ export function inspectDesignNode(
       },
       instruction:
         candidateSubtreeIds.length > 0
-          ? "Use this node only for orientation. Inspect its sparse child metadata, identify the smallest subtree that implements the task, and request deep context, screenshot, and exact variables only for that subtree. Preserve the target budget by omitting shell, navigation, repeated assets, and peripheral siblings first. If the relevant subtree cannot be isolated, ask for a manual Figma selection instead of silently returning truncated target context."
-          : "The smallest indexed target is confirmed. Retrieve deep context, screenshot, and exact variables only for this node. If the target response itself is truncated, report that limitation and ask for a smaller manual selection rather than treating incomplete context as sufficient.",
+          ? "Use this node only for orientation. Inspect its sparse child metadata and identify the smallest subtree that implements the task before requesting deep context and a screenshot. Use file-global variable expansion when globally available; use get_variable_defs only when the audited access state is selection-only. Preserve the target budget by omitting shell, navigation, repeated assets, and peripheral siblings first. If the relevant subtree cannot be isolated, ask for a manual Figma selection instead of silently returning truncated target context."
+          : "The smallest indexed target is confirmed. Retrieve deep context and a screenshot only for this node. Use file-global variable expansion when globally available; use get_variable_defs only when the audited access state is selection-only. If the target response itself is truncated, report that limitation and ask for a smaller manual selection rather than treating incomplete context as sufficient.",
     },
   };
 }

@@ -283,17 +283,27 @@ export function designIndexFindings(index: DesignFileIndex): DesignFinding[] {
     ...responsiveCoverageFindings(index),
   ];
   if (index.variables.availability !== "global") {
+    const availability = index.variables.availability;
     findings.push({
       id: findingId("global-variables-unavailable"),
       level: "resolved",
       code: "global-variables-unavailable",
-      title: "Global Figma variables are not available in this index",
+      title:
+        availability === "selection-only"
+          ? "Only selection-scoped Figma variables are available"
+          : availability === "permission-required"
+            ? "Global Figma variables require additional permission"
+            : "Global Figma variables are not exposed by this index",
       evidence: [
         index.variables.note ??
-          "The current integration did not provide file-level variable collections.",
+          "The current integration did not provide a file-global variable catalog. This does not establish that the file has no variables.",
       ],
       recommendation:
-        "Continue with the lightweight map and retrieve exact variables with get_variable_defs only after a node is confirmed.",
+        availability === "selection-only"
+          ? "Continue with the lightweight map. Use get_variable_defs only as a technical node/selection fallback after confirmation; never present it as the global Variables catalog."
+          : availability === "permission-required"
+            ? "Continue without global variables or obtain explicit read authorization through the appropriate source. Do not infer absence."
+            : "Continue without global variables. If a confirmed node is available and get_variable_defs is exposed, it may be used only as a selection-scoped fallback.",
     });
   }
   if (index.devStatus.availability !== "available") {

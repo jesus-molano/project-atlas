@@ -19,6 +19,7 @@ import {
 import {
   findTaskDesignCandidates,
   fitBudgetedResponse,
+  getFigmaDesignVariables,
   getProjectMemoryItem,
   getProjectCapabilities,
   getTaskContext,
@@ -38,6 +39,7 @@ import {
   reportProjectCapabilities,
   scanProject,
   searchProjectMemory,
+  syncFigmaDesignVariables,
   type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -99,6 +101,54 @@ function requireComponent(graph: ComponentGraph, selector: string) {
   }
   return component;
 }
+
+const figmaVariableCatalogSchema = z
+  .object({
+    availability: z.enum([
+      "global",
+      "selection-only",
+      "unavailable",
+      "permission-required",
+    ]),
+    source: z
+      .enum([
+        "figma-desktop-mcp-global",
+        "figma-variables-rest",
+        "figma-selection",
+        "none",
+      ])
+      .optional(),
+    detailLevel: z.enum(["catalog", "expanded"]).optional(),
+    valuesIncluded: z.boolean().optional(),
+    totalCollections: z.number().int().min(0).optional(),
+    totalVariables: z.number().int().min(0).optional(),
+    meta: z.record(z.unknown()).optional(),
+    variableCollections: z
+      .union([z.array(z.unknown()), z.record(z.unknown())])
+      .optional(),
+    collections: z
+      .union([z.array(z.unknown()), z.record(z.unknown())])
+      .optional(),
+    variables: z
+      .union([z.array(z.unknown()), z.record(z.unknown())])
+      .optional(),
+    note: z.string().max(500).optional(),
+  })
+  .passthrough()
+  .superRefine((catalog, context) => {
+    if (
+      catalog.availability === "global" &&
+      catalog.source !== "figma-desktop-mcp-global" &&
+      catalog.source !== "figma-variables-rest"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["source"],
+        message:
+          "Global availability requires an explicitly confirmed file-global source.",
+      });
+    }
+  });
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -497,6 +547,95 @@ export function createMcpServer(): McpServer {
             page.mainNodes.map((node) => node.id),
           ),
           preserveFirstKeys: ["summary", "gate"],
+        }),
+      );
+    },
+  );
+
+  server.tool(
+    "sync_figma_variables",
+    "Persist a bounded, read-only audit of Figma Variables for an already mapped file. Use availability=global only with an explicitly confirmed file-global read result. Desktop get_variable_defs is selection-only and must never be submitted as a global catalog. Stores no credentials and never writes to Figma.",
+    {
+      root_path: z.string(),
+      figma_file: z.string(),
+      catalog: figmaVariableCatalogSchema,
+      synced_at: z.string().datetime().optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({
+      root_path,
+      figma_file,
+      catalog,
+      synced_at,
+      budget_chars,
+    }) => {
+      const result = await syncFigmaDesignVariables({
+        rootPath: root_path,
+        figmaFile: figma_file,
+        catalog,
+        ...(synced_at ? { syncedAt: synced_at } : {}),
+      });
+      return text(
+        fitBudgetedResponse(result as unknown as Record<string, unknown>, {
+          budgetChars: budget_chars,
+          totalMatches: result.variables.totalVariables,
+          expandableIds: result.variables.collections.map(
+            (collection) => collection.id,
+          ),
+          preserveFirstKeys: ["variables"],
+        }),
+      );
+    },
+  );
+
+  server.tool(
+    "get_figma_variables",
+    "Read the compact cached file-global Variables catalog. Collection summaries are the default. Variable names/types and exact aliases/values are returned only when explicitly requested and previously synchronized from an authorized global source.",
+    {
+      root_path: z.string(),
+      figma_file: z.string(),
+      collection_id: z.string().optional(),
+      variable_ids: z.array(z.string()).max(500).optional(),
+      include_variables: z.boolean().optional(),
+      include_values: z.boolean().optional(),
+      limit: z.number().int().min(1).max(500).optional(),
+      budget_chars: z.number().int().min(800).max(12000).optional(),
+    },
+    async ({
+      root_path,
+      figma_file,
+      collection_id,
+      variable_ids,
+      include_variables,
+      include_values,
+      limit,
+      budget_chars,
+    }) => {
+      const result = await getFigmaDesignVariables(
+        root_path,
+        figma_file,
+        {
+          ...(collection_id ? { collectionId: collection_id } : {}),
+          ...(variable_ids ? { variableIds: variable_ids } : {}),
+          ...(include_variables ? { includeVariables: true } : {}),
+          ...(include_values ? { includeValues: true } : {}),
+          ...(limit ? { limit } : {}),
+        },
+      );
+      return text(
+        fitBudgetedResponse(result as unknown as Record<string, unknown>, {
+          budgetChars: budget_chars,
+          totalMatches: result.totalVariables,
+          expandableIds:
+            result.variables.length > 0
+              ? result.variables.map((variable) => variable.id)
+              : result.collections.map((collection) => collection.id),
+          preserveFirstKeys: [
+            "availability",
+            "source",
+            "collections",
+            "expansion",
+          ],
         }),
       );
     },

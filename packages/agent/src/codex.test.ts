@@ -230,6 +230,9 @@ describe("Codex Agent Adapter", () => {
     expect(observed.prompt).toContain("local MCP server exposed by the Figma desktop application");
     expect(observed.prompt).toContain("`get_metadata`");
     expect(observed.prompt).toContain("`map_figma_file`");
+    expect(observed.prompt).toContain("`sync_figma_variables`");
+    expect(observed.prompt).toContain("`selection-only`");
+    expect(observed.prompt).toContain("not equivalent to the global catalog");
     expect(observed.prompt).toContain("persists the sparse nodes and relationships");
     expect(observed.prompt?.indexOf("Confirmed Figma ingestion")).toBeLessThan(
       observed.prompt?.indexOf("Preserve existing user changes") ?? -1,
