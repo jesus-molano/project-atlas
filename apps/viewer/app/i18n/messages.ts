@@ -51,6 +51,7 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   error: "error",
   "permission-required": "requiere permiso",
   "not-exposed": "no disponible",
+  available: "disponible",
   unavailable: "no disponible",
   unknown: "desconocido",
   degraded: "degradado",
@@ -736,11 +737,17 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "Mapea un archivo o una página de Figma para este proyecto.",
   "Review Figma access": "Revisar acceso a Figma",
   "Map a Figma file": "Mapear un archivo de Figma",
+  "Design catalog": "Catálogo de diseño",
+  "Design catalog results": "Resultados del catálogo de diseño",
   "Design file": "Archivo de diseño",
   Filter: "Filtrar",
   "Frame, page, component…": "Frame, página, componente…",
   "{count} pages": "{count} páginas",
+  "{count} matching nodes": "{count} nodos coincidentes",
   "{count} ready claims": "{count} declaraciones de preparación",
+  Ready: "Listo",
+  "No status": "Sin estado",
+  Unavailable: "No disponible",
   "Open source": "Abrir fuente",
   "Indexed evidence only": "Solo evidencia indexada",
   "Synthetic lab evidence. Ready for Dev, Code Connect, variables, and connector states below are fixture claims, not live Figma verification.":
@@ -755,6 +762,15 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Annotations & resources": "Anotaciones y recursos",
   "No annotations or resources were present in the sparse metadata.":
     "No había anotaciones ni recursos en los metadatos ligeros.",
+  "No design node matches this filter.":
+    "Ningún nodo de diseño coincide con este filtro.",
+  "Try another search or clear the filter to see indexed nodes.":
+    "Prueba otra búsqueda o borra el filtro para ver los nodos indexados.",
+  "No design node selected": "No hay ningún nodo de diseño seleccionado",
+  "This design file has no indexed nodes.":
+    "Este archivo de diseño no tiene nodos indexados.",
+  "Selected design node details": "Detalles del nodo de diseño seleccionado",
+  "Design file details": "Detalles del archivo de diseño",
   "File provenance": "Procedencia del archivo",
   "Prepare design refresh": "Preparar actualización del diseño",
   "Adds a reviewed task. It does not claim a live Figma connection.":
@@ -767,6 +783,9 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "source-unavailable": "fuente no disponible",
   Pages: "Páginas",
   "{count} indexed": "{count} indexados",
+  "{count} page indexed": "{count} página indexada",
+  "{count} pages indexed": "{count} páginas indexadas",
+  "{count} ready node": "{count} nodo listo",
   "{count} ready nodes": "{count} nodos listos",
   "Global variables": "Variables globales",
   "{count} collections": "{count} colecciones",
@@ -776,6 +795,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "values on demand": "valores bajo demanda",
   "Design families": "Familias de diseño",
   "{count} grouped": "{count} agrupadas",
+  "Responsive widths": "Anchos adaptables",
+  Flow: "Flujo",
   "no viewport evidence": "sin evidencia de viewport",
   States: "Estados",
   "Not evidenced": "Sin evidencia",
@@ -998,6 +1019,10 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Interactive component relationship map":
     "Mapa interactivo de relaciones entre componentes",
   "Global Figma variables": "Variables globales de Figma",
+  "{collections} · {tokens}": "{collections} · {tokens}",
+  "{count} collection": "{count} colección",
+  "{count} shared token": "{count} token compartido",
+  "{count} shared tokens": "{count} tokens compartidos",
   "{collections} collections · {tokens} shared tokens":
     "{collections} colecciones · {tokens} tokens compartidos",
   "Global file variables": "Variables globales del archivo",

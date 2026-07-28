@@ -191,6 +191,34 @@ describe("desktop evidence workspace contract", () => {
     expect(graph).toContain("ResizeObserver");
   });
 
+  it("keeps Design Atlas context stable while its catalog and evidence panes scroll independently", async () => {
+    const [page, design, css] = await Promise.all([
+      source("apps/viewer/app/pages/index.vue"),
+      source("apps/viewer/app/components/DesignAtlasView.vue"),
+      source("apps/viewer/app/assets/css/main.css"),
+    ]);
+
+    expect(page).toContain("section-workspace design-section");
+    expect(design).toContain('class="atlas-workspace three-pane design-atlas"');
+    expect(design).toContain('ref="entityList"');
+    expect(design).toContain('role="listbox"');
+    expect(design).toContain('role="option"');
+    expect(design).toContain("handleNodeKeydown");
+    expect(design).toContain("handleVariableCollectionKeydown");
+    expect(design).toContain("handleVariableKeydown");
+    expect(design).toContain("No design node matches this filter.");
+    expect(design).toContain("syncNoticeVisible");
+    expect(css).toMatch(/\.design-section\s*\{[^}]*overflow:\s*hidden/s);
+    expect(css).toMatch(
+      /\.design-atlas \.entity-list\s*\{[^}]*flex:\s*1[^}]*overflow-y:\s*auto/s,
+    );
+    expect(css).toMatch(
+      /\.design-atlas > \.detail-pane,[\s\S]*?\.design-atlas > \.inspector-pane\s*\{[^}]*overflow-y:\s*auto/s,
+    );
+    expect(css).toContain("@container atlas-workspace (min-width: 901px)");
+    expect(css).toContain("@container atlas-workspace (max-width: 900px)");
+  });
+
   it("uses the Atlas-specific design contract and semantic icons", async () => {
     const [page, css, brief] = await Promise.all([
       source("apps/viewer/app/pages/index.vue"),
