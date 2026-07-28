@@ -46,7 +46,10 @@ important is overwritten invisibly.
 - Only after that exact confirmation does an agent use
   `propose_memory_update` for durable knowledge. The proposal contains
   evidence, confidence, relations, and any item it supersedes.
-- `apply_memory_update` requires explicit `confirmed: true`.
+- `apply_memory_update` requires explicit `confirmed: true`, refuses proposals
+  with unresolved `decision-required` findings, and requires a second
+  `canonical_confirmed: true` acknowledgement before writing versionable
+  `project-memory/*.md` files.
 - `record_outcome` may append a local observed/verified episode only after the
   user asks to retain that local result. It does not promote the episode to a
   team rule.

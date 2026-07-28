@@ -1205,6 +1205,10 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "This checkout already has an active Codex run. Continue or cancel it first.":
     "Este checkout ya tiene una ejecución activa de Codex. Continúala o cancélala primero.",
   "Request body is required.": "Se requiere el cuerpo de la solicitud.",
+  "A proposalId query parameter is required.":
+    "Se requiere el parámetro de consulta proposalId.",
+  "The write impact could not be calculated.":
+    "No se pudo calcular el impacto de escritura.",
   "The source ledger is invalid.": "El registro de fuentes no es válido.",
   "Durable memory writes require confirmed=true after reviewing the proposal.":
     "Las escrituras de memoria duradera requieren confirmación después de revisar la propuesta.",
@@ -1228,8 +1232,12 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     'No se encontró la propuesta de memoria "{id}".',
   'Memory proposal "{id}" is already {status}.':
     'La propuesta de memoria "{id}" ya está {status}.',
+  'Memory proposal "{id}" has unresolved decision-required findings and cannot be applied.':
+    'La propuesta de memoria "{id}" tiene hallazgos sin resolver que requieren una decisión y no puede aplicarse.',
   "Memory proposal item {index} is invalid.":
     "El elemento {index} de la propuesta de memoria no es válido.",
+  "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the versionable project-memory paths.":
+    "Las escrituras canónicas de Project Memory requieren canonicalConfirmed=true después de revisar las rutas versionables de project-memory.",
   "{command} is not bulk-safe.":
     "{command} no se puede aplicar de forma segura por lotes.",
   "{command} is not allowed for {type}.":

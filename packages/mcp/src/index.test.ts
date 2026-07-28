@@ -115,6 +115,9 @@ describe("Project Atlas MCP surface", () => {
           "proposal_id",
           "confirmed",
         ]),
+        properties: {
+          canonical_confirmed: { type: "boolean" },
+        },
       });
     } finally {
       await client.close();

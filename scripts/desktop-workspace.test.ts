@@ -50,16 +50,20 @@ describe("desktop evidence workspace contract", () => {
   });
 
   it("turns each Atlas evidence plane into an action for the Workbench", async () => {
-    const [code, design, memory, workbench] = await Promise.all([
+    const [code, design, memory, memoryI18n, workbench] = await Promise.all([
       source("apps/viewer/app/components/CodeAtlasView.vue"),
       source("apps/viewer/app/components/DesignAtlasView.vue"),
       source("apps/viewer/app/components/ProjectMemoryView.vue"),
+      source("apps/viewer/app/utils/memory-i18n.ts"),
       source("apps/viewer/app/components/TaskWorkbenchView.vue"),
     ]);
-    for (const view of [code, design, memory]) {
+    for (const view of [code, design]) {
       expect(view).toContain("useInTask");
       expect(view).toContain("Use in task");
     }
+    expect(memory).toContain("useInTask");
+    expect(memory).toContain('memoryT("useInTask")');
+    expect(memoryI18n).toContain('useInTask: "Use in task"');
     expect(code).toContain("Reuse");
     expect(code).toContain("Change impact");
     expect(code).toContain("Associated tests");
@@ -67,9 +71,11 @@ describe("desktop evidence workspace contract", () => {
     expect(design).toContain("indexed metadata");
     expect(design).toContain("fixture claims, not live Figma verification");
     expect(design).toContain("Indexed code mappings");
-    expect(memory).toContain("Concept map");
-    expect(memory).toContain("Timeline");
-    expect(memory).toContain("Active by default");
+    expect(memory).toContain('memoryT("conceptMap")');
+    expect(memory).toContain('memoryT("timeline")');
+    expect(memory).toContain('memoryT("activeDefault")');
+    expect(memoryI18n).toContain('conceptMap: "Concept map"');
+    expect(memoryI18n).toContain('conceptMap: "Mapa conceptual"');
     expect(workbench).toContain("Review before Codex starts");
     expect(workbench).toContain("Review before Codex resumes");
     expect(workbench).toContain("Cancel safely");

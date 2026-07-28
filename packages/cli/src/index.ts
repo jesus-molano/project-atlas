@@ -770,13 +770,22 @@ export function createProgram(): Command {
     .argument("<proposal>", "reviewed proposal ID")
     .requiredOption("--confirm", "explicitly approve the durable write")
     .option("--target <target>", "local or canonical", "local")
+    .option(
+      "--confirm-canonical",
+      "explicitly confirm versionable project-memory Markdown paths",
+    )
     .option("--budget <chars>", "hard response budget in characters", "3600")
     .description("Apply a reviewed proposal to Markdown and SQLite.")
     .action(
       async (
         rootPath: string,
         proposal: string,
-        options: { confirm: boolean; target: string; budget: string },
+        options: {
+          confirm: boolean;
+          confirmCanonical?: boolean;
+          target: string;
+          budget: string;
+        },
       ) => {
         if (!["local", "canonical"].includes(options.target)) {
           throw new Error('Memory target must be "local" or "canonical".');
@@ -785,6 +794,9 @@ export function createProgram(): Command {
           await applyMemoryUpdate(rootPath, proposal, {
             confirmed: options.confirm,
             target: options.target as "local" | "canonical",
+            ...(options.confirmCanonical !== undefined
+              ? { canonicalConfirmed: options.confirmCanonical }
+              : {}),
             budgetChars: parseBudget(options.budget),
           }),
         );

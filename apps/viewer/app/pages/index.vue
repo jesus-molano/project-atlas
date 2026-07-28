@@ -1255,7 +1255,11 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'inbox'" class="section-workspace">
           <header ref="inboxHeading" class="workspace-heading compact" tabindex="-1"><div><span class="eyebrow">{{ t("Review / Memory Inbox") }}</span><h1>{{ t("What should the project remember?") }}</h1><p>{{ t("Approve compact knowledge proposals, never raw transcripts.") }}</p></div><span class="heading-count">{{ t("{count} pending", { count: workspace.memoryProposals.filter((item) => item.status === "pending").length }) }}</span></header>
-          <LazyMemoryInboxView :proposals="workspace.memoryProposals" @changed="refreshSnapshot" />
+          <LazyMemoryInboxView
+            :proposals="workspace.memoryProposals"
+            :memory-items="workspace.memoryItems"
+            @changed="refreshSnapshot"
+          />
         </section>
 
         <section v-else-if="activeSection === 'connections'" class="section-workspace">

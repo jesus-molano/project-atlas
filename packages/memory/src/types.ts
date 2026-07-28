@@ -152,6 +152,37 @@ export interface MemoryProposal {
   rejectionReason?: string;
 }
 
+export type MemoryWriteTarget = "local" | "canonical";
+
+export interface MemoryProposalReviewItem {
+  id: string;
+  type: MemoryType;
+  title: string;
+  scope: MemoryScope;
+  path: string;
+  supersedes: string[];
+}
+
+export interface MemoryProposalReview {
+  schemaVersion: typeof MEMORY_SCHEMA_VERSION;
+  proposalId: string;
+  proposalStatus: MemoryProposal["status"];
+  target: MemoryWriteTarget;
+  canApply: boolean;
+  requiresCanonicalConfirmation: boolean;
+  gate: {
+    status: "clear" | "review" | "blocked";
+    blockingFindingIds: string[];
+    warningFindingIds: string[];
+  };
+  impact: {
+    directory: ".component-atlas/memory" | "project-memory";
+    itemCount: number;
+    supersededIds: string[];
+    items: MemoryProposalReviewItem[];
+  };
+}
+
 export interface MemorySearchOptions {
   types?: MemoryType[];
   statuses?: MemoryStatus[];

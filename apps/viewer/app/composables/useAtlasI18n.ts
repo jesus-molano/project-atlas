@@ -70,6 +70,19 @@ export function translateAtlasRuntimeMessage(
       },
     );
   }
+  const unresolvedProposal = source.match(
+    /^Memory proposal "(.+)" has unresolved decision-required findings and cannot be applied(?:: (.+)|\.)$/,
+  );
+  if (unresolvedProposal) {
+    const base = translateAtlasUi(
+      locale,
+      'Memory proposal "{id}" has unresolved decision-required findings and cannot be applied.',
+      { id: unresolvedProposal[1] ?? "" },
+    );
+    return unresolvedProposal[2]
+      ? `${base.replace(/\.$/u, "")}: ${unresolvedProposal[2]}`
+      : base;
+  }
   const invalidProposalItem = source.match(
     /^Memory proposal item (\d+) is invalid\.$/,
   );

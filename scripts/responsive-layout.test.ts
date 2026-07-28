@@ -181,22 +181,19 @@ describe("evidence workspace responsive layout", () => {
   });
 
   it("keeps Memory Inbox decisions before long content on tablet and compact layouts", () => {
-    expect(memoryInbox.indexOf("proposal-decision-zone")).toBeLessThan(
-      memoryInbox.indexOf("Proposed delta"),
-    );
-    expect(memoryInbox).toContain("openDecision('approve')");
-    expect(memoryInbox).toContain("openDecision('reject')");
-    expect(memoryInbox).toContain('ref="approvalTarget"');
-    expect(memoryInbox).toContain('ref="rejectionInput"');
+    expect(memoryInbox).toContain('class="proposal-actions"');
+    expect(memoryInbox).toContain("openApprovalConfirmation");
+    expect(memoryInbox).toContain('type="radio"');
+    expect(memoryInbox).toContain("confirmationOpen");
     expect(memoryInbox).toContain("decisionZone.value?.focus");
     expect(memoryInbox).toContain("decisionZone.value?.scrollIntoView");
     expect(memoryInbox).toContain('action: "apply"');
     expect(memoryInbox).toContain('action: "reject"');
     expect(css).toMatch(
-      /@container atlas-workspace \(max-width: 900px\)[\s\S]*?\.atlas-workspace\.inbox-layout[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+      /@container atlas-workspace \(max-width: 900px\)[\s\S]*?\.atlas-workspace\.inbox-layout[\s\S]*?grid-template-areas:\s*"index"\s*"actions"\s*"detail"/,
     );
     expect(css).toMatch(
-      /@media \(max-width: 560px\)[\s\S]*?\.proposal-primary-actions,[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+      /@media \(max-width: 560px\)[\s\S]*?\.confirmation-actions\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
     );
   });
 
