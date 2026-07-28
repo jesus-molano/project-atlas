@@ -1,3 +1,5 @@
+import type { MemoryCloseout } from "./memory-closeout.js";
+
 export type AgentAdapterState =
   | "detected"
   | "unavailable"
@@ -102,11 +104,7 @@ export interface AgentCompactResult {
     title: string;
     recommendation: string;
   }>;
-  memoryProposals: Array<{
-    type: string;
-    title: string;
-    summary: string;
-  }>;
+  memoryCloseout: MemoryCloseout;
   outcome?: {
     status: "implemented" | "prepared" | "blocked" | "failed";
     summary: string;

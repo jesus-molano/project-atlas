@@ -72,6 +72,13 @@ describe("desktop evidence workspace contract", () => {
     expect(workbench).toContain("Cancel safely");
     expect(workbench).toContain("Continue same Codex task");
     expect(workbench).toContain("Context inspector");
+    expect(workbench).toContain("Memory candidates");
+    expect(workbench).toContain("No automatic memory writes");
+    expect(workbench).toContain("Explicit confirmation required:");
+    expect(workbench).toContain("Local / episodic outcome");
+    expect(workbench).toContain("memoryCloseoutActionMessage");
+    expect(workbench).toContain("Confirm canonical memory");
+    expect(workbench).toContain("Continue without saving");
   });
 
   it("explains and live-refreshes confirmed Figma ingestion", async () => {

@@ -6,6 +6,7 @@ import type {
   AgentRunMode,
   AgentSandbox,
 } from "@component-atlas/agent";
+import { memoryCloseoutActionMessage } from "@component-atlas/agent";
 import {
   assessTaskIntake,
   assessTaskRisk,
@@ -559,6 +560,17 @@ async function resumeRun(): Promise<void> {
   answer.value = "";
   correction.value = "";
   pollTimer = setTimeout(pollRun, 100);
+}
+
+async function respondToMemoryCloseout(
+  action: "confirm-canonical" | "decline",
+): Promise<void> {
+  if (!latestResult.value?.memoryCloseout) return;
+  correction.value = memoryCloseoutActionMessage(
+    latestResult.value.memoryCloseout,
+    action,
+  );
+  await resumeRun();
 }
 
 async function implementReviewedRun(): Promise<void> {
@@ -1118,6 +1130,85 @@ onBeforeUnmount(() => {
               <p v-if="!latestResult.risks.length">No unresolved risk reported.</p>
             </section>
           </div>
+          <section
+            :class="[
+              'memory-closeout',
+              { confirmation: latestResult.memoryCloseout.confirmationRequired },
+            ]"
+            aria-labelledby="memory-closeout-heading"
+          >
+            <header>
+              <div>
+                <span class="eyebrow">Memory candidates</span>
+                <h3 id="memory-closeout-heading">
+                  {{ latestResult.memoryCloseout.status }}
+                </h3>
+              </div>
+              <span>
+                {{
+                  latestResult.memoryCloseout.status === "canonical-stored"
+                    ? "Stored after confirmation"
+                    : "No automatic memory writes"
+                }}
+              </span>
+            </header>
+            <p>{{ latestResult.memoryCloseout.summary }}</p>
+            <article
+              v-for="candidate in latestResult.memoryCloseout.candidates"
+              :key="`${candidate.type}:${candidate.title}`"
+              class="memory-candidate"
+            >
+              <strong>{{ candidate.type }} · {{ candidate.title }}</strong>
+              <p>{{ candidate.summary }}</p>
+              <small>
+                {{ candidate.scope }} · {{ Math.round(candidate.confidence * 100) }}% confidence
+              </small>
+              <ul>
+                <li v-for="evidence in candidate.evidence" :key="evidence">
+                  {{ evidence }}
+                </li>
+              </ul>
+            </article>
+            <article
+              v-if="latestResult.memoryCloseout.localOutcome"
+              class="memory-candidate local"
+            >
+              <strong>Local / episodic outcome</strong>
+              <p>{{ latestResult.memoryCloseout.localOutcome.summary }}</p>
+              <ul>
+                <li
+                  v-for="evidence in latestResult.memoryCloseout.localOutcome.evidence"
+                  :key="evidence"
+                >
+                  {{ evidence }}
+                </li>
+              </ul>
+            </article>
+            <p
+              v-if="latestResult.memoryCloseout.confirmationRequired"
+              class="memory-confirmation"
+            >
+              <strong>Explicit confirmation required:</strong>
+              {{ latestResult.memoryCloseout.confirmationPrompt }}
+            </p>
+            <div
+              v-if="latestResult.memoryCloseout.confirmationRequired"
+              class="memory-closeout-actions"
+            >
+              <button
+                class="secondary-button"
+                @click="respondToMemoryCloseout('confirm-canonical')"
+              >
+                Confirm canonical memory
+              </button>
+              <button
+                class="text-button"
+                @click="respondToMemoryCloseout('decline')"
+              >
+                Continue without saving
+              </button>
+            </div>
+          </section>
           <label class="correction-box">
             Correct or continue without restarting
             <textarea

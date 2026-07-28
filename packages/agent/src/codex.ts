@@ -6,6 +6,11 @@ import {
   type ThreadOptions,
   type Usage,
 } from "@openai/codex-sdk";
+import {
+  MEMORY_CLOSEOUT_JSON_SCHEMA,
+  MEMORY_CLOSEOUT_PROMPT_RULES,
+  parseMemoryCloseout,
+} from "./memory-closeout.js";
 import type {
   AgentAdapter,
   AgentAdapterStatus,
@@ -104,20 +109,7 @@ const resultSchema = {
         required: ["level", "title", "recommendation"],
       },
     },
-    memoryProposals: {
-      type: "array",
-      maxItems: 8,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          type: { type: "string", maxLength: 80 },
-          title: { type: "string", maxLength: 300 },
-          summary: { type: "string", maxLength: 1_000 },
-        },
-        required: ["type", "title", "summary"],
-      },
-    },
+    memoryCloseout: MEMORY_CLOSEOUT_JSON_SCHEMA,
     outcome: {
       type: "object",
       additionalProperties: false,
@@ -157,7 +149,7 @@ const resultSchema = {
     "evidence",
     "decisions",
     "risks",
-    "memoryProposals",
+    "memoryCloseout",
   ],
 } as const;
 
@@ -313,7 +305,7 @@ function buildPrompt(request: AgentRunRequest): string {
     ...figmaIngestion,
     "Execution rules:",
     `- Work only in ${request.rootPath}.`,
-    `- This turn is ${request.sandbox}.`,
+    `- Checkout sandbox: ${request.sandbox}. This does not authorize any Project Memory write; only the exact shared memoryCloseout confirmation can do that.`,
     "- Preserve existing user changes and inspect the current diff before editing.",
     "- Use a connector only for an explicitly confirmed source above. Relevance alone is not authorization.",
     "- Use only the bounded `api` context extracted from confirmed OpenAPI/Swagger sources; do not inject or reproduce a full specification.",
@@ -323,6 +315,7 @@ function buildPrompt(request: AgentRunRequest): string {
     "- Do not perform external writes, commits, pushes, ticket changes, or documentation publication.",
     "- Ask only when a material decision or contradiction remains. Include evidence and a recommendation.",
     "- Keep task intake, exact references, hypotheses, and run state task-scoped. Propose durable project memory separately; never promote it implicitly.",
+    ...MEMORY_CLOSEOUT_PROMPT_RULES,
     "- Return the requested compact structured result. Do not include raw source documents, code dumps, or transient localhost asset URLs.",
   ]
     .filter(Boolean)
@@ -349,12 +342,20 @@ function parseCompactResult(value: string): AgentCompactResult {
     !isStringArray(result.brief) ||
     !Array.isArray(result.evidence) ||
     !Array.isArray(result.decisions) ||
-    !Array.isArray(result.risks) ||
-    !Array.isArray(result.memoryProposals)
+    !Array.isArray(result.risks)
   ) {
     throw new Error("Codex returned an invalid compact result.");
   }
-  return parsed as AgentCompactResult;
+  let memoryCloseout;
+  try {
+    memoryCloseout = parseMemoryCloseout(result.memoryCloseout);
+  } catch {
+    throw new Error("Codex returned an invalid compact result.");
+  }
+  return {
+    ...(parsed as AgentCompactResult),
+    memoryCloseout,
+  };
 }
 
 function eventActivity(event: ThreadEvent): AgentRunEvent | undefined {
