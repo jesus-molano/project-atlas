@@ -1,0 +1,33 @@
+{
+  "rationale": "Synthetic proposal for validating review, edit, combine, and rejection states.",
+  "evidence": [
+    "Local keyboard-navigation fixture"
+  ],
+  "proposedBy": "project-atlas-fixture",
+  "items": [
+    {
+      "id": "fixture-convention-dialog-focus",
+      "type": "convention",
+      "title": "Restore focus after closing dialogs",
+      "summary": "Dialog flows restore focus to the control that opened them after dismissal.",
+      "confidence": 0.9,
+      "authority": "verified",
+      "tags": [
+        "accessibility",
+        "dialogs",
+        "focus"
+      ],
+      "provenance": {
+        "evidence": [
+          "Synthetic focus-management test"
+        ]
+      },
+      "relations": [
+        {
+          "kind": "references_code",
+          "targetId": "app/components/ui/BaseModal.vue"
+        }
+      ]
+    }
+  ]
+}

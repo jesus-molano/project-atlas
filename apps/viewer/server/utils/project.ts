@@ -48,6 +48,7 @@ export interface RecentProject {
   name: string;
   lastOpenedAt: string;
   available: boolean;
+  git?: ProjectGitState;
 }
 
 interface RecentProjectsFile {
@@ -109,14 +110,11 @@ export async function validateProjectRoot(inputPath: string): Promise<string> {
       statusMessage: "That project folder does not exist or is not accessible.",
     });
   }
-  if (
-    !existsSync(path.join(resolved, "package.json")) &&
-    !existsSync(path.join(resolved, ".git"))
-  ) {
+  if (!existsSync(path.join(resolved, "package.json"))) {
     throw createError({
       statusCode: 422,
       statusMessage:
-        "Choose a repository or frontend project containing .git or package.json.",
+        "Choose a frontend project containing package.json.",
     });
   }
   return resolved;
@@ -161,6 +159,9 @@ export async function listRecentProjects(): Promise<{
   const projects = file.projects.map((project) => ({
     ...project,
     available: existsSync(project.rootPath),
+    ...(existsSync(project.rootPath)
+      ? { git: projectGitStateForRoot(project.rootPath) }
+      : {}),
   }));
   if (
     activeProjectRoot &&
@@ -175,6 +176,9 @@ export async function listRecentProjects(): Promise<{
       name: projectName(activeProjectRoot),
       lastOpenedAt: new Date().toISOString(),
       available: existsSync(activeProjectRoot),
+      ...(existsSync(activeProjectRoot)
+        ? { git: projectGitStateForRoot(activeProjectRoot) }
+        : {}),
     });
   }
   return {
@@ -216,6 +220,11 @@ export function projectAtlasCliEntry(): string {
 export interface ProjectGitState {
   branch?: string;
   head?: string;
+  worktreePath?: string;
+  worktreeName?: string;
+  logicalProjectPath?: string;
+  logicalProjectName?: string;
+  isLinkedWorktree: boolean;
   dirty: boolean;
   changedFiles: number;
   stagedFiles: number;
@@ -223,33 +232,89 @@ export interface ProjectGitState {
   checkedAt: string;
 }
 
-export function projectGitState(): ProjectGitState {
-  const rootPath = projectRootPath();
-  const run = (args: string[]): string | undefined => {
+export function projectGitStateForRoot(rootPath: string): ProjectGitState {
+  const run = (
+    args: string[],
+    preserveLeadingWhitespace = false,
+  ): string | undefined => {
     try {
-      return execFileSync("git", ["-C", rootPath, ...args], {
+      const output = execFileSync("git", ["-C", rootPath, ...args], {
         encoding: "utf8",
         timeout: 2_000,
         windowsHide: true,
         maxBuffer: 256 * 1024,
         stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
+      });
+      return preserveLeadingWhitespace ? output.trimEnd() : output.trim();
     } catch {
       return undefined;
     }
   };
-  const status = run(["status", "--porcelain=v1", "--untracked-files=all"]);
+  const status = run(
+    ["status", "--porcelain=v1", "--untracked-files=all"],
+    true,
+  );
   const branch = run(["symbolic-ref", "--quiet", "--short", "HEAD"]);
   const head = run(["rev-parse", "--short=10", "HEAD"]);
+  const worktreePath = run(["rev-parse", "--show-toplevel"]);
+  const gitDirectory = run(["rev-parse", "--path-format=absolute", "--git-dir"]);
+  const commonGitDirectory = run([
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]);
+  const logicalProjectPath = commonGitDirectory
+    ? path.dirname(commonGitDirectory)
+    : worktreePath;
   const lines = status ? status.split(/\r?\n/).filter(Boolean) : [];
   return {
     ...(branch ? { branch } : {}),
     ...(head ? { head } : {}),
+    ...(worktreePath
+      ? {
+          worktreePath,
+          worktreeName: path.basename(worktreePath),
+        }
+      : {}),
+    ...(logicalProjectPath
+      ? {
+          logicalProjectPath,
+          logicalProjectName: path.basename(logicalProjectPath),
+        }
+      : {}),
+    isLinkedWorktree: Boolean(
+      gitDirectory &&
+        commonGitDirectory &&
+        normalizedPathKey(gitDirectory) !== normalizedPathKey(commonGitDirectory),
+    ),
     dirty: lines.length > 0,
     changedFiles: lines.length,
     stagedFiles: lines.filter((line) => line[0] && line[0] !== " ").length,
     untrackedFiles: lines.filter((line) => line.startsWith("??")).length,
     checkedAt: new Date().toISOString(),
+  };
+}
+
+export function projectGitState(): ProjectGitState {
+  return projectGitStateForRoot(projectRootPath());
+}
+
+export interface ProjectDestinationPreview {
+  rootPath: string;
+  name: string;
+  available: true;
+  git: ProjectGitState;
+}
+
+export async function inspectProjectRoot(
+  inputPath: string,
+): Promise<ProjectDestinationPreview> {
+  const rootPath = await validateProjectRoot(inputPath);
+  return {
+    rootPath,
+    name: projectName(rootPath),
+    available: true,
+    git: projectGitStateForRoot(rootPath),
   };
 }
 

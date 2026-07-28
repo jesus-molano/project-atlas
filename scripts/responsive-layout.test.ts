@@ -14,6 +14,54 @@ const codeAtlas = readFileSync(
   ),
   "utf8",
 );
+const designAtlas = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../apps/viewer/app/components/DesignAtlasView.vue",
+      import.meta.url,
+    ),
+  ),
+  "utf8",
+);
+const atlasGraph = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../apps/viewer/app/components/AtlasGraph.client.vue",
+      import.meta.url,
+    ),
+  ),
+  "utf8",
+);
+const memoryInbox = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../apps/viewer/app/components/MemoryInboxView.vue",
+      import.meta.url,
+    ),
+  ),
+  "utf8",
+);
+const viewerPage = readFileSync(
+  fileURLToPath(
+    new URL("../apps/viewer/app/pages/index.vue", import.meta.url),
+  ),
+  "utf8",
+);
+const scrollToTop = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../apps/viewer/app/components/ScrollToTopButton.vue",
+      import.meta.url,
+    ),
+  ),
+  "utf8",
+);
+const actionCenter = readFileSync(
+  fileURLToPath(
+    new URL("../apps/viewer/app/components/RisksView.vue", import.meta.url),
+  ),
+  "utf8",
+);
 
 function usefulWidth(viewport: number, scale = 1): number {
   const cssViewport = Math.floor(viewport / scale);
@@ -52,11 +100,22 @@ describe("evidence workspace responsive layout", () => {
     expect(codeAtlas).toContain('"Inspect selected component"');
     expect(codeAtlas).toContain('"Hide component details"');
     for (const label of ["Fit selection", "Fit graph", "Reset graph view"]) {
-      expect(codeAtlas).toContain(`aria-label="${label}"`);
-      expect(codeAtlas).toContain(`title="${label}"`);
+      expect(codeAtlas).toContain(`:aria-label="t('${label}')"`);
+      expect(codeAtlas).toContain(`:title="t('${label}')"`);
     }
     expect(codeAtlas).not.toContain(">Fit selection<");
     expect(codeAtlas).not.toContain(">Fit graph<");
+  });
+
+  it("opens Code Atlas unselected and gives selected labels room to wrap", () => {
+    expect(codeAtlas).toContain("const inspectorOpen = ref(false)");
+    expect(codeAtlas).not.toMatch(
+      /filteredComponents\.value\.find\([\s\S]*?\)\s*\?\?\s*filteredComponents\.value\[0\]/,
+    );
+    expect(atlasGraph).toContain('"text-wrap": "wrap"');
+    expect(atlasGraph).toContain('"text-max-width": "100px"');
+    expect(atlasGraph).toContain('(?<=[a-z0-9])(?=[A-Z])');
+    expect(atlasGraph).toContain('"text-margin-y": 13');
   });
 
   it.each([
@@ -72,4 +131,89 @@ describe("evidence workspace responsive layout", () => {
       expect(memoryColumns(usefulWidth(viewport, scale))).toBe(columns);
     },
   );
+
+  it("keeps compact pills horizontal and native choice controls bounded", () => {
+    expect(css).toMatch(
+      /\.status-chip,[\s\S]*?white-space:\s*nowrap;/,
+    );
+    expect(css).toContain("flex: 0 0 var(--atlas-control-check)");
+    expect(css).toContain(
+      'input:not([type="checkbox"]):not([type="radio"]):not([type="range"])',
+    );
+  });
+
+  it("defines shared semantic primitives and the four target breakpoints", () => {
+    for (const token of [
+      "--atlas-space-4",
+      "--atlas-radius-pill",
+      "--atlas-control-md",
+      "--atlas-text-control",
+      "--atlas-breakpoint-compact",
+      "--atlas-breakpoint-tablet",
+      "--atlas-breakpoint-laptop",
+      "--atlas-breakpoint-desktop",
+    ]) {
+      expect(css).toContain(token);
+    }
+  });
+
+  it("keeps global Figma variables distinct from selection-only fallback", () => {
+    for (const state of [
+      "global",
+      "selection-only",
+      "permission-required",
+      "unavailable",
+    ]) {
+      expect(designAtlas).toContain(state);
+    }
+    expect(designAtlas).toContain("Global Figma variables");
+    expect(designAtlas).toContain("This fallback is not a global file catalog");
+    expect(designAtlas).toContain("activeFile?.variables.valuesIncluded");
+    expect(designAtlas).toContain("selectedVariable.valuesByMode");
+  });
+
+  it("stacks the global-variable token browser at constrained widths", () => {
+    expect(css).toMatch(
+      /@container atlas-workspace \(max-width: 900px\)[\s\S]*?\.variable-token-browser\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    );
+    expect(css).toContain(".variable-collection-tabs");
+    expect(css).toContain(".variable-token-detail");
+  });
+
+  it("keeps Memory Inbox decisions before long content on tablet and compact layouts", () => {
+    expect(memoryInbox.indexOf("proposal-decision-zone")).toBeLessThan(
+      memoryInbox.indexOf("Proposed delta"),
+    );
+    expect(memoryInbox).toContain("openDecision('approve')");
+    expect(memoryInbox).toContain("openDecision('reject')");
+    expect(memoryInbox).toContain('ref="approvalTarget"');
+    expect(memoryInbox).toContain('ref="rejectionInput"');
+    expect(memoryInbox).toContain("decisionZone.value?.focus");
+    expect(memoryInbox).toContain("decisionZone.value?.scrollIntoView");
+    expect(memoryInbox).toContain('action: "apply"');
+    expect(memoryInbox).toContain('action: "reject"');
+    expect(css).toMatch(
+      /@container atlas-workspace \(max-width: 900px\)[\s\S]*?\.atlas-workspace\.inbox-layout[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 560px\)[\s\S]*?\.proposal-primary-actions,[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    );
+  });
+
+  it("uses one localized icon primitive for every justified scroll owner", () => {
+    expect(scrollToTop).toContain("ResizeObserver");
+    expect(scrollToTop).toContain("observedTarget.scrollHeight");
+    expect(scrollToTop).toContain("observedTarget.scrollTop");
+    expect(scrollToTop).toContain(`:aria-label="t('Back to top')"`);
+    expect(scrollToTop).toContain(`:title="t('Back to top')"`);
+    expect(scrollToTop).toContain('<span aria-hidden="true">↑</span>');
+    expect(scrollToTop).not.toContain('<span>{{ t("Back to top") }}</span>');
+    expect(viewerPage).toContain(':target="launcherScroller"');
+    expect(viewerPage).toContain(':target="workspaceScroller"');
+    expect(viewerPage).toContain('ref="inboxHeading"');
+    expect(codeAtlas).toContain(':target="componentList"');
+    expect(actionCenter).toContain(':target="actionInspector"');
+    expect(css).toContain(".scroll-to-top-button");
+    expect(css).toContain(".scroll-to-top-button.panel");
+  });
 });

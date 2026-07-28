@@ -21,6 +21,10 @@ describe("loopback native directory picker", () => {
     expect(pickerScript).toContain("dialog.ShowDialog(owner)");
     expect(pickerScript).toContain("SetWindowPos");
     expect(pickerScript).toContain("new IntPtr(-1)");
+    expect(pickerScript).toContain("Environment.UserInteractive");
+    expect(pickerScript).toContain("GetWindowRect");
+    expect(pickerScript).toContain("Screen.PrimaryScreen.WorkingArea");
+    expect(pickerScript).not.toContain("new Point(-32000, -32000)");
     expect(runner.mock.calls[0]?.[2]).toEqual({
       timeoutMs: 300_000,
       maxOutputChars: 2_048,

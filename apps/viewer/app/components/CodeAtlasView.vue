@@ -22,6 +22,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   useInTask: [handle: string, intent: string];
 }>();
+const { statusLabel, t } = useAtlasI18n();
 
 const query = ref("");
 const scope = ref<"all" | ComponentNode["visibility"]>("all");
@@ -36,11 +37,11 @@ const inspectorClose = ref<HTMLButtonElement>();
 const inspectorPanel = ref<HTMLElement>();
 const graphView = ref<{
   fitGraph: () => void;
-  fitSelection: () => void;
+  fitSelection: (offsetX?: number) => void;
   resetView: () => void;
   resize: () => void;
 }>();
-const inspectorOpen = ref(true);
+const inspectorOpen = ref(false);
 const inspectorIsDrawer = ref(false);
 let inspectorMedia: MediaQueryList | undefined;
 let inspectorReturnFocus: HTMLElement | undefined;
@@ -122,7 +123,11 @@ const visibleRange = computed(() => {
     filteredComponents.value.length,
     (page.value + 1) * CODE_ATLAS_PAGE_SIZE,
   );
-  return `${start}–${end} of ${filteredComponents.value.length}`;
+  return t("{start}–{end} of {total}", {
+    start,
+    end,
+    total: filteredComponents.value.length,
+  });
 });
 
 const filteredEdges = computed(() =>
@@ -139,7 +144,7 @@ const selected = computed(
   () =>
     filteredComponents.value.find(
       (component) => component.id === selectedId.value,
-    ) ?? filteredComponents.value[0],
+    ),
 );
 
 watch(
@@ -150,16 +155,7 @@ watch(
       props.graph.components.some((component) => component.id === componentId)
     ) {
       selectedId.value = componentId;
-    }
-  },
-  { immediate: true },
-);
-
-watch(
-  selected,
-  (component) => {
-    if (component && component.id !== selectedId.value) {
-      selectedId.value = component.id;
+      inspectorOpen.value = true;
     }
   },
   { immediate: true },
@@ -168,6 +164,15 @@ watch(
 watch([query, scope], () => {
   page.value = 0;
   if (componentList.value) componentList.value.scrollTop = 0;
+  if (
+    selectedId.value &&
+    !filteredComponents.value.some(
+      (component) => component.id === selectedId.value,
+    )
+  ) {
+    selectedId.value = undefined;
+    inspectorOpen.value = false;
+  }
 });
 
 watch(
@@ -211,36 +216,49 @@ const counts = computed(() => ({
 const impactSignal = computed(() => {
   const consumers = details.value?.impact.transitiveConsumers.length ?? 0;
   if (consumers >= 8) {
-    return { label: "High blast radius", tone: "high", consumers };
+    return { label: t("High blast radius"), tone: "high", consumers };
   }
   if (consumers >= 3) {
-    return { label: "Moderate impact", tone: "medium", consumers };
+    return { label: t("Moderate impact"), tone: "medium", consumers };
   }
-  return { label: "Contained impact", tone: "low", consumers };
+  return { label: t("Contained impact"), tone: "low", consumers };
 });
 
 const inspectorActionLabel = computed(() =>
   inspectorOpen.value
-    ? "Hide component details"
-    : "Inspect selected component",
+    ? t("Hide component details")
+    : t("Inspect selected component"),
 );
 
 function scopeLabel(visibility: ComponentNode["visibility"]): string {
-  return (
-    scopeOptions.find((item) => item.value === visibility)?.label ?? visibility
+  return t(
+    scopeOptions.find((item) => item.value === visibility)?.label ?? visibility,
   );
 }
 
 function apiLabel(component: ComponentNode): string {
-  if (component.kind === "route") return "route";
-  if (component.kind === "layout") return "layout";
+  if (component.kind === "route") return statusLabel("route");
+  if (component.kind === "layout") return statusLabel("layout");
   const count = component.props.length;
-  return `${count} ${count === 1 ? "prop" : "props"}`;
+  return t(count === 1 ? "{count} prop" : "{count} props", { count });
 }
 
 function scopeCount(value: (typeof scopeOptions)[number]["value"]): number {
   if (value === "all") return props.graph.components.length;
   return counts.value[value];
+}
+
+function similarityReason(reason: string): string {
+  const prefixes: Readonly<Record<string, string>> = {
+    "shared props:": "shared props:",
+    "shared children:": "shared children:",
+    "shared style tokens:": "shared style tokens:",
+  };
+  const prefix = Object.keys(prefixes).find((candidate) =>
+    reason.startsWith(candidate),
+  );
+  if (!prefix) return t(reason);
+  return `${t(prefixes[prefix]!)} ${reason.slice(prefix.length).trim()}`;
 }
 
 function selectComponent(component: ComponentNode): void {
@@ -251,8 +269,19 @@ function selectComponent(component: ComponentNode): void {
         ? document.activeElement
         : inspectorTrigger.value;
     inspectorOpen.value = true;
-    if (inspectorIsDrawer.value) nextTick(() => inspectorClose.value?.focus());
+    nextTick(() => {
+      graphView.value?.resize();
+      graphView.value?.fitSelection(graphSelectionOffset());
+      if (inspectorIsDrawer.value) inspectorClose.value?.focus();
+    });
   }
+}
+
+function graphSelectionOffset(): number {
+  return inspectorOpen.value &&
+    window.matchMedia("(min-width: 861px) and (max-width: 1360px)").matches
+    ? -175
+    : 0;
 }
 
 function selectById(id: string): void {
@@ -366,10 +395,16 @@ function useSelectedInTask(): void {
   if (!selected.value) return;
   const intent =
     goal.value === "impact"
-      ? `Assess the impact of changing ${selected.value.effectiveName}.`
+      ? t("Assess the impact of changing {name}.", {
+          name: selected.value.effectiveName,
+        })
       : goal.value === "tests"
-        ? `Review or extend the tests for ${selected.value.effectiveName}.`
-        : `Evaluate whether ${selected.value.effectiveName} should be reused for this task.`;
+        ? t("Review or extend the tests for {name}.", {
+            name: selected.value.effectiveName,
+          })
+        : t("Evaluate whether {name} should be reused for this task.", {
+            name: selected.value.effectiveName,
+          });
   emit("useInTask", `code:${selected.value.id}`, intent);
 }
 
@@ -400,8 +435,8 @@ onBeforeUnmount(() => {
     <aside class="catalog-panel">
       <div class="panel-heading">
         <div>
-          <span class="eyebrow">Repository graph</span>
-          <h2>Code index</h2>
+          <span class="eyebrow">{{ t("Repository graph") }}</span>
+          <h2>{{ t("Code index") }}</h2>
         </div>
         <span class="result-count">{{ filteredComponents.length }}</span>
       </div>
@@ -411,52 +446,58 @@ onBeforeUnmount(() => {
         <input
           v-model="query"
           type="search"
-          aria-label="Filter Code Atlas nodes"
-          placeholder="Name, path, prop, or intent"
+          :aria-label="t('Filter Code Atlas nodes')"
+          :placeholder="t('Name, path, prop, or intent')"
         >
       </label>
 
-      <div class="scope-tabs" role="tablist" aria-label="Component scope">
+      <div class="scope-tabs" role="tablist" :aria-label="t('Component scope')">
         <button
           v-for="item in scopeOptions"
           :key="item.value"
           :class="{ active: scope === item.value }"
-          :title="item.description"
+          :title="t(item.description)"
           role="tab"
           :aria-selected="scope === item.value"
           @click="scope = item.value"
         >
-          {{ item.label }}
+          {{ t(item.label) }}
           <span>{{ scopeCount(item.value) }}</span>
         </button>
       </div>
 
-      <div ref="componentList" class="component-list">
+      <div
+        ref="componentList"
+        class="component-list"
+        tabindex="-1"
+        :aria-label="t('Code catalog results')"
+      >
         <button
           v-for="component in visibleComponents"
           :key="component.id"
           class="component-row"
           :class="{ selected: selected?.id === component.id }"
+          :title="`${component.effectiveName} · ${component.relativePath} · ${apiLabel(component)}`"
           @click="selectComponent(component)"
         >
           <span :class="['scope-dot', component.visibility]" />
           <span class="component-copy">
-            <strong>{{ component.effectiveName }}</strong>
-            <small>{{ component.relativePath }}</small>
+            <strong :title="component.effectiveName">{{ component.effectiveName }}</strong>
+            <small :title="component.relativePath">{{ component.relativePath }}</small>
           </span>
-          <span class="api-count">
+          <span class="api-count" :title="apiLabel(component)">
             {{ apiLabel(component) }}
           </span>
         </button>
         <div v-if="filteredComponents.length === 0" class="empty-results">
-          No code node matches this evidence.
+          {{ t("No code node matches this evidence.") }}
         </div>
       </div>
       <footer v-if="filteredComponents.length > CODE_ATLAS_PAGE_SIZE" class="catalog-pagination">
         <button
           class="icon-button"
           :disabled="page === 0"
-          aria-label="Previous component page"
+          :aria-label="t('Previous component page')"
           @click="previousPage"
         >
           <AtlasIcon name="arrow-right" />
@@ -465,7 +506,7 @@ onBeforeUnmount(() => {
         <button
           class="icon-button"
           :disabled="page >= totalPages - 1"
-          aria-label="Next component page"
+          :aria-label="t('Next component page')"
           @click="nextPage"
         >
           <AtlasIcon name="arrow-right" />
@@ -476,23 +517,23 @@ onBeforeUnmount(() => {
     <section class="map-panel">
       <div class="map-toolbar">
         <div>
-          <span class="eyebrow">Dependency field</span>
-          <p>Explore exact relationships in the graph, then inspect evidence for the selected component.</p>
+          <span class="eyebrow">{{ t("Dependency field") }}</span>
+          <p>{{ t("Explore exact relationships in the graph, then inspect evidence for the selected component.") }}</p>
         </div>
         <details class="graph-options">
-          <summary>Relations</summary>
+          <summary>{{ t("Relations") }}</summary>
           <div class="edge-toggles">
             <label>
               <input v-model="showComposition" type="checkbox">
-              composition
+              {{ t("composition") }}
             </label>
             <label>
               <input v-model="showSimilar" type="checkbox">
-              similarity
+              {{ t("similarity") }}
             </label>
           </div>
         </details>
-        <div class="graph-actions" aria-label="Graph viewport">
+        <div class="graph-actions" :aria-label="t('Graph viewport')">
           <button
             ref="inspectorTrigger"
             :class="['icon-button', 'graph-icon-button', { active: inspectorOpen }]"
@@ -505,24 +546,24 @@ onBeforeUnmount(() => {
           </button>
           <button
             class="icon-button graph-icon-button"
-            aria-label="Fit selection"
-            title="Fit selection"
-            @click="graphView?.fitSelection()"
+            :aria-label="t('Fit selection')"
+            :title="t('Fit selection')"
+            @click="graphView?.fitSelection(graphSelectionOffset())"
           >
             <AtlasIcon name="focus" />
           </button>
           <button
             class="icon-button graph-icon-button"
-            aria-label="Fit graph"
-            title="Fit graph"
+            :aria-label="t('Fit graph')"
+            :title="t('Fit graph')"
             @click="graphView?.fitGraph()"
           >
             <AtlasIcon name="maximize" />
           </button>
           <button
             class="icon-button graph-icon-button"
-            aria-label="Reset graph view"
-            title="Reset graph view"
+            :aria-label="t('Reset graph view')"
+            :title="t('Reset graph view')"
             @click="graphView?.resetView()"
           >
             <AtlasIcon name="refresh" />
@@ -537,43 +578,50 @@ onBeforeUnmount(() => {
         @select="selectById"
       />
       <div class="map-legend">
-        <span><i class="scope-dot public" /> shared</span>
-        <span><i class="scope-dot feature" /> feature</span>
-        <span><i class="scope-dot private" /> internal</span>
-        <span class="degree-legend">node size = relations</span>
+        <span><i class="scope-dot public" /> {{ t("shared") }}</span>
+        <span><i class="scope-dot feature" /> {{ t("feature") }}</span>
+        <span><i class="scope-dot private" /> {{ t("internal") }}</span>
+        <span class="degree-legend">{{ t("node size = relations") }}</span>
       </div>
     </section>
 
     <button
       v-if="selected && inspectorOpen"
       class="inspector-backdrop"
-      aria-label="Close component details"
+      :aria-label="t('Close component details')"
       @click="closeInspector()"
     />
     <aside
       v-if="selected && inspectorOpen"
       ref="inspectorPanel"
       class="detail-panel"
-      aria-label="Component details"
+      :aria-label="t('Component details')"
     >
       <div class="detail-panel-bar">
-        <span>Component details</span>
+        <span>{{ t("Component details") }}</span>
         <button
           ref="inspectorClose"
           class="icon-button"
-          aria-label="Close component details"
+          :aria-label="t('Close component details')"
           @click="closeInspector()"
         >
           <AtlasIcon name="x" />
         </button>
       </div>
+      <ScrollToTopButton
+        :target="componentList"
+        :focus-target="componentList"
+        placement="panel"
+        :threshold="180"
+        :min-overflow="280"
+      />
       <div class="detail-header">
         <div class="detail-kicker">
           <span :class="['scope-badge', selected.visibility]">
             {{ scopeLabel(selected.visibility) }}
           </span>
-          <span>{{ selected.kind ?? "component" }}</span>
-          <span>{{ selected.props.length }} props</span>
+          <span>{{ statusLabel(selected.kind ?? "component") }}</span>
+          <span>{{ t(selected.props.length === 1 ? "{count} prop" : "{count} props", { count: selected.props.length }) }}</span>
         </div>
         <h2>{{ selected.effectiveName }}</h2>
         <code>{{ selected.relativePath }}</code>
@@ -584,15 +632,15 @@ onBeforeUnmount(() => {
         </div>
         <div class="entity-actions">
           <button class="primary-button" @click="useSelectedInTask">
-            Use in task
+            {{ t("Use in task") }}
           </button>
           <button class="text-button" @click="copySelectedPath">
-            Copy path
+            {{ t("Copy path") }}
           </button>
         </div>
       </div>
 
-      <nav class="inspector-goal-nav" role="tablist" aria-label="Component evidence view">
+      <nav class="inspector-goal-nav" role="tablist" :aria-label="t('Component evidence view')">
         <button
           v-for="(item, index) in goalOptions"
           :id="`component-goal-${item.value}`"
@@ -605,11 +653,11 @@ onBeforeUnmount(() => {
           @click="activateGoal(item.value)"
           @keydown="handleGoalKeydown($event, index)"
         >
-          {{ item.label }}
+          {{ t(item.label) }}
         </button>
       </nav>
       <p class="inspector-goal-help">
-        {{ goalOptions.find((item) => item.value === goal)?.help }}
+        {{ t(goalOptions.find((item) => item.value === goal)?.help ?? "") }}
       </p>
 
       <div
@@ -620,30 +668,30 @@ onBeforeUnmount(() => {
       >
       <section v-if="goal === 'impact' || goal === 'reuse'" class="detail-section">
         <div class="section-title">
-          <h3>Public API</h3>
-          <span>{{ selected.props.length }} props</span>
+          <h3>{{ t("Public API") }}</h3>
+          <span>{{ t(selected.props.length === 1 ? "{count} prop" : "{count} props", { count: selected.props.length }) }}</span>
         </div>
         <div v-if="selected.props.length" class="property-list">
           <div v-for="prop in selected.props" :key="prop.name" class="property">
             <div>
               <strong>{{ prop.name }}</strong>
-              <em v-if="prop.required">required</em>
+              <em v-if="prop.required">{{ t("required") }}</em>
             </div>
             <code>{{ prop.type }}</code>
           </div>
         </div>
-        <p v-else class="muted">No statically declared props.</p>
+        <p v-else class="muted">{{ t("No statically declared props.") }}</p>
         <div class="inline-meta">
-          <span>{{ selected.events.length }} events</span>
-          <span>{{ selected.slots.length }} slots</span>
-          <span>{{ selected.models.length }} models</span>
+          <span>{{ t("{count} events", { count: selected.events.length }) }}</span>
+          <span>{{ t("{count} slots", { count: selected.slots.length }) }}</span>
+          <span>{{ t("{count} models", { count: selected.models.length }) }}</span>
         </div>
       </section>
 
       <section v-if="goal === 'impact'" class="detail-section">
         <div class="section-title">
-          <h3>Change impact</h3>
-          <span>{{ details?.impact.transitiveConsumers.length ?? 0 }} consumers</span>
+          <h3>{{ t("Change impact") }}</h3>
+          <span>{{ t("{count} consumers", { count: details?.impact.transitiveConsumers.length ?? 0 }) }}</span>
         </div>
         <button
           v-for="consumer in details?.impact.directConsumers"
@@ -653,10 +701,10 @@ onBeforeUnmount(() => {
         >
           <AtlasIcon name="arrow-right" />
           <strong>{{ consumer.effectiveName }}</strong>
-          <small>direct</small>
+          <small>{{ t("direct") }}</small>
         </button>
         <p v-if="details?.impact.directConsumers.length === 0" class="muted">
-          No indexed code node consumes it.
+          {{ t("No indexed code node consumes it.") }}
         </p>
       </section>
 
@@ -665,8 +713,8 @@ onBeforeUnmount(() => {
         class="detail-section"
       >
         <div class="section-title">
-          <h3>Reuse candidates</h3>
-          <span>explainable</span>
+          <h3>{{ t("Reuse candidates") }}</h3>
+          <span>{{ t("explainable") }}</span>
         </div>
         <button
           v-for="candidate in details?.similar"
@@ -683,17 +731,17 @@ onBeforeUnmount(() => {
               :style="{ width: `${Math.round(candidate.evidence.score * 100)}%` }"
             />
           </i>
-          <p>{{ candidate.evidence.reasons.slice(0, 2).join(" · ") }}</p>
+          <p>{{ candidate.evidence.reasons.slice(0, 2).map(similarityReason).join(" · ") }}</p>
         </button>
         <p v-if="details?.similar.length === 0" class="muted">
-          No strong structural match yet.
+          {{ t("No strong structural match yet.") }}
         </p>
       </section>
 
       <section v-if="goal === 'tests'" class="detail-section">
         <div class="section-title">
-          <h3>Test evidence</h3>
-          <span>{{ selected.testPaths.length }} linked</span>
+          <h3>{{ t("Test evidence") }}</h3>
+          <span>{{ t("{count} linked", { count: selected.testPaths.length }) }}</span>
         </div>
         <div v-if="selected.testPaths.length" class="test-paths">
           <button
@@ -704,12 +752,11 @@ onBeforeUnmount(() => {
           >
             <AtlasIcon name="check" />
             <strong>{{ testPath }}</strong>
-            <small>copy path</small>
+            <small>{{ t("copy path") }}</small>
           </button>
         </div>
         <p v-else class="muted">
-          No test import or mount relation is indexed. Name similarity alone is
-          not treated as evidence.
+          {{ t("No test import or mount relation is indexed. Name similarity alone is not treated as evidence.") }}
         </p>
       </section>
       </div>

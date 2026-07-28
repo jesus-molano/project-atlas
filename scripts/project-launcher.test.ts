@@ -7,6 +7,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   filesystemPathsEquivalent,
@@ -15,6 +16,7 @@ import {
 import {
   listRecentProjects,
   loadProjectAtlasSnapshot,
+  projectGitStateForRoot,
   rememberRecentProject,
   setActiveProjectRoot,
   validateProjectRoot,
@@ -96,6 +98,12 @@ describe("local project launcher", () => {
     await expect(validateProjectRoot(path.join(root, "plain"))).rejects.toMatchObject({
       statusCode: 422,
     });
+    await mkdir(path.join(root, "git-only", ".git"), { recursive: true });
+    await expect(
+      validateProjectRoot(path.join(root, "git-only")),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+    });
     await expect(validateProjectRoot("relative/project")).rejects.toMatchObject({
       statusCode: 400,
     });
@@ -116,4 +124,47 @@ describe("local project launcher", () => {
     expect(snapshot.graph.project.name).toBe("switched-app");
     expect(snapshot.graph.project.rootPath).toBe(second);
   }, 15_000);
+
+  it("preserves porcelain columns and separates a linked worktree from its logical project", async () => {
+    const repository = await projectFixture("logical-atlas-project");
+    const worktree = `${repository}-linked-checkout-with-a-long-name`;
+    temporaryRoots.push(worktree);
+    const git = (cwd: string, args: string[]) =>
+      execFileSync("git", ["-C", cwd, ...args], {
+        encoding: "utf8",
+        windowsHide: true,
+      });
+    git(repository, ["init", "-b", "main"]);
+    git(repository, ["config", "user.name", "Atlas Test"]);
+    git(repository, ["config", "user.email", "atlas-test@example.invalid"]);
+    git(repository, ["add", "package.json"]);
+    git(repository, ["commit", "-m", "Initial fixture"]);
+    git(repository, [
+      "worktree",
+      "add",
+      worktree,
+      "-b",
+      "feature/linked-worktree-with-a-very-long-branch-name",
+    ]);
+    await writeFile(
+      path.join(worktree, "package.json"),
+      `${JSON.stringify({ name: "logical-atlas-project", dirty: true }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const state = projectGitStateForRoot(worktree);
+    expect(state).toMatchObject({
+      branch: "feature/linked-worktree-with-a-very-long-branch-name",
+      isLinkedWorktree: true,
+      dirty: true,
+      changedFiles: 1,
+      stagedFiles: 0,
+      untrackedFiles: 0,
+      logicalProjectName: path.basename(repository),
+      worktreeName: path.basename(worktree),
+    });
+    expect(
+      filesystemPathsEquivalent(state.logicalProjectPath!, repository),
+    ).toBe(true);
+  });
 });

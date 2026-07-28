@@ -19,18 +19,20 @@ describe("desktop evidence workspace contract", () => {
       "Connections",
       "Settings",
     ]) {
-      expect(page).toContain(`label: "${label}"`);
+      expect(page).toContain(`label: t("${label}")`);
     }
     expect(page).toContain("useEvidenceInTask");
-    expect(page).toContain('aria-label="Project Atlas navigation"');
-    expect(page).toContain('aria-label="Search code, design, memory, and tasks"');
-    expect(page).toContain("Recent projects");
-    expect(page).toContain("Open another folder");
+    expect(page).toContain(`:aria-label="t('Project Atlas navigation')"`);
+    expect(page).toContain(
+      `:aria-label="t('Search code, design, memory, and tasks')"`,
+    );
+    expect(page).toContain('t("Recent projects")');
+    expect(page).toContain('t("Open another folder")');
     expect(page).toContain('"/api/projects/activate"');
     expect(page).toContain('"/api/projects/select-directory"');
     expect(page).toContain("projectPathFromDrop");
-    expect(page).toContain("Choose folder…");
-    expect(page).toContain("Atlas never uploads the project");
+    expect(page).toContain('t("Choose folder…")');
+    expect(page).toContain('t("Atlas never uploads the project.")');
     expect(page).toContain("chooseDesktopProjectFolder");
     expect(page).toContain("projectMenuOpen.value = false");
     const css = await source("apps/viewer/app/assets/css/main.css");
@@ -160,7 +162,7 @@ describe("desktop evidence workspace contract", () => {
     );
     expect(code).toContain('"Inspect selected component"');
     expect(code).toContain('"Hide component details"');
-    expect(code).toContain('aria-label="Close component details"');
+    expect(code).toContain(`:aria-label="t('Close component details')"`);
     expect(code).toContain('event.key === "Escape"');
     expect(code).toContain("inspectorReturnFocus");
     expect(css).toMatch(/\.code-section\s*\{[^}]*overflow:\s*hidden/s);

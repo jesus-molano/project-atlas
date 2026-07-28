@@ -6,6 +6,10 @@ import {
   capabilityDisplayState,
   isSimulatedCapability,
 } from "~/utils/capabilities";
+import {
+  localizeHealthFinding,
+  localizeSourceHealth,
+} from "~/i18n/generated";
 
 defineProps<{
   sources: SourceHealthViewModel[];
@@ -24,6 +28,15 @@ const emit = defineEmits<{ refreshed: [] }>();
 const pending = ref("");
 const message = ref("");
 const error = ref("");
+const { formatDate, locale, runtimeMessage, statusLabel, t } = useAtlasI18n();
+const sourceCopy = (source: SourceHealthViewModel) =>
+  localizeSourceHealth(source, locale.value);
+const healthFindingCopy = (finding: {
+  id: string;
+  title: string;
+  detail: string;
+  recommendation: string;
+}) => localizeHealthFinding(finding, locale.value);
 const labels: Record<string, string> = {
   figma: "Figma",
   "atlassian-rovo": "Atlassian Rovo",
@@ -34,14 +47,48 @@ const labels: Record<string, string> = {
   "figma-libraries": "Figma libraries",
 };
 
+function capabilityLabel(id: string): string {
+  return t(labels[id] ?? id);
+}
+
+function capabilityDetail(
+  source: ProjectCapabilityReport["observations"][number],
+): string {
+  if (!source.detail) return t("No detail reported.");
+  if (source.provenance === "session-report") return source.detail;
+  const countedDesign = source.detail.match(
+    /^(\d+) cached design file\(s\); live session state is not assumed\.$/,
+  );
+  if (countedDesign) {
+    return t(
+      "{count} cached design files; live session state is not assumed.",
+      { count: countedDesign[1] ?? "0" },
+    );
+  }
+  const countedConnections = source.detail.match(
+    /^(\d+) cached code connection\(s\)\.$/,
+  );
+  if (countedConnections) {
+    return t("{count} cached code connections.", {
+      count: countedConnections[1] ?? "0",
+    });
+  }
+  const countedLibraries = source.detail.match(
+    /^(\d+) cached library reference\(s\)\.$/,
+  );
+  if (countedLibraries) {
+    return t("{count} cached library references.", {
+      count: countedLibraries[1] ?? "0",
+    });
+  }
+  return t(source.detail);
+}
+
 function formatFreshness(value?: string): string {
-  if (!value) return "Never indexed";
+  if (!value) return t("Never indexed");
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Freshness unavailable";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  if (Number.isNaN(date.getTime())) return t("Freshness unavailable");
+  return formatDate(value);
 }
 
 async function refresh(source: "repository" | "memory"): Promise<void> {
@@ -60,7 +107,7 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
         : "Project Memory reindexed approved Markdown.";
     emit("refreshed");
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught);
+    error.value = atlasErrorSource(caught);
   } finally {
     pending.value = "";
   }
@@ -70,10 +117,10 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
 <template>
   <div class="single-workspace health-grid">
     <section>
-      <header class="workspace-toolbar"><div><span class="eyebrow">Local source plane</span><h2>Indexes and freshness</h2></div></header>
+      <header class="workspace-toolbar"><div><span class="eyebrow">{{ t("Local source plane") }}</span><h2>{{ t("Indexes and freshness") }}</h2></div></header>
       <article v-for="source in sources" :key="source.id" class="health-record">
         <span :class="['health-orb', source.status]" />
-        <div><strong>{{ source.label }}</strong><p>{{ source.detail }}</p><small>{{ formatFreshness(source.lastIndexedAt) }}</small></div>
+        <div><strong>{{ sourceCopy(source).label }}</strong><p>{{ sourceCopy(source).detail }}</p><small>{{ formatFreshness(source.lastIndexedAt) }}</small></div>
         <button
           v-if="source.source === 'repository' || source.source === 'memory'"
           class="secondary-button"
@@ -83,17 +130,17 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
           {{
             pending === source.source
               ? source.source === "repository"
-                ? "Scanning code…"
-                : "Indexing memory…"
+                ? t("Scanning code…")
+                : t("Indexing memory…")
               : source.source === "repository"
-                ? "Rescan code"
-                : "Reindex memory"
+                ? t("Rescan code")
+                : t("Reindex memory")
           }}
         </button>
-        <span v-else class="status-chip">{{ source.status }}</span>
+        <span v-else class="status-chip">{{ statusLabel(source.status) }}</span>
       </article>
-      <p v-if="message" class="inline-success">{{ message }}</p>
-      <p v-if="error" class="inline-error">{{ error }}</p>
+      <p v-if="message" class="inline-success">{{ t(message) }}</p>
+      <p v-if="error" class="inline-error">{{ runtimeMessage(error) }}</p>
       <article
         v-for="finding in localHealth"
         :key="finding.id"
@@ -101,46 +148,46 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
       >
         <span class="health-orb stale" />
         <div>
-          <strong>{{ finding.title }}</strong>
-          <p>{{ finding.detail }}</p>
-          <code>{{ finding.recommendation }}</code>
+          <strong>{{ healthFindingCopy(finding).title }}</strong>
+          <p>{{ healthFindingCopy(finding).detail }}</p>
+          <code>{{ healthFindingCopy(finding).recommendation }}</code>
         </div>
-        <span class="status-chip">setup</span>
+        <span class="status-chip">{{ t("setup") }}</span>
       </article>
     </section>
     <section>
       <header class="workspace-toolbar">
-        <div><span class="eyebrow">Agent adapter</span><h2>Codex</h2></div>
+        <div><span class="eyebrow">{{ t("Agent adapter") }}</span><h2>Codex</h2></div>
       </header>
       <article class="health-record optional">
         <span :class="['health-orb', agent.state]" />
         <div>
           <strong>{{ agent.label }}</strong>
-          <p>{{ agent.detail }}</p>
+          <p>{{ t(agent.detail) }}</p>
           <small>
-            {{ agent.authentication }} · checked {{ formatFreshness(agent.checkedAt) }}
+            {{ statusLabel(agent.authentication) }} · {{ t("checked {date}", { date: formatFreshness(agent.checkedAt) }) }}
           </small>
         </div>
-        <span class="status-chip">{{ agent.state }}</span>
+        <span class="status-chip">{{ statusLabel(agent.state) }}</span>
       </article>
-      <header class="workspace-toolbar"><div><span class="eyebrow">Observed capabilities</span><h2>Connectors</h2></div></header>
+      <header class="workspace-toolbar"><div><span class="eyebrow">{{ t("Observed capabilities") }}</span><h2>{{ t("Connectors") }}</h2></div></header>
       <article v-for="source in capabilities.observations.filter((item) => item.kind === 'connector')" :key="source.id" class="health-record optional">
-        <span :class="['health-orb', source.state]" /><div><strong>{{ labels[source.id] ?? source.id }}</strong><p>{{ source.detail }}</p><small>{{ source.provenance }}<template v-if="isSimulatedCapability(source)"> · fixture claim</template> · {{ formatFreshness(source.checkedAt) }}</small></div><span :class="['status-chip', { simulated: isSimulatedCapability(source) }]">{{ capabilityDisplayState(source) }}</span>
+        <span :class="['health-orb', source.state]" /><div><strong>{{ capabilityLabel(source.id) }}</strong><p>{{ capabilityDetail(source) }}</p><small>{{ statusLabel(source.provenance) }}<template v-if="isSimulatedCapability(source)"> · {{ t("fixture claim") }}</template> · {{ formatFreshness(source.checkedAt) }}</small></div><span :class="['status-chip', { simulated: isSimulatedCapability(source) }]">{{ t(capabilityDisplayState(source)) }}</span>
       </article>
-      <header class="workspace-toolbar"><div><span class="eyebrow">Optional evidence</span><h2>Enrichments</h2></div></header>
+      <header class="workspace-toolbar"><div><span class="eyebrow">{{ t("Optional evidence") }}</span><h2>{{ t("Enrichments") }}</h2></div></header>
       <article v-for="source in capabilities.observations.filter((item) => item.kind === 'enrichment')" :key="source.id" class="health-record optional">
-        <span :class="['health-orb', source.state]" /><div><strong>{{ labels[source.id] ?? source.id }}</strong><p>{{ source.detail }}</p><small>{{ source.provenance }}<template v-if="isSimulatedCapability(source)"> · fixture claim</template> · {{ formatFreshness(source.checkedAt) }}</small></div><span :class="['status-chip', { simulated: isSimulatedCapability(source) }]">{{ capabilityDisplayState(source) }}</span>
+        <span :class="['health-orb', source.state]" /><div><strong>{{ capabilityLabel(source.id) }}</strong><p>{{ capabilityDetail(source) }}</p><small>{{ statusLabel(source.provenance) }}<template v-if="isSimulatedCapability(source)"> · {{ t("fixture claim") }}</template> · {{ formatFreshness(source.checkedAt) }}</small></div><span :class="['status-chip', { simulated: isSimulatedCapability(source) }]">{{ t(capabilityDisplayState(source)) }}</span>
       </article>
     </section>
     <aside class="health-policy">
-      <span class="eyebrow">Workspace isolation</span>
-      <h2>{{ rootPath }}</h2>
-      <p>SQLite memory and design evidence use the logical repository identity. Code snapshots remain separate per checkout/worktree.</p>
+      <span class="eyebrow">{{ t("Workspace isolation") }}</span>
+      <h2 :title="rootPath">{{ rootPath }}</h2>
+      <p>{{ t("SQLite memory and design evidence use the logical repository identity. Code snapshots remain separate per checkout/worktree.") }}</p>
       <dl class="stacked-facts">
-        <div><dt>Network on browse</dt><dd>None</dd></div>
-        <div><dt>Credentials stored</dt><dd>None</dd></div>
-        <div><dt>Semantic writes</dt><dd>Approval required</dd></div>
-        <div><dt>Derived refresh</dt><dd>Local actions above</dd></div>
+        <div><dt>{{ t("Network on browse") }}</dt><dd>{{ t("None") }}</dd></div>
+        <div><dt>{{ t("Credentials stored") }}</dt><dd>{{ t("None") }}</dd></div>
+        <div><dt>{{ t("Semantic writes") }}</dt><dd>{{ t("Approval required") }}</dd></div>
+        <div><dt>{{ t("Derived refresh") }}</dt><dd>{{ t("Local actions above") }}</dd></div>
       </dl>
     </aside>
   </div>

@@ -10,6 +10,7 @@ const emit = defineEmits<{
   useInTask: [handle: string, intent: string];
   prepareTask: [intent: string];
 }>();
+const { formatDate, statusLabel, t } = useAtlasI18n();
 
 const query = ref("");
 const type = ref<MemoryType | "all">("all");
@@ -48,22 +49,22 @@ const conceptualGroups = computed(() => {
   const groups = [
     {
       id: "orientation",
-      label: "Domains & systems",
+      label: t("Domains & systems"),
       types: new Set<MemoryType>(["project", "domain", "subsystem", "module", "integration"]),
     },
     {
       id: "guardrails",
-      label: "Decisions & guardrails",
+      label: t("Decisions & guardrails"),
       types: new Set<MemoryType>(["decision", "constraint", "convention", "fragile-area"]),
     },
     {
       id: "learning",
-      label: "Attempts & outcomes",
+      label: t("Attempts & outcomes"),
       types: new Set<MemoryType>(["attempt", "outcome", "known-issue", "debt"]),
     },
     {
       id: "language",
-      label: "Plans & project language",
+      label: t("Plans & project language"),
       types: new Set<MemoryType>(["plan", "glossary-term", "note"]),
     },
   ];
@@ -92,7 +93,9 @@ function useSelectedInTask(): void {
   emit(
     "useInTask",
     `memory:${selected.value.id}`,
-    `Use the project knowledge "${selected.value.title}" as reviewed evidence for this task.`,
+    t('Use the project knowledge "{title}" as reviewed evidence for this task.', {
+      title: selected.value.title,
+    }),
   );
 }
 </script>
@@ -100,40 +103,39 @@ function useSelectedInTask(): void {
 <template>
   <div v-if="!items.length" class="section-empty">
     <AtlasIcon name="memory" />
-    <h2>Project Memory is at cold start</h2>
+    <h2>{{ t("Project Memory is at cold start") }}</h2>
     <p>
-      Code Atlas remains usable. Add canonical Markdown when the project has a
-      durable decision, convention, or domain concept worth recalling.
+      {{ t("Code Atlas remains usable. Add canonical Markdown when the project has a durable decision, convention, or domain concept worth recalling.") }}
     </p>
     <button
       class="primary-button"
-      @click="emit('prepareTask', 'Propose a reviewed Project Memory bootstrap from this repository.')"
+      @click="emit('prepareTask', t('Propose a reviewed Project Memory bootstrap from this repository.'))"
     >
-      Propose a memory bootstrap
+      {{ t("Propose a memory bootstrap") }}
     </button>
   </div>
   <div v-else class="atlas-workspace memory-layout">
     <aside class="index-pane">
       <label class="filter-input">
-        <span>Search</span>
-        <input v-model="query" type="search" placeholder="Decision, convention, failure…" >
+        <span>{{ t("Search") }}</span>
+        <input v-model="query" type="search" :placeholder="t('Decision, convention, failure…')" >
       </label>
       <div class="filter-row">
-        <select v-model="type" aria-label="Memory type">
-          <option value="all">All types</option>
-          <option v-for="value in types" :key="value" :value="value">{{ value }}</option>
+        <select v-model="type" :aria-label="t('Memory type')">
+          <option value="all">{{ t("All types") }}</option>
+          <option v-for="value in types" :key="value" :value="value">{{ statusLabel(value) }}</option>
         </select>
-        <select v-model="status" aria-label="Memory status">
-          <option value="all">Active by default</option>
-          <option v-for="value in statuses" :key="value" :value="value">{{ value }}</option>
+        <select v-model="status" :aria-label="t('Memory status')">
+          <option value="all">{{ t("Active by default") }}</option>
+          <option v-for="value in statuses" :key="value" :value="value">{{ statusLabel(value) }}</option>
         </select>
       </div>
-      <div class="mode-switch" aria-label="Memory orientation">
+      <div class="mode-switch" :aria-label="t('Memory orientation')">
         <button :class="{ active: view === 'map' }" @click="view = 'map'">
-          Concept map
+          {{ t("Concept map") }}
         </button>
         <button :class="{ active: view === 'timeline' }" @click="view = 'timeline'">
-          Timeline
+          {{ t("Timeline") }}
         </button>
       </div>
       <div class="entity-list">
@@ -146,27 +148,27 @@ function useSelectedInTask(): void {
           <span :class="['entity-mark', item.authority]" />
           <span>
             <strong>{{ item.title }}</strong>
-            <small>{{ item.type }} · {{ item.scope }}</small>
+            <small>{{ statusLabel(item.type) }} · {{ statusLabel(item.scope) }}</small>
           </span>
-          <em>{{ item.status }}</em>
+          <em>{{ statusLabel(item.status) }}</em>
         </button>
       </div>
     </aside>
     <section v-if="selected" class="detail-pane">
       <header class="entity-heading">
         <div>
-          <span class="eyebrow">{{ selected.type }} / {{ selected.authority }}</span>
+          <span class="eyebrow">{{ statusLabel(selected.type) }} / {{ statusLabel(selected.authority) }}</span>
           <h2>{{ selected.title }}</h2>
           <p>{{ selected.summary }}</p>
         </div>
         <div class="entity-actions">
-          <span :class="['status-chip', selected.status]">{{ selected.status }}</span>
+          <span :class="['status-chip', selected.status]">{{ statusLabel(selected.status) }}</span>
           <button class="primary-button" @click="useSelectedInTask">
-            Use in task
+            {{ t("Use in task") }}
           </button>
         </div>
       </header>
-      <section v-if="view === 'map'" class="memory-concept-map" aria-label="Project knowledge map">
+      <section v-if="view === 'map'" class="memory-concept-map" :aria-label="t('Project knowledge map')">
         <div v-for="group in conceptualGroups" :key="group.id" class="memory-lane">
           <header>
             <strong>{{ group.label }}</strong>
@@ -181,65 +183,65 @@ function useSelectedInTask(): void {
             <span :class="['entity-mark', item.authority]" />
             <span>
               <strong>{{ item.title }}</strong>
-              <small>{{ item.type }} · {{ item.scope }}</small>
+              <small>{{ statusLabel(item.type) }} · {{ statusLabel(item.scope) }}</small>
             </span>
           </button>
         </div>
       </section>
-      <section v-else class="memory-timeline" aria-label="Project memory timeline">
+      <section v-else class="memory-timeline" :aria-label="t('Project memory timeline')">
         <button
           v-for="item in timeline"
           :key="item.id"
           :class="{ active: selected.id === item.id }"
           @click="selectedId = item.id"
         >
-          <time :datetime="item.updatedAt">{{ new Date(item.updatedAt).toLocaleDateString() }}</time>
+          <time :datetime="item.updatedAt">{{ formatDate(item.updatedAt) }}</time>
           <span>
             <strong>{{ item.title }}</strong>
-            <small>{{ item.type }} · {{ item.provenance.kind }}</small>
+            <small>{{ statusLabel(item.type) }} · {{ statusLabel(item.provenance.kind) }}</small>
           </span>
-          <em>{{ item.status }}</em>
+          <em>{{ statusLabel(item.status) }}</em>
         </button>
       </section>
       <section class="detail-block">
-        <header><h3>Declared knowledge</h3></header>
-        <p class="memory-body">{{ selected.body ?? "No extended body. The compact summary is canonical." }}</p>
+        <header><h3>{{ t("Declared knowledge") }}</h3></header>
+        <p class="memory-body">{{ selected.body ?? t("No extended body. The compact summary is canonical.") }}</p>
       </section>
       <section class="detail-block">
-        <header><h3>Relations</h3><span>{{ selected.relations.length }}</span></header>
+        <header><h3>{{ t("Relations") }}</h3><span>{{ selected.relations.length }}</span></header>
         <div v-if="selected.relations.length" class="relation-list">
           <button
             v-for="relation in selected.relations"
             :key="`${relation.kind}:${relation.targetId}`"
             @click="selectedId = relation.targetId"
           >
-            <span>{{ relation.kind }}</span>
+            <span>{{ statusLabel(relation.kind) }}</span>
             <strong>{{ relation.targetId }}</strong>
             <small>{{ relation.summary }}</small>
           </button>
         </div>
-        <p v-else class="muted-copy">No outgoing relations.</p>
+        <p v-else class="muted-copy">{{ t("No outgoing relations.") }}</p>
       </section>
     </section>
     <aside v-if="selected" class="inspector-pane">
       <section>
-        <span class="eyebrow">Trust & freshness</span>
+        <span class="eyebrow">{{ t("Trust & freshness") }}</span>
         <dl class="stacked-facts">
-          <div><dt>Authority</dt><dd>{{ selected.authority }}</dd></div>
-          <div><dt>Confidence</dt><dd>{{ Math.round(selected.confidence * 100) }}%</dd></div>
-          <div><dt>Updated</dt><dd>{{ selected.updatedAt }}</dd></div>
-          <div><dt>Verified</dt><dd>{{ selected.verifiedAt ?? "Not verified" }}</dd></div>
-          <div><dt>Review after</dt><dd>{{ selected.reviewAfter ?? "Not scheduled" }}</dd></div>
+          <div><dt>{{ t("Authority") }}</dt><dd>{{ statusLabel(selected.authority) }}</dd></div>
+          <div><dt>{{ t("Confidence") }}</dt><dd>{{ Math.round(selected.confidence * 100) }}%</dd></div>
+          <div><dt>{{ t("Updated") }}</dt><dd>{{ formatDate(selected.updatedAt) }}</dd></div>
+          <div><dt>{{ t("Verified") }}</dt><dd>{{ selected.verifiedAt ? formatDate(selected.verifiedAt) : t("Not verified") }}</dd></div>
+          <div><dt>{{ t("Review after") }}</dt><dd>{{ selected.reviewAfter ? formatDate(selected.reviewAfter) : t("Not scheduled") }}</dd></div>
         </dl>
       </section>
       <section>
-        <span class="eyebrow">Provenance</span>
-        <h3>{{ selected.provenance.kind }}</h3>
-        <p>{{ selected.bodyPath ?? selected.provenance.uri ?? "Atlas episodic store" }}</p>
+        <span class="eyebrow">{{ t("Provenance") }}</span>
+        <h3>{{ statusLabel(selected.provenance.kind) }}</h3>
+        <p>{{ selected.bodyPath ?? selected.provenance.uri ?? t("Atlas episodic store") }}</p>
         <div class="tag-list"><span v-for="tag in selected.tags" :key="tag">{{ tag }}</span></div>
       </section>
       <section>
-        <span class="eyebrow">Backlinks</span>
+        <span class="eyebrow">{{ t("Backlinks") }}</span>
         <button
           v-for="item in backlinks"
           :key="item.id"
@@ -248,7 +250,7 @@ function useSelectedInTask(): void {
         >
           {{ item.title }}
         </button>
-        <p v-if="!backlinks.length" class="muted-copy">No indexed backlinks.</p>
+        <p v-if="!backlinks.length" class="muted-copy">{{ t("No indexed backlinks.") }}</p>
       </section>
     </aside>
   </div>

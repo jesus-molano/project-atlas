@@ -113,6 +113,8 @@ const emit = defineEmits<{
   workspaceChanged: [];
   figmaSyncState: [value: FigmaSyncState];
 }>();
+const { formatDate, formatNumber, runtimeMessage, statusLabel, t } =
+  useAtlasI18n();
 
 const task = ref(props.initialTask ?? "");
 const objectiveConfirmed = ref(false);
@@ -233,12 +235,12 @@ const figmaSyncState = computed<FigmaSyncState>(() => {
   };
 });
 const figmaSyncLabel = computed(() => {
-  if (figmaSyncState.value.status === "loading") return "Figma · loading";
-  if (figmaSyncState.value.status === "available") return "Figma · available";
+  if (figmaSyncState.value.status === "loading") return t("Figma · loading");
+  if (figmaSyncState.value.status === "available") return t("Figma · available");
   if (figmaSyncState.value.status === "error") {
-    return "Figma · no access or sync error";
+    return t("Figma · no access or sync error");
   }
-  return "Figma · confirmed, not synchronized";
+  return t("Figma · confirmed, not synchronized");
 });
 const taskSessionKey = computed(
   () =>
@@ -407,8 +409,7 @@ async function generateContext(): Promise<void> {
     });
     preparationMs.value = Math.max(0, Date.now() - (preparedAt.value ?? Date.now()));
   } catch (caught) {
-    contextError.value =
-      caught instanceof Error ? caught.message : "Local context failed.";
+    contextError.value = atlasErrorSource(caught, "Local context failed.");
   } finally {
     contextPending.value = false;
   }
@@ -424,10 +425,10 @@ async function loadAgentSurface(): Promise<void> {
       $fetch<ActionCapabilityManifest[]>("/api/actions"),
     ]);
   } catch (caught) {
-    runError.value =
-      caught instanceof Error
-        ? caught.message
-        : "Codex integration status is unavailable.";
+    runError.value = atlasErrorSource(
+      caught,
+      "Codex integration status is unavailable.",
+    );
   }
 }
 
@@ -471,7 +472,7 @@ async function startRun(): Promise<void> {
     }
     pollRun();
   } catch (caught) {
-    runError.value = caught instanceof Error ? caught.message : "Codex did not start.";
+    runError.value = atlasErrorSource(caught, "Codex did not start.");
   }
 }
 
@@ -681,11 +682,11 @@ async function copyPackage(): Promise<void> {
 }
 
 function eventLabel(event: AgentRunEvent): string {
-  if (event.type === "run-started") return event.message;
-  if (event.type === "activity") return event.message;
-  if (event.type === "failed") return event.message;
-  if (event.type === "cancelled") return event.message;
-  return event.type;
+  if (event.type === "run-started") return t(event.message);
+  if (event.type === "activity") return t(event.message);
+  if (event.type === "failed") return t(event.message);
+  if (event.type === "cancelled") return t(event.message);
+  return statusLabel(event.type);
 }
 
 onMounted(async () => {
@@ -758,25 +759,25 @@ onBeforeUnmount(() => {
 <template>
   <div class="workbench">
     <section class="workbench-composer" aria-labelledby="task-intent-heading">
-      <div class="mode-switch" aria-label="Task intake status">
+      <div class="mode-switch" :aria-label="t('Task intake status')">
         <span :class="['capability-pill', risk.level]">
-          {{ risk.level }} risk
+          {{ t("{level} risk", { level: statusLabel(risk.level) }) }}
         </span>
         <span :class="['capability-pill', intakeAssessment.status]">
-          {{ intakeAssessment.status }}
+          {{ statusLabel(intakeAssessment.status) }}
         </span>
         <button v-if="activeRun" class="text-button" @click="newTask">
-          New task
+          {{ t("New task") }}
         </button>
       </div>
 
       <label class="workbench-intent">
-        <span id="task-intent-heading">What needs to change?</span>
+        <span id="task-intent-heading">{{ t("What needs to change?") }}</span>
         <textarea
           v-model="task"
           rows="5"
           :disabled="Boolean(activeRun)"
-          placeholder="Describe the frontend outcome. Add links only when they are useful."
+          :placeholder="t('Describe the frontend outcome. Add links only when they are useful.')"
         />
       </label>
 
@@ -785,33 +786,33 @@ onBeforeUnmount(() => {
         class="decision-band"
         aria-labelledby="objective-confirmation"
       >
-        <span>Confirm scope</span>
+        <span>{{ t("Confirm scope") }}</span>
         <div>
-          <strong id="objective-confirmation">Is this the outcome to prepare?</strong>
-          <p>{{ risk.reasons.join(" · ") }}</p>
+          <strong id="objective-confirmation">{{ t("Is this the outcome to prepare?") }}</strong>
+          <p>{{ risk.reasons.map((reason) => t(reason)).join(" · ") }}</p>
           <button
             class="secondary-button"
             :disabled="!task.trim()"
             @click="objectiveConfirmed = true"
           >
-            Confirm objective
+            {{ t("Confirm objective") }}
           </button>
         </div>
       </section>
 
       <div v-if="props.pinnedHandles?.length" class="selection-strip">
-        <span>Selected evidence</span>
+        <span>{{ t("Selected evidence") }}</span>
         <code v-for="handle in props.pinnedHandles" :key="handle">{{ handle }}</code>
       </div>
 
       <div class="source-strip">
         <div class="source-strip-heading">
           <div>
-            <strong>Task sources</strong>
-            <span>Optional · detected references require an explicit choice</span>
+            <strong>{{ t("Task sources") }}</strong>
+            <span>{{ t("Optional · detected references require an explicit choice") }}</span>
           </div>
           <button class="text-button" @click="advancedOpen = !advancedOpen">
-            {{ advancedOpen ? "Hide source controls" : "Add source" }}
+            {{ advancedOpen ? t("Hide source controls") : t("Add source") }}
           </button>
         </div>
         <div v-if="sourceDecisions.length" class="source-chips">
@@ -821,58 +822,58 @@ onBeforeUnmount(() => {
             :class="['source-decision', source.state]"
           >
             <div :title="source.reference">
-              <span>{{ source.kind }} · {{ source.state }}</span>
+              <span>{{ statusLabel(source.kind) }} · {{ statusLabel(source.state) }}</span>
               <strong>{{ source.reference.replace(/^https?:\/\//, "").slice(0, 54) }}</strong>
-              <small>{{ source.origin === "manual" ? "Added by you" : "Detected in the task" }}</small>
+              <small>{{ source.origin === "manual" ? t("Added by you") : t("Detected in the task") }}</small>
             </div>
             <div v-if="source.state === 'pending'" class="source-decision-actions">
               <button class="secondary-button" @click="decideSource(source.id, 'confirmed')">
-                Yes, use this
+                {{ t("Yes, use this") }}
               </button>
               <button class="text-button" @click="decideSource(source.id, 'omitted')">
-                Continue without it
+                {{ t("Continue without it") }}
               </button>
               <button class="text-button" @click="decideSource(source.id, 'unavailable')">
-                Not available
+                {{ t("Not available") }}
               </button>
               <button class="text-button" @click="beginSourceReplacement(source.id)">
-                Replace or add
+                {{ t("Replace or add") }}
               </button>
             </div>
             <button
               v-else-if="source.origin === 'manual'"
               class="text-button"
-              aria-label="Remove manually added source"
+              :aria-label="t('Remove manually added source')"
               @click="removeManualSource(source.id)"
             >
-              Remove
+              {{ t("Remove") }}
             </button>
             <button
               v-else-if="source.state !== 'confirmed'"
               class="text-button"
               @click="decideSource(source.id, 'confirmed')"
             >
-              Use instead
+              {{ t("Use instead") }}
             </button>
           </article>
         </div>
         <div v-if="advancedOpen" class="source-adder">
-          <select v-model="sourceKind" aria-label="Source kind">
+          <select v-model="sourceKind" :aria-label="t('Source kind')">
             <option value="figma">Figma</option>
             <option value="jira">Jira</option>
             <option value="confluence">Confluence</option>
             <option value="github">GitHub</option>
             <option value="openapi">OpenAPI / Swagger</option>
-            <option value="other">Other reference</option>
+            <option value="other">{{ t("Other reference") }}</option>
           </select>
           <input
             v-model="sourceValue"
             type="text"
-            :placeholder="replacementFor ? 'Paste the replacement URL or ID' : 'Paste one URL or ID'"
+            :placeholder="replacementFor ? t('Paste the replacement URL or ID') : t('Paste one URL or ID')"
             @keydown.enter.prevent="addSource"
           >
           <button class="secondary-button" :disabled="!sourceValue.trim()" @click="addSource">
-            Add
+            {{ t("Add") }}
           </button>
         </div>
       </div>
@@ -886,21 +887,21 @@ onBeforeUnmount(() => {
         <AtlasIcon v-else :name="figmaSyncState.status === 'available' ? 'check' : 'design'" />
         <div>
           <strong>{{ figmaSyncLabel }}</strong>
-          <span>{{ figmaSyncState.message }}</span>
+          <span>{{ t(figmaSyncState.message) }}</span>
         </div>
       </div>
 
-      <div class="capability-line" aria-label="Detected task capabilities">
+      <div class="capability-line" :aria-label="t('Detected task capabilities')">
         <span
           v-for="capability in capabilitySummary"
           :key="capability.id"
           :class="['capability-pill', capability.state]"
-          :title="`${capability.detail ?? ''} · ${capability.provenance}${isSimulatedCapability(capability) ? ' · fixture claim, not a live connection' : ''}`"
+          :title="`${capability.detail ?? ''} · ${statusLabel(capability.provenance)}${isSimulatedCapability(capability) ? ` · ${t('fixture claim, not a live connection')}` : ''}`"
         >
-          {{ capability.id }} · {{ capabilityDisplayState(capability) }}
+          {{ capability.id }} · {{ t(capabilityDisplayState(capability)) }}
         </span>
         <span v-if="!capabilitySummary.length" class="capability-pill unknown">
-          Repository only
+          {{ t("Repository only") }}
         </span>
       </div>
 
@@ -910,17 +911,17 @@ onBeforeUnmount(() => {
           :disabled="contextPending || intakeAssessment.status !== 'ready' || !agentToken"
           @click="generateContext"
         >
-          {{ contextPending ? "Preparing local evidence…" : "Prepare task" }}
+          {{ contextPending ? t("Preparing local evidence…") : t("Prepare task") }}
         </button>
         <button class="text-button" @click="advancedOpen = !advancedOpen">
-          Context options
+          {{ t("Context options") }}
         </button>
       </div>
       <div v-if="advancedOpen" class="compact-options">
         <label>
-          Design map
+          {{ t("Design map") }}
           <select v-model="figmaFile">
-            <option value="">None unless confirmed</option>
+            <option value="">{{ t("None unless confirmed") }}</option>
             <option
               v-for="index in designIndexes"
               :key="index.file.key"
@@ -931,41 +932,40 @@ onBeforeUnmount(() => {
           </select>
         </label>
         <label>
-          Hard cap
+          {{ t("Hard cap") }}
           <select v-model.number="budgetChars">
-            <option :value="2400">2,400 chars · ~600 tokens</option>
-            <option :value="3600">3,600 chars · ~900 tokens</option>
-            <option :value="6000">6,000 chars · ~1,500 tokens</option>
+            <option :value="2400">{{ t("{chars} chars · ~{tokens} tokens", { chars: formatNumber(2400), tokens: formatNumber(600) }) }}</option>
+            <option :value="3600">{{ t("{chars} chars · ~{tokens} tokens", { chars: formatNumber(3600), tokens: formatNumber(900) }) }}</option>
+            <option :value="6000">{{ t("{chars} chars · ~{tokens} tokens", { chars: formatNumber(6000), tokens: formatNumber(1500) }) }}</option>
           </select>
         </label>
         <label>
-          Candidates
+          {{ t("Candidates") }}
           <select v-model.number="topK">
-            <option :value="3">Top 3</option>
-            <option :value="5">Top 5</option>
+            <option :value="3">{{ t("Top {count}", { count: 3 }) }}</option>
+            <option :value="5">{{ t("Top {count}", { count: 5 }) }}</option>
           </select>
         </label>
       </div>
-      <p v-if="contextError" class="inline-error">{{ contextError }}</p>
+      <p v-if="contextError" class="inline-error">{{ runtimeMessage(contextError) }}</p>
     </section>
 
     <section class="workbench-canvas" aria-live="polite">
       <div v-if="!context && !activeRun" class="workbench-empty">
-        <span>WORK / READY</span>
-        <h2>Start with an outcome, not a form.</h2>
+        <span>{{ t("WORK / READY") }}</span>
+        <h2>{{ t("Start with an outcome, not a form.") }}</h2>
         <p>
-          Atlas will search the current checkout and show exactly what is worth
-          sending to an agent. Jira, Confluence, Figma, and OpenAPI remain optional.
+          {{ t("Atlas will search the current checkout and show exactly what is worth sending to an agent. Jira, Confluence, Figma, and OpenAPI remain optional.") }}
         </p>
         <ol>
-          <li>Describe the task.</li>
-          <li>Confirm inferred sources and material scope only when needed.</li>
-          <li>Prepare read-only, then explicitly approve editing in the same task.</li>
+          <li>{{ t("Describe the task.") }}</li>
+          <li>{{ t("Confirm inferred sources and material scope only when needed.") }}</li>
+          <li>{{ t("Prepare read-only, then explicitly approve editing in the same task.") }}</li>
         </ol>
         <section v-if="recentRuns?.length || recentActions?.length" class="recent-runs">
           <header>
-            <strong>Recent local activity</strong>
-            <span>metadata only · no task text</span>
+            <strong>{{ t("Recent local activity") }}</strong>
+            <span>{{ t("metadata only · no task text") }}</span>
           </header>
           <div
             v-for="action in recentActions?.slice(0, 4)"
@@ -973,10 +973,10 @@ onBeforeUnmount(() => {
             class="recent-run-row"
           >
             <time :datetime="action.resolvedAt">
-              {{ new Date(action.resolvedAt).toLocaleString() }}
+              {{ formatDate(action.resolvedAt) }}
             </time>
-            <strong>{{ action.command }} · {{ action.state }}</strong>
-            <span>{{ action.scope }} scope · {{ action.itemId }}</span>
+            <strong>{{ statusLabel(action.command) }} · {{ statusLabel(action.state) }}</strong>
+            <span>{{ t("{scope} scope", { scope: statusLabel(action.scope) }) }} · {{ action.itemId }}</span>
           </div>
           <div
             v-for="run in recentRuns?.slice(0, 5)"
@@ -984,11 +984,14 @@ onBeforeUnmount(() => {
             class="recent-run-row"
           >
             <time :datetime="run.updatedAt">
-              {{ new Date(run.updatedAt).toLocaleString() }}
+              {{ formatDate(run.updatedAt) }}
             </time>
-            <strong>{{ run.mode }} · {{ run.state }}</strong>
+            <strong>{{ statusLabel(run.mode) }} · {{ statusLabel(run.state) }}</strong>
             <span>
-              {{ run.estimatedTokens }} tokens · {{ run.questionCount }} questions
+              {{ t("{tokens} tokens · {questions} questions", {
+                tokens: formatNumber(run.estimatedTokens),
+                questions: formatNumber(run.questionCount),
+              }) }}
             </span>
           </div>
         </section>
@@ -997,47 +1000,47 @@ onBeforeUnmount(() => {
       <template v-else-if="context">
         <header class="workbench-result-head">
           <div>
-            <span class="eyebrow">Reviewed local brief</span>
+            <span class="eyebrow">{{ t("Reviewed local brief") }}</span>
             <h2>{{ context.task }}</h2>
           </div>
           <button class="text-button" @click="copyPackage">
-            {{ copied ? "Package copied" : "Copy package" }}
+            {{ copied ? t("Package copied") : t("Copy package") }}
           </button>
         </header>
 
         <div class="evidence-lanes">
           <section>
-            <span>Code</span>
-            <strong>{{ context.code?.length ?? 0 }} candidates</strong>
+            <span>{{ t("Code") }}</span>
+            <strong>{{ t("{count} candidates", { count: context.code?.length ?? 0 }) }}</strong>
             <p v-if="context.code?.length">
               {{ context.code.slice(0, 3).map((item) => item.name).join(" · ") }}
             </p>
-            <p v-else>No matching code candidate yet.</p>
+            <p v-else>{{ t("No matching code candidate yet.") }}</p>
           </section>
           <section>
-            <span>Design</span>
-            <strong>{{ context.design?.candidates?.length ?? 0 }} candidates</strong>
-            <p v-if="context.design?.selectionRequired">A design source needs selection.</p>
-            <p v-else>{{ context.design?.available ? "Sparse design evidence available." : "Optional / unavailable." }}</p>
+            <span>{{ t("Design") }}</span>
+            <strong>{{ t("{count} candidates", { count: context.design?.candidates?.length ?? 0 }) }}</strong>
+            <p v-if="context.design?.selectionRequired">{{ t("A design source needs selection.") }}</p>
+            <p v-else>{{ context.design?.available ? t("Sparse design evidence available.") : t("Optional / unavailable.") }}</p>
           </section>
           <section>
-            <span>Memory</span>
-            <strong>{{ context.memory?.length ?? 0 }} relevant items</strong>
-            <p>{{ context.findings?.length ?? 0 }} findings enter the decision gate.</p>
+            <span>{{ t("Memory") }}</span>
+            <strong>{{ t("{count} relevant items", { count: context.memory?.length ?? 0 }) }}</strong>
+            <p>{{ t("{count} findings enter the decision gate.", { count: context.findings?.length ?? 0 }) }}</p>
           </section>
           <section v-if="context.api">
-            <span>API contract</span>
-            <strong>{{ context.api.operations.length }} relevant operations</strong>
+            <span>{{ t("API contract") }}</span>
+            <strong>{{ t("{count} relevant operations", { count: context.api.operations.length }) }}</strong>
             <p>
-              {{ context.api.contracts }} {{ context.api.contracts === 1 ? "contract" : "contracts" }} ·
+              {{ t(context.api.contracts === 1 ? "{count} contract" : "{count} contracts", { count: context.api.contracts }) }} ·
               {{ context.api.format }} ·
-              {{ context.api.authentication.length }} authentication schemes
+              {{ t("{count} authentication schemes", { count: context.api.authentication.length }) }}
             </p>
           </section>
         </div>
 
         <section v-if="context.findings?.length" class="decision-band">
-          <span>Needs review</span>
+          <span>{{ t("Needs review") }}</span>
           <div>
             <strong>{{ context.findings[0]?.title }}</strong>
             <p>{{ context.findings[0]?.recommendation }}</p>
@@ -1047,7 +1050,7 @@ onBeforeUnmount(() => {
         <section v-if="!activeRun" class="launch-row">
           <div>
             <strong>{{ agentStatus?.label ?? "Codex" }}</strong>
-            <span>{{ agentStatus?.detail ?? "Checking the local agent adapter…" }}</span>
+            <span>{{ agentStatus?.detail ? t(agentStatus.detail) : t("Checking the local agent adapter…") }}</span>
           </div>
           <button
             class="secondary-button"
@@ -1056,8 +1059,8 @@ onBeforeUnmount(() => {
           >
             {{
               confirmedFigmaSources.length
-                ? "Prepare with Codex & sync Figma"
-                : "Prepare with Codex"
+                ? t("Prepare with Codex & sync Figma")
+                : t("Prepare with Codex")
             }}
           </button>
         </section>
@@ -1065,15 +1068,15 @@ onBeforeUnmount(() => {
         <section v-if="activeRun" class="run-ledger">
           <header>
             <div>
-              <span class="eyebrow">Agent activity · {{ activeRun.state }}</span>
-              <h2>{{ activeRun.threadId ? "Codex task in progress" : "Starting Codex" }}</h2>
+              <span class="eyebrow">{{ t("Agent activity") }} · {{ statusLabel(activeRun.state) }}</span>
+              <h2>{{ activeRun.threadId ? t("Codex task in progress") : t("Starting Codex") }}</h2>
             </div>
             <button
               v-if="['queued', 'running'].includes(activeRun.state)"
               class="secondary-button"
               @click="cancelRun"
             >
-              Cancel safely
+              {{ t("Cancel safely") }}
             </button>
           </header>
           <ol>
@@ -1081,53 +1084,53 @@ onBeforeUnmount(() => {
               <span :class="['event-mark', item.event.type]" />
               <div>
                 <strong>{{ eventLabel(item.event) }}</strong>
-                <small>{{ new Date(item.event.at).toLocaleTimeString() }}</small>
+                <small>{{ formatDate(item.event.at) }}</small>
               </div>
             </li>
           </ol>
         </section>
 
         <section v-if="materialQuestion && activeRun?.state === 'awaiting-input'" class="question-gate">
-          <span class="eyebrow">Material question</span>
+          <span class="eyebrow">{{ t("Material question") }}</span>
           <h2>{{ materialQuestion.prompt }}</h2>
           <ul>
             <li v-for="item in materialQuestion.evidence" :key="item">{{ item }}</li>
           </ul>
-          <p><strong>Recommendation:</strong> {{ materialQuestion.recommendation }}</p>
-          <textarea v-model="answer" rows="3" placeholder="Confirm or correct the recommendation" />
+          <p><strong>{{ t("Recommendation") }}:</strong> {{ materialQuestion.recommendation }}</p>
+          <textarea v-model="answer" rows="3" :placeholder="t('Confirm or correct the recommendation')" />
           <button class="primary-button" :disabled="!answer.trim()" @click="resumeRun">
-            Continue this task
+            {{ t("Continue this task") }}
           </button>
         </section>
 
         <section v-if="latestResult" class="agent-result">
           <header>
             <div>
-              <span class="eyebrow">Compact agent result</span>
+              <span class="eyebrow">{{ t("Compact agent result") }}</span>
               <h2>{{ latestResult.summary }}</h2>
             </div>
-            <span :class="['result-state', latestResult.status]">{{ latestResult.status }}</span>
+            <span :class="['result-state', latestResult.status]">{{ statusLabel(latestResult.status) }}</span>
           </header>
           <div class="result-ledgers">
             <section>
-              <span>Evidence</span>
+              <span>{{ t("Evidence") }}</span>
               <p v-for="item in latestResult.evidence" :key="`${item.source}:${item.label}`">
                 <strong>{{ item.source }}</strong> {{ item.label }}
               </p>
             </section>
             <section>
-              <span>Decisions</span>
+              <span>{{ t("Decisions") }}</span>
               <p v-for="item in latestResult.decisions" :key="item.title">
                 <strong>{{ item.status }}</strong> {{ item.title }}
               </p>
-              <p v-if="!latestResult.decisions.length">No new decision claimed.</p>
+              <p v-if="!latestResult.decisions.length">{{ t("No new decision claimed.") }}</p>
             </section>
             <section>
-              <span>Risks</span>
+              <span>{{ t("Risks") }}</span>
               <p v-for="item in latestResult.risks" :key="item.title">
                 <strong>{{ item.level }}</strong> {{ item.title }}
               </p>
-              <p v-if="!latestResult.risks.length">No unresolved risk reported.</p>
+              <p v-if="!latestResult.risks.length">{{ t("No unresolved risk reported.") }}</p>
             </section>
           </div>
           <section
@@ -1139,16 +1142,16 @@ onBeforeUnmount(() => {
           >
             <header>
               <div>
-                <span class="eyebrow">Memory candidates</span>
+                <span class="eyebrow">{{ t("Memory candidates") }}</span>
                 <h3 id="memory-closeout-heading">
-                  {{ latestResult.memoryCloseout.status }}
+                  {{ statusLabel(latestResult.memoryCloseout.status) }}
                 </h3>
               </div>
               <span>
                 {{
                   latestResult.memoryCloseout.status === "canonical-stored"
-                    ? "Stored after confirmation"
-                    : "No automatic memory writes"
+                    ? t("Stored after confirmation")
+                    : t("No automatic memory writes")
                 }}
               </span>
             </header>
@@ -1158,10 +1161,15 @@ onBeforeUnmount(() => {
               :key="`${candidate.type}:${candidate.title}`"
               class="memory-candidate"
             >
-              <strong>{{ candidate.type }} · {{ candidate.title }}</strong>
+              <strong>{{ statusLabel(candidate.type) }} · {{ candidate.title }}</strong>
               <p>{{ candidate.summary }}</p>
               <small>
-                {{ candidate.scope }} · {{ Math.round(candidate.confidence * 100) }}% confidence
+                {{
+                  t("{scope} · {count}% confidence", {
+                    scope: statusLabel(candidate.scope),
+                    count: Math.round(candidate.confidence * 100),
+                  })
+                }}
               </small>
               <ul>
                 <li v-for="evidence in candidate.evidence" :key="evidence">
@@ -1173,7 +1181,7 @@ onBeforeUnmount(() => {
               v-if="latestResult.memoryCloseout.localOutcome"
               class="memory-candidate local"
             >
-              <strong>Local / episodic outcome</strong>
+              <strong>{{ t("Local / episodic outcome") }}</strong>
               <p>{{ latestResult.memoryCloseout.localOutcome.summary }}</p>
               <ul>
                 <li
@@ -1188,7 +1196,7 @@ onBeforeUnmount(() => {
               v-if="latestResult.memoryCloseout.confirmationRequired"
               class="memory-confirmation"
             >
-              <strong>Explicit confirmation required:</strong>
+              <strong>{{ t("Explicit confirmation required:") }}</strong>
               {{ latestResult.memoryCloseout.confirmationPrompt }}
             </p>
             <div
@@ -1199,43 +1207,43 @@ onBeforeUnmount(() => {
                 class="secondary-button"
                 @click="respondToMemoryCloseout('confirm-canonical')"
               >
-                Confirm canonical memory
+                {{ t("Confirm canonical memory") }}
               </button>
               <button
                 class="text-button"
                 @click="respondToMemoryCloseout('decline')"
               >
-                Continue without saving
+                {{ t("Continue without saving") }}
               </button>
             </div>
           </section>
           <label class="correction-box">
-            Correct or continue without restarting
+            {{ t("Correct or continue without restarting") }}
             <textarea
               v-model="correction"
               rows="3"
-              placeholder="Change the scope, correct a result, or describe the next step"
+              :placeholder="t('Change the scope, correct a result, or describe the next step')"
             />
           </label>
           <button class="secondary-button" :disabled="!correction.trim()" @click="resumeRun">
-            Continue same Codex task
+            {{ t("Continue same Codex task") }}
           </button>
           <button
             v-if="activeRun?.mode === 'prepare' && activeRun.state === 'completed' && latestResult.status === 'completed'"
             class="primary-button"
             @click="reviewLaunch('workspace-write')"
           >
-            Review implementation
+            {{ t("Review implementation") }}
           </button>
         </section>
-        <p v-if="runError" class="inline-error">{{ runError }}</p>
+        <p v-if="runError" class="inline-error">{{ runtimeMessage(runError) }}</p>
       </template>
     </section>
 
     <aside class="workbench-inspector">
-      <span class="eyebrow">Context inspector</span>
+      <span class="eyebrow">{{ t("Context inspector") }}</span>
       <strong class="token-total">
-        {{ context ? `${context.metrics.estimatedTokens} tokens` : "No agent context" }}
+        {{ context ? t("{count} tokens", { count: formatNumber(context.metrics.estimatedTokens) }) : t("No agent context") }}
       </strong>
       <div class="budget-meter">
         <span
@@ -1247,46 +1255,49 @@ onBeforeUnmount(() => {
         />
       </div>
       <dl>
-        <div><dt>Project</dt><dd>{{ projectName }}</dd></div>
-        <div><dt>Branch</dt><dd>{{ identity?.branch ?? "detached / unknown" }}</dd></div>
-        <div><dt>Checkout</dt><dd>{{ identity?.checkoutId.slice(0, 8) ?? "path scoped" }}</dd></div>
-        <div><dt>Snapshot</dt><dd>{{ workspaceFingerprint.slice(0, 8) }}</dd></div>
+        <div><dt>{{ t("Project") }}</dt><dd>{{ projectName }}</dd></div>
+        <div><dt>{{ t("Branch") }}</dt><dd>{{ identity?.branch ?? t("detached / unknown") }}</dd></div>
+        <div><dt>{{ t("Checkout") }}</dt><dd>{{ identity?.checkoutId.slice(0, 8) ?? t("path scoped") }}</dd></div>
+        <div><dt>{{ t("Snapshot") }}</dt><dd>{{ workspaceFingerprint.slice(0, 8) }}</dd></div>
         <div>
-          <dt>Sources</dt>
+          <dt>{{ t("Sources") }}</dt>
           <dd>
-            {{ sourceCounts.confirmed }} confirmed · {{ sourceCounts.pending }} pending ·
-            {{ sourceCounts.omitted + sourceCounts.unavailable }} omitted/unavailable
+            {{ t("{confirmed} confirmed · {pending} pending · {omitted} omitted/unavailable", {
+              confirmed: sourceCounts.confirmed,
+              pending: sourceCounts.pending,
+              omitted: sourceCounts.omitted + sourceCounts.unavailable,
+            }) }}
           </dd>
         </div>
-        <div><dt>Context</dt><dd>{{ context?.metrics.usedChars ?? 0 }} / {{ budgetChars }} chars</dd></div>
-        <div><dt>Truncated</dt><dd>{{ context?.metrics.truncated ? "Yes" : "No" }}</dd></div>
+        <div><dt>{{ t("Context") }}</dt><dd>{{ t("{used} / {budget} chars", { used: formatNumber(context?.metrics.usedChars ?? 0), budget: formatNumber(budgetChars) }) }}</dd></div>
+        <div><dt>{{ t("Truncated") }}</dt><dd>{{ context?.metrics.truncated ? t("Yes") : t("No") }}</dd></div>
       </dl>
       <div class="boundary-legend">
-        <span><i class="local" />Local · 0 tokens</span>
-        <span><i class="agent" />Agent · reviewed budget</span>
-        <span><i class="external" />External write · approval</span>
+        <span><i class="local" />{{ t("Local · 0 tokens") }}</span>
+        <span><i class="agent" />{{ t("Agent · reviewed budget") }}</span>
+        <span><i class="external" />{{ t("External write · approval") }}</span>
       </div>
     </aside>
 
     <div v-if="launchReviewOpen" class="dialog-backdrop" @click.self="launchReviewOpen = false">
       <section class="launch-dialog" role="dialog" aria-modal="true" aria-labelledby="launch-title">
-        <span class="eyebrow">Review before Codex starts</span>
-        <h2 id="launch-title">{{ activeAction?.intent }}</h2>
-        <p>{{ activeAction?.description }}</p>
+        <span class="eyebrow">{{ t("Review before Codex starts") }}</span>
+        <h2 id="launch-title">{{ t(activeAction?.intent ?? "") }}</h2>
+        <p>{{ t(activeAction?.description ?? "") }}</p>
         <dl>
-          <div><dt>Project</dt><dd>{{ projectName }}</dd></div>
-          <div><dt>Worktree</dt><dd>{{ projectRoot }}</dd></div>
-          <div><dt>Branch</dt><dd>{{ identity?.branch ?? "unknown" }}</dd></div>
-          <div><dt>Permission</dt><dd>{{ launchSandbox }}</dd></div>
-          <div><dt>Context</dt><dd>{{ context?.metrics.estimatedTokens }} estimated tokens</dd></div>
-          <div><dt>Sources</dt><dd>{{ sources.map((source) => source.kind).join(", ") || "repository + confirmed Atlas memory" }}</dd></div>
-          <div><dt>Possible writes</dt><dd>{{ activeAction?.possibleWrites.join(", ") || "none" }}</dd></div>
-          <div><dt>External writes</dt><dd>prohibited in this run</dd></div>
+          <div><dt>{{ t("Project") }}</dt><dd>{{ projectName }}</dd></div>
+          <div><dt>{{ t("Worktree") }}</dt><dd>{{ projectRoot }}</dd></div>
+          <div><dt>{{ t("Branch") }}</dt><dd>{{ identity?.branch ?? t("unknown") }}</dd></div>
+          <div><dt>{{ t("Permission") }}</dt><dd>{{ statusLabel(launchSandbox) }}</dd></div>
+          <div><dt>{{ t("Context") }}</dt><dd>{{ t("{count} estimated tokens", { count: formatNumber(context?.metrics.estimatedTokens ?? 0) }) }}</dd></div>
+          <div><dt>{{ t("Sources") }}</dt><dd>{{ sources.map((source) => statusLabel(source.kind)).join(", ") || t("repository + confirmed Atlas memory") }}</dd></div>
+          <div><dt>{{ t("Possible writes") }}</dt><dd>{{ activeAction?.possibleWrites.map(statusLabel).join(", ") || t("none") }}</dd></div>
+          <div><dt>{{ t("External writes") }}</dt><dd>{{ t("prohibited in this run") }}</dd></div>
         </dl>
         <div class="dialog-actions">
-          <button class="secondary-button" @click="launchReviewOpen = false">Back</button>
+          <button class="secondary-button" @click="launchReviewOpen = false">{{ t("Back") }}</button>
           <button class="primary-button" @click="confirmLaunch">
-            {{ launchSandbox === "workspace-write" ? "Implement in this task" : "Start read-only preparation" }}
+            {{ launchSandbox === "workspace-write" ? t("Implement in this task") : t("Start read-only preparation") }}
           </button>
         </div>
       </section>
