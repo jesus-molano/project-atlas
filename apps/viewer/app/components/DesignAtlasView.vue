@@ -34,6 +34,9 @@ const fileKey = ref(props.indexes[0]?.file.key ?? "");
 const selectedNodeId = ref<string>();
 const selectedVariableCollectionId = ref<string>();
 const selectedVariableId = ref<string>();
+const entityList = ref<HTMLElement>();
+const detailPane = ref<HTMLElement>();
+const inspectorPane = ref<HTMLElement>();
 const activeFile = computed(
   () => props.indexes.find((index) => index.file.key === fileKey.value) ?? props.indexes[0],
 );
@@ -145,6 +148,26 @@ const emptyStateCopy = computed(() => {
   }
   return t("Add a Figma file or page in the Task Workbench. Atlas builds a sparse map first and uses Ready for Dev only as an optional confidence signal.");
 });
+const syncNoticeVisible = computed(
+  () =>
+    props.syncState?.status === "loading" ||
+    props.syncState?.status === "error" ||
+    props.syncState?.status === "confirmed-unsynced",
+);
+const variableCatalogHeading = computed(() => {
+  const collectionCount = variableCollections.value.length;
+  const tokenCount = activeFile.value?.variables.variables.length ?? 0;
+  return t("{collections} · {tokens}", {
+    collections: t(
+      collectionCount === 1 ? "{count} collection" : "{count} collections",
+      { count: collectionCount },
+    ),
+    tokens: t(
+      tokenCount === 1 ? "{count} shared token" : "{count} shared tokens",
+      { count: tokenCount },
+    ),
+  });
+});
 
 function selectInitialNode(value: string | undefined): void {
   if (!value) return;
@@ -165,6 +188,12 @@ watch(
 watch(
   () => activeFile.value?.file.key,
   () => {
+    if (
+      selectedNodeId.value &&
+      !activeFile.value?.nodes.some((node) => node.id === selectedNodeId.value)
+    ) {
+      selectedNodeId.value = activeFile.value?.nodes[0]?.id;
+    }
     selectedVariableCollectionId.value =
       activeFile.value?.variables.collections[0]?.id;
     selectedVariableId.value = activeFile.value?.variables.variables[0]?.id;
@@ -181,6 +210,14 @@ watch(
     ) {
       selectedVariableId.value = collectionVariables.value[0]?.id;
     }
+  },
+);
+watch(
+  () => selectedNode.value?.id,
+  () => {
+    nextTick(() => {
+      if (detailPane.value) detailPane.value.scrollTop = 0;
+    });
   },
 );
 
@@ -201,6 +238,15 @@ function nodeStatusLabel(node: DesignIndexNode): string {
   }
   if (node.devStatusProvenance === "absent") return t("No dev status observed");
   return t("{status} · indexed metadata", { status: statusLabel(node.devStatus) });
+}
+
+function nodeCompactStatusLabel(node: DesignIndexNode): string {
+  if (node.devStatusProvenance === "source-unavailable") {
+    return t("Unavailable");
+  }
+  if (node.devStatus === "ready-for-dev") return t("Ready");
+  if (node.devStatus === "completed") return t("Completed");
+  return t("No status");
 }
 
 function statusClass(node: DesignIndexNode): string {
@@ -285,6 +331,115 @@ function variableModeName(modeId: string): string {
   );
 }
 
+function selectNode(node: DesignIndexNode, revealDetail = false): void {
+  selectedNodeId.value = node.id;
+  if (!revealDetail) return;
+  nextTick(() => {
+    const workspace = detailPane.value?.closest(".design-atlas");
+    if (!workspace || !detailPane.value) return;
+    const workspaceBounds = workspace.getBoundingClientRect();
+    const detailBounds = detailPane.value.getBoundingClientRect();
+    const visibleTop = Math.max(0, workspaceBounds.top);
+    const visibleBottom = Math.min(window.innerHeight, workspaceBounds.bottom);
+    if (
+      detailBounds.top >= visibleTop &&
+      detailBounds.top < visibleBottom - 96
+    ) {
+      return;
+    }
+    detailPane.value.scrollIntoView({
+      block: "start",
+      inline: "nearest",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  });
+}
+
+function focusIndexedControl(
+  owner: HTMLElement | undefined,
+  selector: string,
+  index: number,
+): void {
+  nextTick(() => {
+    owner
+      ?.querySelectorAll<HTMLElement>(selector)
+      .item(index)
+      ?.focus();
+  });
+}
+
+function handleNodeKeydown(event: KeyboardEvent, index: number): void {
+  if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const last = filteredNodes.value.length - 1;
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? last
+        : event.key === "ArrowDown"
+          ? Math.min(last, index + 1)
+          : Math.max(0, index - 1);
+  const nextNode = filteredNodes.value[nextIndex];
+  if (!nextNode) return;
+  selectNode(nextNode);
+  focusIndexedControl(entityList.value, '[role="option"]', nextIndex);
+}
+
+function handleVariableCollectionKeydown(
+  event: KeyboardEvent,
+  index: number,
+): void {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const last = variableCollections.value.length - 1;
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? last
+        : event.key === "ArrowRight"
+          ? (index + 1) % variableCollections.value.length
+          : (index - 1 + variableCollections.value.length) %
+            variableCollections.value.length;
+  const nextCollection = variableCollections.value[nextIndex];
+  if (!nextCollection) return;
+  selectedVariableCollectionId.value = nextCollection.id;
+  focusIndexedControl(
+    inspectorPane.value,
+    '.variable-collection-tabs [role="tab"]',
+    nextIndex,
+  );
+}
+
+function handleVariableKeydown(event: KeyboardEvent, index: number): void {
+  if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const last = collectionVariables.value.length - 1;
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? last
+        : event.key === "ArrowDown"
+          ? Math.min(last, index + 1)
+          : Math.max(0, index - 1);
+  const nextVariable = collectionVariables.value[nextIndex];
+  if (!nextVariable) return;
+  selectedVariableId.value = nextVariable.id;
+  focusIndexedControl(
+    inspectorPane.value,
+    '.variable-token-list [role="option"]',
+    nextIndex,
+  );
+}
+
+function designFamilyKindLabel(kind: "viewport" | "flow"): string {
+  return kind === "viewport" ? t("Responsive widths") : t("Flow");
+}
+
 function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
   if (!activeFile.value) return;
   const handle = selectedNode.value
@@ -303,9 +458,19 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
 </script>
 
 <template>
-  <div v-if="!indexes.length" class="section-empty">
+  <div
+    v-if="!indexes.length"
+    class="section-empty"
+    :role="syncState?.status === 'error' ? 'alert' : 'status'"
+    aria-live="polite"
+    :aria-busy="syncState?.status === 'loading'"
+  >
     <AtlasIcon name="design" />
-    <span v-if="syncState?.status === 'loading'" class="mini-loader" />
+    <span
+      v-if="syncState?.status === 'loading'"
+      class="mini-loader"
+      aria-hidden="true"
+    />
     <h2>{{ emptyStateTitle }}</h2>
     <p>{{ emptyStateCopy }}</p>
     <button
@@ -317,8 +482,29 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
     </button>
   </div>
 
-  <div v-else class="atlas-workspace three-pane">
-    <aside class="index-pane">
+  <div v-else class="design-atlas-shell">
+    <div
+      v-if="syncNoticeVisible"
+      :class="['design-sync-notice', syncState?.status]"
+      :role="syncState?.status === 'error' ? 'alert' : 'status'"
+      aria-live="polite"
+    >
+      <span
+        v-if="syncState?.status === 'loading'"
+        class="mini-loader"
+        aria-hidden="true"
+      />
+      <span>
+        <strong>{{ emptyStateTitle }}</strong>
+        <small>{{ syncState ? t(syncState.message) : "" }}</small>
+      </span>
+    </div>
+
+    <div
+      class="atlas-workspace three-pane design-atlas"
+      :aria-busy="syncState?.status === 'loading'"
+    >
+    <aside class="index-pane" :aria-label="t('Design catalog')">
       <label class="field-label">
         {{ t("Design file") }}
         <select v-model="fileKey">
@@ -335,30 +521,59 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
         <span>{{ t("Filter") }}</span>
         <input v-model="query" type="search" :placeholder="t('Frame, page, component…')" >
       </label>
-      <div class="index-summary">
+      <div
+        id="design-result-summary"
+        class="index-summary"
+        role="status"
+        aria-live="polite"
+      >
         <span>{{ t("{count} pages", { count: activeFile?.stats.pages ?? 0 }) }}</span>
-        <span>{{ t("{count} nodes", { count: activeFile?.stats.nodes ?? 0 }) }}</span>
+        <span>{{ t("{count} matching nodes", { count: filteredNodes.length }) }}</span>
         <span>{{ t("{count} ready claims", { count: activeFile?.stats.readyForDev ?? 0 }) }}</span>
       </div>
-      <div class="entity-list">
+      <div
+        ref="entityList"
+        class="entity-list"
+        role="listbox"
+        tabindex="-1"
+        :aria-label="t('Design catalog results')"
+        aria-describedby="design-result-summary"
+      >
         <button
-          v-for="node in filteredNodes"
+          v-for="(node, index) in filteredNodes"
           :key="node.id"
+          type="button"
+          role="option"
           :class="{ active: selectedNode?.id === node.id }"
+          :aria-selected="selectedNode?.id === node.id"
+          :aria-label="`${node.name}, ${node.pageName}, ${node.type}, ${nodeStatusLabel(node)}`"
+          aria-controls="design-node-detail"
+          :tabindex="selectedNode?.id === node.id ? 0 : -1"
           :title="`${node.name} · ${nodeStatusLabel(node)}`"
-          @click="selectedNodeId = node.id"
+          @click="selectNode(node, true)"
+          @keydown="handleNodeKeydown($event, index)"
         >
-          <span :class="['entity-mark', statusClass(node)]" />
+          <span :class="['entity-mark', statusClass(node)]" aria-hidden="true" />
           <span>
             <strong>{{ node.name }}</strong>
             <small>{{ node.pageName }} · {{ node.type }}</small>
           </span>
-          <em>{{ nodeStatusLabel(node) }}</em>
+          <em aria-hidden="true">{{ nodeCompactStatusLabel(node) }}</em>
         </button>
+        <div v-if="!filteredNodes.length" class="empty-results" role="status">
+          <strong>{{ t("No design node matches this filter.") }}</strong>
+          <span>{{ t("Try another search or clear the filter to see indexed nodes.") }}</span>
+        </div>
       </div>
     </aside>
 
-    <section class="detail-pane">
+    <section
+      id="design-node-detail"
+      ref="detailPane"
+      class="detail-pane"
+      tabindex="-1"
+      :aria-label="t('Selected design node details')"
+    >
       <template v-if="selectedNode">
         <header class="entity-heading">
           <div>
@@ -437,9 +652,25 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
           <p v-else class="muted-copy">{{ t("No annotations or resources were present in the sparse metadata.") }}</p>
         </section>
       </template>
+      <div v-else class="panel-empty" role="status">
+        <AtlasIcon name="design" />
+        <h2>{{ t("No design node selected") }}</h2>
+        <p>
+          {{
+            query
+              ? t("Try another search or clear the filter to see indexed nodes.")
+              : t("This design file has no indexed nodes.")
+          }}
+        </p>
+      </div>
     </section>
 
-    <aside class="inspector-pane">
+    <aside
+      ref="inspectorPane"
+      class="inspector-pane"
+      tabindex="-1"
+      :aria-label="t('Design file details')"
+    >
       <section>
         <span class="eyebrow">{{ t("File provenance") }}</span>
         <h3>{{ activeFile?.file.name ?? activeFile?.file.key }}</h3>
@@ -464,11 +695,30 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
       </section>
       <section>
         <span class="eyebrow">{{ t("Pages") }}</span>
-        <h3>{{ t("{count} indexed", { count: activeFile?.pages.length ?? 0 }) }}</h3>
+        <h3>
+          {{
+            t(
+              activeFile?.pages.length === 1
+                ? "{count} page indexed"
+                : "{count} pages indexed",
+              { count: activeFile?.pages.length ?? 0 },
+            )
+          }}
+        </h3>
         <div class="token-list">
           <div v-for="page in activeFile?.pages" :key="page.id">
             <strong>{{ page.name }}</strong>
-            <span>{{ pageStatusLabel(page) }} · {{ t("{count} ready nodes", { count: page.readyForDev }) }}</span>
+            <span>
+              {{ pageStatusLabel(page) }} ·
+              {{
+                t(
+                  page.readyForDev === 1
+                    ? "{count} ready node"
+                    : "{count} ready nodes",
+                  { count: page.readyForDev },
+                )
+              }}
+            </span>
           </div>
         </div>
       </section>
@@ -476,20 +726,13 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
         <header class="variable-browser-heading">
           <div>
             <span class="eyebrow">{{ t("Global Figma variables") }}</span>
-            <h3>
-              {{
-                t("{collections} collections · {tokens} shared tokens", {
-                  collections: variableCollections.length,
-                  tokens: activeFile?.variables.variables.length ?? 0,
-                })
-              }}
-            </h3>
+            <h3>{{ variableCatalogHeading }}</h3>
           </div>
           <span :class="['status-chip', `variable-${variableAccessState}`]">
             {{ variableAccessLabel() }}
           </span>
         </header>
-        <p>{{ variableAccessCopy() }}</p>
+        <p v-if="variableAccessState === 'global'">{{ variableAccessCopy() }}</p>
 
         <template v-if="variableAccessState === 'global'">
           <div
@@ -498,13 +741,17 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
             :aria-label="t('Global variable collections')"
           >
             <button
-              v-for="collection in variableCollections"
+              v-for="(collection, index) in variableCollections"
+              :id="`design-variable-collection-${index}`"
               :key="collection.id"
               type="button"
               role="tab"
               :aria-selected="activeVariableCollection?.id === collection.id"
+              aria-controls="design-variable-token-browser"
+              :tabindex="activeVariableCollection?.id === collection.id ? 0 : -1"
               :title="collection.name"
               @click="selectedVariableCollectionId = collection.id"
+              @keydown="handleVariableCollectionKeydown($event, index)"
             >
               <strong>{{ collection.name }}</strong>
               <span>
@@ -520,16 +767,24 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
             </button>
           </div>
 
-          <div v-if="activeVariableCollection" class="variable-token-browser">
+          <div
+            v-if="activeVariableCollection"
+            id="design-variable-token-browser"
+            class="variable-token-browser"
+            role="tabpanel"
+            :aria-labelledby="`design-variable-collection-${Math.max(0, variableCollections.findIndex((collection) => collection.id === activeVariableCollection?.id))}`"
+          >
             <div class="variable-token-list" role="listbox" :aria-label="t('Shared tokens')">
               <button
-                v-for="variable in collectionVariables"
+                v-for="(variable, index) in collectionVariables"
                 :key="variable.id"
                 type="button"
                 role="option"
                 :aria-selected="selectedVariable?.id === variable.id"
+                :tabindex="selectedVariable?.id === variable.id ? 0 : -1"
                 :title="variable.name"
                 @click="selectedVariableId = variable.id"
+                @keydown="handleVariableKeydown($event, index)"
               >
                 <span class="variable-type">{{ variable.resolvedType }}</span>
                 <strong>{{ variable.name }}</strong>
@@ -552,7 +807,11 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
               </p>
             </div>
 
-            <article v-if="selectedVariable" class="variable-token-detail">
+            <article
+              v-if="selectedVariable"
+              class="variable-token-detail"
+              aria-live="polite"
+            >
               <span class="eyebrow">{{ t("Selected shared token") }}</span>
               <h4 :title="selectedVariable.name">{{ selectedVariable.name }}</h4>
               <dl class="stacked-facts">
@@ -635,7 +894,7 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
           <div v-for="family in activeSummary.families" :key="family.id">
             <strong>{{ family.name }}</strong>
             <span>
-              {{ family.kind }} ·
+              {{ designFamilyKindLabel(family.kind) }} ·
               {{ family.viewportWidths.length ? `${family.viewportWidths.join(" / ")}px` : t("no viewport evidence") }}
             </span>
             <small v-if="family.observedStates.length">
@@ -651,5 +910,6 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
         </p>
       </section>
     </aside>
+    </div>
   </div>
 </template>

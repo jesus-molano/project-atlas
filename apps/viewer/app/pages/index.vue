@@ -1233,7 +1233,7 @@ onBeforeUnmount(() => {
           <LazyCodeAtlasView :graph="graph" :initial-component-id="selectedComponentId" @use-in-task="useEvidenceInTask" />
         </section>
 
-        <section v-else-if="activeSection === 'design'" class="section-workspace">
+        <section v-else-if="activeSection === 'design'" class="section-workspace design-section">
           <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Explore / Design") }}</span><h1>{{ t("Where does this flow live?") }}</h1><p>{{ t("Orient by file, flow, state, and variant before loading deep design context.") }}</p></div><span class="heading-count">{{ t("{count} indexed nodes", { count: overview.data.counts.designNodes }) }}</span></header>
           <LazyDesignAtlasView :indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :initial-node-id="selectedDesignNodeId" :sync-state="designSyncState" @use-in-task="useEvidenceInTask" @prepare-task="prepareTask" />
         </section>
