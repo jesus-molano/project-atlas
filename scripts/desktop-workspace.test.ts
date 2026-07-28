@@ -71,8 +71,15 @@ describe("desktop evidence workspace contract", () => {
     expect(memory).toContain("Timeline");
     expect(memory).toContain("Active by default");
     expect(workbench).toContain("Review before Codex starts");
+    expect(workbench).toContain("Review before Codex resumes");
     expect(workbench).toContain("Cancel safely");
     expect(workbench).toContain("Continue same Codex task");
+    expect(workbench).toContain("Codex task to resume");
+    expect(workbench).toContain("runSummaries");
+    expect(workbench).toContain("Mark reviewed");
+    expect(workbench).toContain("Exact sources");
+    expect(workbench).toContain("Codex may pause for");
+    expect(workbench).toContain('value="openapi"');
     expect(workbench).toContain("Context inspector");
     expect(workbench).toContain("Memory candidates");
     expect(workbench).toContain("No automatic memory writes");

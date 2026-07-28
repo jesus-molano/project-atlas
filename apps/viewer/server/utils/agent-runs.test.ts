@@ -14,6 +14,7 @@ import {
   cancelAgentRun,
   clearAgentRuns,
   getAgentRun,
+  listAgentRuns,
   replaceAgentAdapter,
   resumeAgentRun,
   startAgentRun,
@@ -213,6 +214,68 @@ describe.sequential("viewer agent run ownership", () => {
     await expect
       .poll(() => getAgentRun(started.id).state)
       .toBe("cancelled");
+  });
+
+  it("lists resumable runs and resumes the selected Codex thread with reviewed inputs", async () => {
+    const adapter = new CompletingAdapter();
+    restoreAdapter = replaceAgentAdapter(adapter);
+    const snapshot = loadProjectAtlasSnapshot();
+    const started = startAgentRun({
+      task: "Prepare the assignment view",
+      objectiveConfirmed: false,
+      sourceDecisions: [],
+      budgetChars: 2_400,
+      topK: 3,
+      selectedHandles: [],
+      expectedFingerprint: snapshot.fingerprint,
+    });
+
+    await expect.poll(() => getAgentRun(started.id).state).toBe("completed");
+    expect(listAgentRuns()[0]).toMatchObject({
+      id: started.id,
+      threadId: "thread-fixture",
+      resumable: true,
+      state: "completed",
+      sourceDecisions: [],
+    });
+    const currentSnapshot = loadProjectAtlasSnapshot();
+
+    resumeAgentRun(started.id, {
+      nextStep: "Add the reviewed empty state",
+      sourceDecisions: [
+        {
+          id: "source-jira-fixture",
+          kind: "jira",
+          reference: "APP-42",
+          origin: "manual",
+          state: "confirmed",
+          required: false,
+        },
+      ],
+      sandbox: "workspace-write",
+      budgetChars: 3_600,
+      topK: 5,
+      selectedHandles: [],
+      figmaFile: null,
+      expectedFingerprint: currentSnapshot.fingerprint,
+    });
+
+    await expect.poll(() => getAgentRun(started.id).state).toBe("completed");
+    expect(adapter.request).toMatchObject({
+      mode: "continue",
+      threadId: "thread-fixture",
+      sandbox: "read-only",
+      sources: [
+        {
+          kind: "jira",
+          value: "APP-42",
+        },
+      ],
+      contextMetrics: {
+        budgetChars: 3_600,
+      },
+    });
+    expect(adapter.request?.task).toContain("Next step: Add the reviewed empty state");
   });
 
   it("upgrades to workspace write only by resuming a reviewed thread", async () => {
