@@ -44,6 +44,13 @@ import {
   databaseExists,
 } from "@component-atlas/store";
 import { resolveProjectIdentity } from "./identity.js";
+import { filesystemPathsEquivalent } from "./path-identity.js";
+
+export {
+  canonicalFilesystemPath,
+  filesystemPathKey,
+  filesystemPathsEquivalent,
+} from "./path-identity.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -465,8 +472,7 @@ async function migrateLegacyProject(
     );
     if (
       !snapshot.graph ||
-      path.resolve(snapshot.graph.project.rootPath).toLowerCase() !==
-        path.resolve(rootPath).toLowerCase()
+      !filesystemPathsEquivalent(snapshot.graph.project.rootPath, rootPath)
     ) {
       return;
     }

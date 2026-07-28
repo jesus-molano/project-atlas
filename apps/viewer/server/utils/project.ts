@@ -1,4 +1,9 @@
-import type { ProjectAtlasSnapshot } from "@component-atlas/runtime";
+import {
+  canonicalFilesystemPath,
+  filesystemPathKey,
+  filesystemPathsEquivalent,
+  type ProjectAtlasSnapshot,
+} from "@component-atlas/runtime";
 import { AtlasStore } from "@component-atlas/store";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -6,7 +11,6 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   mkdir,
   readFile,
-  realpath,
   rename,
   stat,
   writeFile,
@@ -16,7 +20,7 @@ import os from "node:os";
 import path from "node:path";
 
 const launchProjectRoot = process.env.ATLAS_PROJECT_ROOT
-  ? path.resolve(process.env.ATLAS_PROJECT_ROOT)
+  ? canonicalFilesystemPath(process.env.ATLAS_PROJECT_ROOT)
   : undefined;
 let activeProjectRoot = launchProjectRoot;
 
@@ -27,7 +31,7 @@ export function projectRootPath(): string {
   const rootPath =
     activeProjectRoot ??
     (process.env.ATLAS_PROJECT_ROOT
-      ? path.resolve(process.env.ATLAS_PROJECT_ROOT)
+      ? canonicalFilesystemPath(process.env.ATLAS_PROJECT_ROOT)
       : undefined);
   if (!rootPath) {
     throw createError({
@@ -79,8 +83,7 @@ function projectName(rootPath: string): string {
 }
 
 function normalizedPathKey(rootPath: string): string {
-  const resolved = path.resolve(rootPath);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  return filesystemPathKey(rootPath);
 }
 
 export async function validateProjectRoot(inputPath: string): Promise<string> {
@@ -98,7 +101,7 @@ export async function validateProjectRoot(inputPath: string): Promise<string> {
   }
   let resolved: string;
   try {
-    resolved = await realpath(candidate);
+    resolved = canonicalFilesystemPath(candidate);
     if (!(await stat(resolved)).isDirectory()) throw new Error("not-directory");
   } catch {
     throw createError({
@@ -120,7 +123,7 @@ export async function validateProjectRoot(inputPath: string): Promise<string> {
 }
 
 export function setActiveProjectRoot(rootPath: string): void {
-  activeProjectRoot = path.resolve(rootPath);
+  activeProjectRoot = canonicalFilesystemPath(rootPath);
 }
 
 async function readRecentProjectsFile(): Promise<RecentProjectsFile> {
@@ -271,8 +274,7 @@ export function loadProjectAtlasSnapshot(): ProjectAtlasSnapshot {
   }
   const artifactMatches =
     artifact?.project?.rootPath &&
-    path.resolve(artifact.project.rootPath).toLowerCase() ===
-      path.resolve(rootPath).toLowerCase();
+    filesystemPathsEquivalent(artifact.project.rootPath, rootPath);
   const launchIdentityMatches =
     launchProjectRoot &&
     normalizedPathKey(launchProjectRoot) === normalizedPathKey(rootPath);

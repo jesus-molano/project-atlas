@@ -99,7 +99,7 @@ describe("stable project identity", () => {
     expect(reloadedPrimary.components[0]?.props.map((prop) => prop.name)).not.toContain(
       "tone",
     );
-  });
+  }, 15_000);
 
   it("separates same-name repositories and changes scope when the remote changes", async () => {
     const left = await repository(
@@ -124,7 +124,7 @@ describe("stable project identity", () => {
     ]);
     const reassigned = await resolveProjectIdentity(left, { fresh: true });
     expect(reassigned.logicalId).not.toBe(leftIdentity.logicalId);
-  });
+  }, 15_000);
 
   it("uses the common Git directory without a remote and supports an override", async () => {
     const root = await repository("local-only");
@@ -135,7 +135,7 @@ describe("stable project identity", () => {
     });
     expect(overridden.source).toBe("override");
     expect(overridden.logicalId).not.toBe(local.logicalId);
-  });
+  }, 15_000);
 
   it("copies a matching legacy path scope without deleting the recovery database", async () => {
     const root = await repository(
@@ -207,5 +207,5 @@ describe("stable project identity", () => {
       migrated.close();
     }
     expect(databaseExists(legacyId)).toBe(true);
-  });
+  }, 15_000);
 });

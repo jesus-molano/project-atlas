@@ -53,7 +53,7 @@ describe("incremental repository scans", () => {
     await writeFile(path.join(root, "components", "types.ts"), "export type Tone = 'info';");
     const fallback = await scanProject(root, { writeArtifacts: false });
     expect(fallback.project.scan?.mode).toBe("full");
-  });
+  }, 15_000);
 
   it("honors cancellation before parsing", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-abort-"));

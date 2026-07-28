@@ -7,6 +7,10 @@ import type {
   ProjectIdentityMetadata,
   ProjectIdentitySource,
 } from "@component-atlas/core";
+import {
+  canonicalFilesystemPath,
+  filesystemPathKey,
+} from "./path-identity.js";
 
 const execFileAsync = promisify(execFile);
 const identityCache = new Map<
@@ -28,11 +32,6 @@ function digest(value: string, length = 20): string {
   return createHash("sha256").update(value).digest("hex").slice(0, length);
 }
 
-function canonicalPath(value: string): string {
-  const resolved = path.resolve(value).replaceAll("\\", "/");
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-}
-
 export function normalizeRepositoryRemote(remote: string): string | undefined {
   const value = remote.trim();
   if (!value) return undefined;
@@ -45,7 +44,7 @@ export function normalizeRepositoryRemote(remote: string): string | undefined {
   try {
     const url = new URL(value);
     if (url.protocol === "file:") {
-      return `local/${canonicalPath(decodeURIComponent(url.pathname))}`;
+      return `local/${filesystemPathKey(decodeURIComponent(url.pathname))}`;
     }
     const repository = url.pathname
       .replace(/^\/+|\/+$/g, "")
@@ -55,7 +54,7 @@ export function normalizeRepositoryRemote(remote: string): string | undefined {
       : undefined;
   } catch {
     if (/^(?:\.{0,2}[\\/]|[A-Za-z]:[\\/]|\/)/.test(value)) {
-      return `local/${canonicalPath(value)}`;
+      return `local/${filesystemPathKey(value)}`;
     }
     return undefined;
   }
@@ -84,18 +83,21 @@ export async function resolveProjectIdentity(
   inputPath: string,
   options: ResolveProjectIdentityOptions = {},
 ): Promise<ResolvedProjectIdentity> {
-  const rootPath = await realpath(path.resolve(inputPath)).catch(() =>
-    path.resolve(inputPath),
-  );
+  const rootPath = canonicalFilesystemPath(inputPath);
   const git = options.gitExecutable ?? "git";
   const override = options.projectKey ?? process.env.PROJECT_ATLAS_PROJECT_KEY;
-  const cacheKey = `${canonicalPath(rootPath)}\0${git}\0${override ?? ""}`;
+  const cacheKey = `${filesystemPathKey(rootPath)}\0${git}\0${override ?? ""}`;
   const cached = identityCache.get(cacheKey);
   if (!options.fresh && cached && Date.now() - cached.resolvedAt < 5_000) {
     return cached.value;
   }
-  let pinnedOverride:
-    | { logicalId: string; repositoryFingerprint: string }
+  let pinnedIdentity:
+    | {
+        logicalId: string;
+        repositoryFingerprint: string;
+        source: ProjectIdentitySource;
+        checkoutId?: string;
+      }
     | undefined;
   if (!override) {
     try {
@@ -111,26 +113,35 @@ export async function resolveProjectIdentity(
           identity?: {
             source?: string;
             repositoryFingerprint?: string;
+            checkoutId?: string;
           };
         };
       };
+      const artifactProject = artifact.project;
+      const artifactIdentity = artifactProject?.identity;
       if (
-        artifact.project?.identity?.source === "override" &&
-        /^[a-f0-9]{20}$/.test(artifact.project.id ?? "") &&
-        /^[a-f0-9]{16}$/.test(
-          artifact.project.identity.repositoryFingerprint ?? "",
+        ["override", "remote", "git-common-dir", "path"].includes(
+          artifactIdentity?.source ?? "",
         ) &&
-        canonicalPath(artifact.project.rootPath ?? "") ===
-          canonicalPath(rootPath)
+        /^[a-f0-9]{20}$/.test(artifactProject?.id ?? "") &&
+        /^[a-f0-9]{16}$/.test(
+          artifactIdentity?.repositoryFingerprint ?? "",
+        ) &&
+        filesystemPathKey(artifactProject?.rootPath ?? "") ===
+          filesystemPathKey(rootPath)
       ) {
-        pinnedOverride = {
-          logicalId: artifact.project.id!,
+        pinnedIdentity = {
+          logicalId: artifactProject!.id!,
           repositoryFingerprint:
-            artifact.project.identity.repositoryFingerprint!,
+            artifactIdentity!.repositoryFingerprint!,
+          source: artifactIdentity!.source as ProjectIdentitySource,
+          ...(artifactIdentity!.checkoutId
+            ? { checkoutId: artifactIdentity!.checkoutId }
+            : {}),
         };
       }
     } catch {
-      pinnedOverride = undefined;
+      pinnedIdentity = undefined;
     }
   }
   const remote = await gitValue(rootPath, git, [
@@ -166,7 +177,7 @@ export async function resolveProjectIdentity(
 
   let source: ProjectIdentitySource;
   let basis: string;
-  if (override?.trim() || pinnedOverride) {
+  if (override?.trim() || pinnedIdentity?.source === "override") {
     source = "override";
     basis = override?.trim()
       ? `override:${override.trim().normalize("NFKC").toLowerCase()}`
@@ -176,18 +187,30 @@ export async function resolveProjectIdentity(
     basis = `remote:${normalizedRemote}`;
   } else if (commonDir) {
     source = "git-common-dir";
-    basis = `git-common-dir:${canonicalPath(commonDir)}`;
+    basis = `git-common-dir:${filesystemPathKey(commonDir)}`;
   } else {
     source = "path";
-    basis = `path:${canonicalPath(rootPath)}`;
+    basis = `path:${filesystemPathKey(rootPath)}`;
   }
+  const currentFingerprint = digest(basis, 16);
+  const reusablePinnedIdentity =
+    pinnedIdentity &&
+    pinnedIdentity.source === source &&
+    (source === "override" ||
+      source === "path" ||
+      source === "git-common-dir" ||
+      pinnedIdentity.repositoryFingerprint === currentFingerprint)
+      ? pinnedIdentity
+      : undefined;
 
   const resolved: ResolvedProjectIdentity = {
-    logicalId: pinnedOverride?.logicalId ?? digest(basis),
+    logicalId: reusablePinnedIdentity?.logicalId ?? digest(basis),
     repositoryFingerprint:
-      pinnedOverride?.repositoryFingerprint ?? digest(basis, 16),
+      reusablePinnedIdentity?.repositoryFingerprint ?? currentFingerprint,
     source,
-    checkoutId: digest(`checkout:${canonicalPath(rootPath)}`),
+    checkoutId:
+      reusablePinnedIdentity?.checkoutId ??
+      digest(`checkout:${filesystemPathKey(rootPath)}`),
     worktreePath: rootPath,
     ...(branch ? { branch } : {}),
     ...(head ? { head } : {}),

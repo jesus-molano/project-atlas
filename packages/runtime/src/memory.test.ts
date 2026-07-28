@@ -33,10 +33,15 @@ const figmaFixture = new URL(
 describe.sequential("Project Atlas runtime", () => {
   let rootPath: string;
   let emptyRoot: string;
+  let dataHome: string;
+  let previousDataHome: string | undefined;
 
   beforeEach(async () => {
     rootPath = await mkdtemp(path.join(os.tmpdir(), "project-atlas-memory-"));
     emptyRoot = await mkdtemp(path.join(os.tmpdir(), "project-atlas-empty-"));
+    dataHome = await mkdtemp(path.join(os.tmpdir(), "project-atlas-data-"));
+    previousDataHome = process.env.COMPONENT_ATLAS_HOME;
+    process.env.COMPONENT_ATLAS_HOME = dataHome;
     await cp(vueFixture, rootPath, { recursive: true });
     await cp(vueFixture, emptyRoot, { recursive: true });
     await rm(path.join(emptyRoot, "project-memory"), {
@@ -48,9 +53,12 @@ describe.sequential("Project Atlas runtime", () => {
   });
 
   afterEach(async () => {
+    if (previousDataHome === undefined) delete process.env.COMPONENT_ATLAS_HOME;
+    else process.env.COMPONENT_ATLAS_HOME = previousDataHome;
     await Promise.all([
       rm(rootPath, { recursive: true, force: true }),
       rm(emptyRoot, { recursive: true, force: true }),
+      rm(dataHome, { recursive: true, force: true }),
     ]);
   });
 

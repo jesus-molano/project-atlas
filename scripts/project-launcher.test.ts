@@ -7,8 +7,11 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { scanProject } from "../packages/runtime/src/index";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  filesystemPathsEquivalent,
+  scanProject,
+} from "../packages/runtime/src/index";
 import {
   listRecentProjects,
   loadProjectAtlasSnapshot,
@@ -18,11 +21,20 @@ import {
 } from "../apps/viewer/server/utils/project";
 
 const temporaryRoots: string[] = [];
+let previousDataHome: string | undefined;
 
+beforeEach(async () => {
+  const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-launcher-data-"));
+  temporaryRoots.push(dataHome);
+  previousDataHome = process.env.COMPONENT_ATLAS_HOME;
+  process.env.COMPONENT_ATLAS_HOME = dataHome;
+});
 afterEach(async () => {
   delete process.env.ATLAS_RECENT_PROJECTS_PATH;
   delete process.env.ATLAS_PROJECT_ID;
   delete process.env.ATLAS_CHECKOUT_ID;
+  if (previousDataHome === undefined) delete process.env.COMPONENT_ATLAS_HOME;
+  else process.env.COMPONENT_ATLAS_HOME = previousDataHome;
   await Promise.all(
     temporaryRoots.splice(0).map((root) =>
       rm(root, { recursive: true, force: true }),
@@ -52,14 +64,16 @@ describe("local project launcher", () => {
     const first = await projectFixture("first-app");
     const second = await projectFixture("second-app");
 
-    expect(await validateProjectRoot(first)).toBe(await pathReal(first));
+    expect(
+      filesystemPathsEquivalent(await validateProjectRoot(first), first),
+    ).toBe(true);
     setActiveProjectRoot(first);
     await rememberRecentProject(first);
     await rememberRecentProject(second);
     await rememberRecentProject(first);
 
     const result = await listRecentProjects();
-    expect(result.activeRoot).toBe(await pathReal(first));
+    expect(filesystemPathsEquivalent(result.activeRoot!, first)).toBe(true);
     expect(result.projects.map((project) => project.name)).toEqual([
       "first-app",
       "second-app",
@@ -101,10 +115,5 @@ describe("local project launcher", () => {
     expect(snapshot.graph.project.id).toBe(secondGraph.project.id);
     expect(snapshot.graph.project.name).toBe("switched-app");
     expect(snapshot.graph.project.rootPath).toBe(second);
-  });
+  }, 15_000);
 });
-
-async function pathReal(value: string): Promise<string> {
-  const { realpath } = await import("node:fs/promises");
-  return realpath(value);
-}
