@@ -6,8 +6,8 @@ import type {
   AgentRunMode,
   AgentSandbox,
   AgentSourceReference,
-} from "@component-atlas/agent";
-import { memoryCloseoutActionMessage } from "@component-atlas/agent";
+} from "@component-atlas/agent/browser";
+import { memoryCloseoutActionMessage } from "@component-atlas/agent/browser";
 import {
   assessTaskIntake,
   assessTaskRisk,

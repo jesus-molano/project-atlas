@@ -50,12 +50,22 @@ describe("desktop evidence workspace contract", () => {
   });
 
   it("turns each Atlas evidence plane into an action for the Workbench", async () => {
-    const [code, design, memory, memoryI18n, workbench] = await Promise.all([
+    const [
+      code,
+      design,
+      memory,
+      memoryI18n,
+      workbench,
+      agentBrowser,
+      agentPackageSource,
+    ] = await Promise.all([
       source("apps/viewer/app/components/CodeAtlasView.vue"),
       source("apps/viewer/app/components/DesignAtlasView.vue"),
       source("apps/viewer/app/components/ProjectMemoryView.vue"),
       source("apps/viewer/app/utils/memory-i18n.ts"),
       source("apps/viewer/app/components/TaskWorkbenchView.vue"),
+      source("packages/agent/src/browser.ts"),
+      source("packages/agent/package.json"),
     ]);
     for (const view of [code, design]) {
       expect(view).toContain("useInTask");
@@ -94,6 +104,13 @@ describe("desktop evidence workspace contract", () => {
     expect(workbench).toContain("memoryCloseoutActionMessage");
     expect(workbench).toContain("Confirm canonical memory");
     expect(workbench).toContain("Continue without saving");
+    expect(workbench).toContain('from "@component-atlas/agent/browser"');
+    expect(agentBrowser).toContain('export * from "./memory-closeout.js"');
+    expect(agentBrowser).not.toContain("./codex.js");
+    expect(JSON.parse(agentPackageSource).exports["./browser"]).toEqual({
+      types: "./dist/browser.d.ts",
+      import: "./dist/browser.js",
+    });
   });
 
   it("explains and live-refreshes confirmed Figma ingestion", async () => {
