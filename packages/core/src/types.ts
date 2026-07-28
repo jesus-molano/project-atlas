@@ -190,7 +190,9 @@ export interface AgentRunAuditRecord {
     | "completed"
     | "failed"
     | "cancelled";
-  sourceKinds: Array<"jira" | "confluence" | "figma" | "github" | "other">;
+  sourceKinds: Array<
+    "jira" | "confluence" | "figma" | "github" | "openapi" | "other"
+  >;
   sourceDecisions?: {
     confirmed: number;
     omitted: number;

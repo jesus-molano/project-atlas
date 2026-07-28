@@ -27,6 +27,7 @@ export type TaskSourceKind =
   | "confluence"
   | "figma"
   | "github"
+  | "openapi"
   | "other";
 export type TaskSourceOrigin = "explicit" | "inferred" | "manual";
 export type TaskSourceState =
@@ -79,6 +80,7 @@ const TASK_SOURCE_KINDS: TaskSourceKind[] = [
   "confluence",
   "figma",
   "github",
+  "openapi",
   "other",
 ];
 const TASK_SOURCE_ORIGINS: TaskSourceOrigin[] = [
@@ -105,9 +107,9 @@ const HIGH_RISK_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const MEDIUM_RISK_PATTERNS: Array<[RegExp, string]> = [
-  [/\b(?:api|endpoint|server|runtime|database|state|workflow|servidor|base de datos|estado|flujo)\b/i, "Runtime or stateful behavior"],
+  [/\b(?:api|openapi|swagger|endpoint|server|runtime|database|state|workflow|contrato de api|servidor|base de datos|estado|flujo)\b/i, "Runtime or stateful behavior"],
   [/\b(?:responsive|responsivo|accessibility|accesibilidad|a11y|keyboard|teclado|screen reader|lector de pantalla)\b/i, "Cross-mode user experience"],
-  [/\b(?:integration|integraci[oó]n|connector|conector|jira|confluence|figma|github|mcp)\b/i, "Connected-source integration"],
+  [/\b(?:integration|integraci[oó]n|connector|conector|jira|confluence|figma|github|openapi|swagger|mcp)\b/i, "Connected-source integration"],
   [/\b(?:refactor|refactorizaci[oó]n|shared component|componente compartido|design system|sistema de dise[nñ]o|navigation|navegaci[oó]n|routing|rutas)\b/i, "Shared or cross-cutting surface"],
 ];
 
@@ -191,6 +193,12 @@ export function normalizeTaskSourceDecisions(
 
 export function classifyTaskSource(reference: string): TaskSourceKind {
   const value = reference.toLowerCase();
+  if (
+    /(?:^|[/:#._-])(?:openapi|swagger)(?:[/:#._-]|$)/i.test(reference) ||
+    /\/(?:v[1-9]\d*\/)?api-docs(?:[/?#]|$)/i.test(reference)
+  ) {
+    return "openapi";
+  }
   if (value.includes("figma.com") || /^figma[:#]/i.test(reference)) {
     return "figma";
   }
@@ -212,6 +220,16 @@ export function classifyTaskSource(reference: string): TaskSourceKind {
     return "github";
   }
   return "other";
+}
+
+function explicitlyConfirmsOpenApi(task: string, reference: string): boolean {
+  const comparable = reference.replace(/^(?:openapi|swagger)[:#]\s*/iu, "");
+  const index = task.toLowerCase().indexOf(comparable.toLowerCase());
+  if (index < 0) return false;
+  const prefix = task.slice(Math.max(0, index - 90), index);
+  return /\b(?:use|using|usa|usar|utiliza|utilizar|segun|según|according to|implement from)\b[^.!?\n]{0,70}$/iu.test(
+    prefix,
+  );
 }
 
 export function detectTaskSources(task: string): TaskSourceDecision[] {
@@ -239,16 +257,42 @@ export function detectTaskSources(task: string): TaskSourceDecision[] {
       origin: "inferred",
     });
   }
+  for (const match of task.matchAll(
+    /(?:^|[\s("'`])((?:[A-Za-z]:[\\/]|\.{0,2}[\\/])?[^\s"'`()]*?(?:openapi|swagger)\.(?:json|ya?ml))(?=$|[\s)"'`,.;!?])/giu,
+  )) {
+    references.push({
+      reference: normalizedReference(match[1]!),
+      origin: "explicit",
+    });
+  }
+  for (const match of task.matchAll(
+    /\b(?:openapi|swagger)[:#]\s*([^\s<>"']+)/giu,
+  )) {
+    const value = normalizedReference(match[1]!);
+    if (
+      references.some(
+        ({ reference }) => reference.toLowerCase() === value.toLowerCase(),
+      )
+    ) {
+      continue;
+    }
+    references.push({
+      reference: `${match[0].split(/[:#]/u)[0]!.toLowerCase()}:${value}`,
+      origin: "explicit",
+    });
+  }
 
   return references
     .map(({ reference, origin }) => {
       const kind = classifyTaskSource(reference);
+      const confirmed =
+        kind === "openapi" && explicitlyConfirmsOpenApi(task, reference);
       return {
         id: taskSourceId(kind, reference),
         kind,
         reference,
         origin,
-        state: "pending" as const,
+        state: confirmed ? ("confirmed" as const) : ("pending" as const),
         required: false,
       };
     })

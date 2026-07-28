@@ -38,6 +38,7 @@ import {
 import { AtlasStore } from "@component-atlas/store";
 import fg from "fast-glob";
 import { loadProjectGraph } from "./index.js";
+import { loadConfirmedOpenApiContext } from "./openapi.js";
 
 export { fitBudgetedResponse } from "@component-atlas/memory";
 
@@ -629,6 +630,7 @@ export async function getTaskContext(
     selectedHandles?: string[];
     sourcePolicy?: import("@component-atlas/core").TaskContextSourcePolicy;
     confirmedFigmaReferences?: string[];
+    confirmedOpenApiReferences?: string[];
   } = {},
 ) {
   const graph = await loadProjectGraph(rootPath);
@@ -683,6 +685,17 @@ export async function getTaskContext(
     const designAllowed =
       options.sourcePolicy === undefined ||
       options.sourcePolicy.confirmedKinds.includes("figma");
+    const openApiAllowed =
+      options.sourcePolicy === undefined
+        ? (options.confirmedOpenApiReferences?.length ?? 0) > 0
+        : options.sourcePolicy.confirmedKinds.includes("openapi");
+    const api = openApiAllowed
+      ? await loadConfirmedOpenApiContext(
+          rootPath,
+          task,
+          options.confirmedOpenApiReferences ?? [],
+        )
+      : undefined;
     const confirmedFigmaKeys = new Set(
       (options.confirmedFigmaReferences ?? []).flatMap((reference) => {
         try {
@@ -856,6 +869,7 @@ export async function getTaskContext(
           : {}),
         candidates: designCandidates,
       },
+      ...(api ? { api } : {}),
       findings: findings.slice(0, 8),
       gate: { ...gate, overall: overallGate },
       nextSteps: [
@@ -869,14 +883,15 @@ export async function getTaskContext(
       totalMatches:
         memoryCandidates.length +
         reuse.candidates.length +
-        (design?.candidates.length ?? 0),
+        (design?.candidates.length ?? 0) +
+        (api?.operations.length ?? 0),
       expandableIds: [
         ...rankedMemory.map(({ item }) => item.id),
         ...reuse.candidates.map((candidate) => candidate.component.id),
         ...(design?.candidates.map((candidate) => candidate.node.id) ?? []),
       ],
       preserveKeys: ["findings", "questions", "selections"],
-      preserveFirstKeys: ["memory", "code", "candidates"],
+      preserveFirstKeys: ["memory", "code", "candidates", "operations"],
     });
   } finally {
     store.close();

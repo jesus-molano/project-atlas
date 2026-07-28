@@ -45,6 +45,45 @@ describe("task intake", () => {
     expect(sources[0]).toMatchObject({ kind: "jira", state: "pending" });
   });
 
+  it("detects OpenAPI URLs and common local filenames without accessing them", () => {
+    const sources = detectTaskSources(
+      "Review https://api.example.com/v1/openapi.json and ./contracts/swagger.yaml",
+    );
+    expect(sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "openapi",
+          reference: "https://api.example.com/v1/openapi.json",
+          state: "pending",
+        }),
+        expect.objectContaining({
+          kind: "openapi",
+          reference: "./contracts/swagger.yaml",
+          state: "pending",
+        }),
+      ]),
+    );
+    expect(assessTaskRisk("Implement the API from openapi.yaml").level).toBe(
+      "medium",
+    );
+  });
+
+  it("accepts an unequivocal instruction to use one OpenAPI specification", () => {
+    expect(detectTaskSources("Use ./openapi.yaml to implement checkout")[0]).toMatchObject({
+      kind: "openapi",
+      reference: "./openapi.yaml",
+      state: "confirmed",
+    });
+    const prefixed = detectTaskSources(
+      "Use OpenAPI: https://api.example.com/v1/openapi.json for checkout",
+    );
+    expect(prefixed).toHaveLength(1);
+    expect(prefixed[0]).toMatchObject({
+      kind: "openapi",
+      state: "confirmed",
+    });
+  });
+
   it("blocks execution until objective and source choices are explicit", () => {
     const sources = detectTaskSources("Implement APP-42");
     const intake: TaskIntakeState = {

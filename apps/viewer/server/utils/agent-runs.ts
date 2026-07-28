@@ -260,6 +260,12 @@ async function execute(record: AgentRunRecord, answer?: string): Promise<void> {
             source.kind === "figma" && source.state === "confirmed",
         )
         .map((source) => source.reference),
+      confirmedOpenApiReferences: record.sourceDecisions
+        .filter(
+          (source) =>
+            source.kind === "openapi" && source.state === "confirmed",
+        )
+        .map((source) => source.reference),
       ...(record.figmaFile ? { figmaFile: record.figmaFile } : {}),
     });
     const compactContext = JSON.stringify(context);

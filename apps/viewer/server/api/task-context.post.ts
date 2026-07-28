@@ -68,5 +68,11 @@ export default defineEventHandler(async (event) => {
           source.kind === "figma" && source.state === "confirmed",
       )
       .map((source) => source.reference),
+    confirmedOpenApiReferences: sources
+      .filter(
+        (source) =>
+          source.kind === "openapi" && source.state === "confirmed",
+      )
+      .map((source) => source.reference),
   });
 });

@@ -10,11 +10,15 @@ A new task starts in the Task Workbench before Codex runs:
 1. Atlas classifies risk from the objective.
 2. Small repository-only changes continue without a requirements interview.
 3. Medium/high-risk objectives require an explicit scope confirmation.
-4. Every detected Jira, Confluence, Figma, GitHub, or other reference starts
-   `pending`.
+4. Every detected Jira, Confluence, Figma, GitHub, OpenAPI/Swagger, or other
+   reference starts `pending`. An unequivocal instruction to use one exact
+   OpenAPI specification may count as confirmation.
 5. The user confirms it, replaces/adds a source, omits it, or marks it
    unavailable. Optional omitted sources never block the task.
 6. Only confirmed sources enter task context or authorize connector access.
+   OpenAPI is loaded directly only after confirmation; Atlas extracts a bounded
+   task-relevant subset of operations, parameters, schemas, responses, and
+   authentication instead of injecting the full specification.
 7. Codex prepares the brief in a read-only turn.
 8. Editing requires a second confirmation and resumes the same reviewed thread
    with checkout write permission.
@@ -23,6 +27,10 @@ The task draft, exact references, ledger, brief, risk, permissions, and active
 run are retained only in browser session state and the in-memory agent-run
 registry. Persisted run audits contain counts and source kinds, not task text,
 exact references, or thread IDs.
+
+OpenAPI references and extracted contract context remain task-scoped. They are
+never written to durable memory automatically, and exact URLs or specification
+content are excluded from persisted run audits.
 
 ## Scope policy
 

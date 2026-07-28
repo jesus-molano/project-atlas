@@ -37,6 +37,13 @@ interface CompactContext {
     files?: Array<{ key: string; name?: string }>;
     candidates?: Array<Record<string, unknown>>;
   };
+  api?: {
+    available: true;
+    format: "openapi" | "swagger" | "mixed";
+    contracts: number;
+    operations: Array<{ method: string; path: string }>;
+    authentication: Array<Record<string, unknown>>;
+  };
   findings?: Array<Record<string, unknown>>;
   gate?: Record<string, unknown>;
   nextSteps?: string[];
@@ -245,6 +252,8 @@ function removeManualSource(id: string): void {
 
 function beginSourceReplacement(id: string): void {
   replacementFor.value = id;
+  const source = sourceDecisions.value.find((item) => item.id === id);
+  if (source) sourceKind.value = source.kind;
   advancedOpen.value = true;
 }
 
@@ -724,6 +733,7 @@ onBeforeUnmount(() => {
             <option value="jira">Jira</option>
             <option value="confluence">Confluence</option>
             <option value="github">GitHub</option>
+            <option value="openapi">OpenAPI / Swagger</option>
             <option value="other">Other reference</option>
           </select>
           <input
@@ -803,7 +813,7 @@ onBeforeUnmount(() => {
         <h2>Start with an outcome, not a form.</h2>
         <p>
           Atlas will search the current checkout and show exactly what is worth
-          sending to an agent. Jira, Confluence, and Figma remain optional.
+          sending to an agent. Jira, Confluence, Figma, and OpenAPI remain optional.
         </p>
         <ol>
           <li>Describe the task.</li>
@@ -872,6 +882,15 @@ onBeforeUnmount(() => {
             <span>Memory</span>
             <strong>{{ context.memory?.length ?? 0 }} relevant items</strong>
             <p>{{ context.findings?.length ?? 0 }} findings enter the decision gate.</p>
+          </section>
+          <section v-if="context.api">
+            <span>API contract</span>
+            <strong>{{ context.api.operations.length }} relevant operations</strong>
+            <p>
+              {{ context.api.contracts }} {{ context.api.contracts === 1 ? "contract" : "contracts" }} ·
+              {{ context.api.format }} ·
+              {{ context.api.authentication.length }} authentication schemes
+            </p>
           </section>
         </div>
 

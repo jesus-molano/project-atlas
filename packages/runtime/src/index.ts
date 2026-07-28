@@ -51,6 +51,11 @@ export {
   filesystemPathKey,
   filesystemPathsEquivalent,
 } from "./path-identity.js";
+export {
+  extractOpenApiTaskContext,
+  loadConfirmedOpenApiContext,
+  type OpenApiTaskContext,
+} from "./openapi.js";
 
 const execFileAsync = promisify(execFile);
 

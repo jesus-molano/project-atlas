@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -243,6 +243,74 @@ describe.sequential("Project Atlas runtime", () => {
       candidates: [],
     });
     expect(JSON.stringify(withoutDesign).length).toBeLessThanOrEqual(1_400);
+  });
+
+  it("loads OpenAPI only after confirmation and excludes omitted API context", async () => {
+    const omitted = await getTaskContext(rootPath, "Implement the orders API", {
+      budgetChars: 3_600,
+      sourcePolicy: {
+        scope: "task",
+        confirmedKinds: [],
+        omittedKinds: ["openapi"],
+        unavailableKinds: [],
+      },
+      confirmedOpenApiReferences: ["http://127.0.0.1/openapi.json"],
+    });
+    expect(omitted).not.toHaveProperty("api");
+
+    await writeFile(
+      path.join(rootPath, "openapi.yaml"),
+      `
+openapi: 3.0.3
+paths:
+  /orders:
+    post:
+      operationId: createOrder
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sku]
+              properties:
+                sku:
+                  type: string
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+`,
+    );
+    const confirmed = await getTaskContext(
+      rootPath,
+      "Create an order with a sku",
+      {
+        budgetChars: 3_600,
+        sourcePolicy: {
+          scope: "task",
+          confirmedKinds: ["openapi"],
+          omittedKinds: [],
+          unavailableKinds: [],
+        },
+        confirmedOpenApiReferences: ["openapi.yaml"],
+      },
+    );
+    expect(confirmed.api).toMatchObject({
+      available: true,
+      operations: [
+        {
+          method: "POST",
+          path: "/orders",
+          operationId: "createOrder",
+        },
+      ],
+    });
+    expect(JSON.stringify(confirmed)).not.toContain("openapi.yaml");
   });
 
   it("surfaces recorded reuse decisions in project orientation", async () => {

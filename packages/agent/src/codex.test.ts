@@ -160,8 +160,22 @@ describe("Codex Agent Adapter", () => {
       observed,
     );
     const adapter = new CodexAgentAdapter(client);
-    const events = await collect(adapter.run(request(await root())).events);
+    const reviewed = request(await root());
+    reviewed.sources = [{ kind: "openapi", value: "openapi.yaml" }];
+    reviewed.sourceDecisions = [
+      {
+        id: "source-openapi-fixture",
+        kind: "openapi",
+        reference: "openapi.yaml",
+        origin: "manual",
+        state: "confirmed",
+        required: false,
+      },
+    ];
+    const events = await collect(adapter.run(reviewed).events);
     expect(observed.prompt).toContain("$frontend-task Prepare");
+    expect(observed.prompt).toContain("- openapi: confirmed");
+    expect(observed.prompt).toContain("bounded `api` context");
     expect(observed.prompt).toContain("Do not perform external writes");
     expect(events).toEqual(
       expect.arrayContaining([

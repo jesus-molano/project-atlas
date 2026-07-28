@@ -33,6 +33,7 @@ export type AgentSourceKind =
   | "confluence"
   | "figma"
   | "github"
+  | "openapi"
   | "other";
 
 export interface AgentSourceDecision {
@@ -86,6 +87,7 @@ export interface AgentCompactResult {
       | "jira"
       | "confluence"
       | "github"
+      | "openapi"
       | "agent";
     label: string;
     handle?: string;
