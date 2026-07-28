@@ -16,6 +16,10 @@ interface ProjectDestination {
   name: string;
   available: true;
   git: ProjectGitState;
+  repository?: {
+    branches: unknown[];
+    worktrees: unknown[];
+  };
 }
 
 const props = defineProps<{
@@ -113,6 +117,25 @@ const logicalProjectLabel = computed(
     </dl>
 
     <code :title="destination.rootPath">{{ destination.rootPath }}</code>
+    <p v-if="destination.repository" class="destination-repository-summary">
+      {{
+        t(
+          destination.repository.branches.length === 1
+            ? "{branches} local branch"
+            : "{branches} local branches",
+          { branches: destination.repository.branches.length },
+        )
+      }}
+      ·
+      {{
+        t(
+          destination.repository.worktrees.length === 1
+            ? "{worktrees} worktree"
+            : "{worktrees} worktrees",
+          { worktrees: destination.repository.worktrees.length },
+        )
+      }}
+    </p>
     <p>
       {{
         t(

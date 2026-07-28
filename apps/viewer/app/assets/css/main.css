@@ -552,7 +552,7 @@ p {
 }
 
 .project-popover {
-  width: 390px;
+  width: min(460px, calc(100vw - 32px));
   max-height: min(680px, calc(100vh - 100px));
   position: absolute;
   z-index: 30;
@@ -651,6 +651,200 @@ p {
 .active-project-identity .warning,
 .project-identity-grid .warning {
   color: var(--atlas-warning);
+}
+
+.repository-checkouts {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--atlas-rule);
+}
+
+.repository-checkouts > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.repository-checkouts > header .field-label {
+  margin-bottom: 2px;
+}
+
+.repository-checkouts > header small {
+  color: var(--atlas-ink-faint);
+  font-size: 0.72rem;
+}
+
+.new-branch-toggle {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+}
+
+.new-branch-form {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: 8px;
+  background: var(--atlas-surface-subtle);
+}
+
+.new-branch-form > div {
+  min-width: 0;
+}
+
+.new-branch-form label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--atlas-ink-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.new-branch-form select,
+.new-branch-form input {
+  width: 100%;
+  min-width: 0;
+}
+
+.new-branch-form code {
+  grid-column: 1 / 3;
+  overflow: hidden;
+  color: var(--atlas-ink-faint);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-branch-form > button {
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+
+.new-branch-form > small {
+  grid-column: 1 / -1;
+  color: var(--atlas-ink-faint);
+  font-size: 0.7rem;
+}
+
+.repository-branch-list {
+  display: grid;
+  gap: 4px;
+  max-height: 248px;
+  margin: 10px 0 0;
+  overflow: auto;
+  padding: 0;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.repository-branch-list > li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+
+.repository-branch-list > li.active {
+  border-color: var(--atlas-focus);
+  background: var(--atlas-accent-soft);
+}
+
+.repository-branch-list > li > .atlas-icon {
+  color: var(--atlas-ink-faint);
+}
+
+.repository-branch-list > li > span {
+  min-width: 0;
+}
+
+.repository-branch-list strong,
+.repository-branch-list small,
+.repository-branch-list em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repository-branch-list strong {
+  font-size: 0.8rem;
+}
+
+.repository-branch-list small,
+.repository-branch-list em {
+  margin-top: 2px;
+  color: var(--atlas-ink-faint);
+  font-size: 0.7rem;
+  font-style: normal;
+}
+
+.repository-branch-list em.warning {
+  color: var(--atlas-warning);
+}
+
+.branch-action {
+  min-width: 70px;
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid var(--atlas-control-border);
+  border-radius: 6px;
+  background: var(--atlas-raised);
+  color: var(--atlas-ink);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.branch-action:hover:not(:disabled) {
+  border-color: var(--atlas-focus);
+  background: var(--atlas-raised-hover);
+}
+
+.detached-worktrees {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--atlas-rule-soft);
+}
+
+.detached-worktrees > button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+}
+
+.detached-worktrees > button:hover:not(:disabled) {
+  background: var(--atlas-raised-hover);
+}
+
+.detached-worktrees > button > span:first-child {
+  min-width: 0;
+}
+
+.detached-worktrees strong,
+.detached-worktrees small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detached-worktrees small {
+  color: var(--atlas-ink-faint);
+  font-size: 0.7rem;
 }
 
 .popover-recents {
@@ -1828,6 +2022,15 @@ textarea::placeholder {
   margin-bottom: 12px;
   padding: 14px;
   box-shadow: none;
+}
+
+.project-popover .worktree-creation-preview {
+  margin: 14px 0 0;
+}
+
+.destination-repository-summary {
+  color: var(--atlas-ink-muted);
+  font-weight: 620;
 }
 
 /* Shared data workspaces */
@@ -4952,6 +5155,39 @@ textarea::placeholder {
   .project-popover .active-project-identity,
   .project-popover .project-identity-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .repository-branch-list > li {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .repository-checkouts > header {
+    flex-wrap: wrap;
+  }
+
+  .new-branch-toggle {
+    width: 100%;
+    text-align: left;
+  }
+
+  .new-branch-form {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .new-branch-form code,
+  .new-branch-form > button,
+  .new-branch-form > small {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .new-branch-form > button {
+    width: 100%;
+  }
+
+  .repository-branch-list .branch-action {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .project-popover > code,

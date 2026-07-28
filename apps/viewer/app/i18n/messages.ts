@@ -122,6 +122,86 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Logical project": "Proyecto lógico",
   Worktree: "Worktree",
   Branch: "Rama",
+  "Local branch": "Rama local",
+  "Local branches and worktrees": "Ramas locales y worktrees",
+  "New worktree": "Nuevo worktree",
+  "New worktree preview": "Vista previa del nuevo worktree",
+  "New branch and worktree preview":
+    "Vista previa de la nueva rama y su worktree",
+  "New local branch": "Nueva rama local",
+  "Starting checkout": "Checkout de origen",
+  "Ready to create": "Listo para crear",
+  "Sibling folder": "Carpeta adyacente",
+  "Remains unchanged": "Permanece sin cambios",
+  "No worktree yet": "Aún no tiene worktree",
+  "No package.json on this branch": "Esta rama no contiene package.json",
+  "Detached worktrees": "Worktrees sin rama",
+  Current: "Actual",
+  "Create...": "Crear...",
+  "Preparing...": "Preparando...",
+  "Creating and opening...": "Creando y abriendo...",
+  "Create and open worktree": "Crear y abrir worktree",
+  "Create branch and open worktree": "Crear rama y abrir worktree",
+  "New branch + worktree": "Nueva rama + worktree",
+  "Cancel new branch": "Cancelar nueva rama",
+  "Branch type": "Tipo de rama",
+  "Branch name": "Nombre de rama",
+  "short-descriptive-name": "nombre-corto-descriptivo",
+  "Review branch": "Revisar rama",
+  "Current checkout: {branch}": "Checkout actual: {branch}",
+  "Review worktree for {branch}": "Revisar el worktree de {branch}",
+  "Create worktree for {branch}": "Crear un worktree para {branch}",
+  "{count} local branch": "{count} rama local",
+  "{count} local branches": "{count} ramas locales",
+  "{count} worktree": "{count} worktree",
+  "{count} worktrees": "{count} worktrees",
+  "{branches} local branch": "{branches} rama local",
+  "{branches} local branches": "{branches} ramas locales",
+  "{worktrees} worktree": "{worktrees} worktree",
+  "{worktrees} worktrees": "{worktrees} worktrees",
+  "This branch cannot be opened because it has no package.json.":
+    "Esta rama no se puede abrir porque no contiene package.json.",
+  "Confirm to create this separate Git worktree, scan it, and open it. Atlas will not switch the branch of your current checkout.":
+    "Confirma para crear este worktree de Git independiente, analizarlo y abrirlo. Atlas no cambiará la rama de tu checkout actual.",
+  "Confirm to create this local branch from the starting HEAD in a separate worktree, scan it, and open it. Atlas will not switch the starting checkout.":
+    "Confirma para crear esta rama local desde el HEAD de origen en un worktree independiente, analizarla y abrirla. Atlas no cambiará el checkout de origen.",
+  "The new branch starts at the active checkout HEAD and opens in a separate worktree.":
+    "La nueva rama parte del HEAD del checkout activo y se abre en un worktree independiente.",
+  "Atlas could not find a safe sibling folder for this worktree.":
+    "Atlas no pudo encontrar una carpeta adyacente segura para este worktree.",
+  "The active project is not a Git worktree.":
+    "El proyecto activo no es un worktree de Git.",
+  "Git created the destination, but Atlas could not verify the new worktree.":
+    "Git creó el destino, pero Atlas no pudo verificar el nuevo worktree.",
+  "Expected HEAD is invalid.": "El HEAD esperado no es válido.",
+  "Expected base HEAD is invalid.":
+    "El HEAD de origen esperado no es válido.",
+  "Local branch is invalid.": "La rama local no es válida.",
+  "Worktree path is invalid.": "La ruta del worktree no es válida.",
+  "Worktree path must be absolute.":
+    "La ruta del worktree debe ser absoluta.",
+  "Branch type is invalid.": "El tipo de rama no es válido.",
+  "Branch name is invalid.": "El nombre de rama no es válido.",
+  "That local branch already exists. Open its worktree or choose another name.":
+    "Esa rama local ya existe. Abre su worktree o elige otro nombre.",
+  "The active checkout has no commit from which to create a branch.":
+    "El checkout activo no tiene un commit desde el que crear una rama.",
+  "The starting checkout changed after the preview. Review the new branch again.":
+    "El checkout de origen cambió después de la vista previa. Revisa de nuevo la nueva rama.",
+  "Project Atlas could not prepare that branch.":
+    "Project Atlas no pudo preparar esa rama.",
+  "Project Atlas could not create that branch.":
+    "Project Atlas no pudo crear esa rama.",
+  "That local branch no longer exists.":
+    "Esa rama local ya no existe.",
+  "That branch already has a worktree. Review and open its existing checkout instead.":
+    "Esa rama ya tiene un worktree. Revisa y abre su checkout existente.",
+  "That branch does not contain package.json and cannot be opened as an Atlas frontend project.":
+    "Esa rama no contiene package.json y no se puede abrir como proyecto frontend de Atlas.",
+  "The branch moved after the preview. Review the destination again before creating a worktree.":
+    "La rama cambió después de la vista previa. Revisa de nuevo el destino antes de crear un worktree.",
+  "The proposed worktree destination changed. Review it again before creating anything.":
+    "El destino propuesto del worktree cambió. Revísalo de nuevo antes de crear nada.",
   "Working tree": "Árbol de trabajo",
   "Current destination": "Destino actual",
   "Destination preview": "Vista previa del destino",

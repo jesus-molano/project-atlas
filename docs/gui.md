@@ -44,6 +44,18 @@ projects and **Open another folder**:
 - cancelling, an invalid folder, or a failed scan leaves the active project
   unchanged;
 - a project becomes recent only after validation and a successful scan;
+- local branches come from the active repository rather than the recent-project
+  list; branches already checked out in another worktree can be reviewed and
+  opened directly;
+- a branch without a worktree first shows a proposed sibling folder, branch,
+  and HEAD. Confirmation creates a separate Git worktree and opens it without
+  changing the branch of the checkout that was active;
+- **New branch + worktree** combines a conventional commit-style prefix
+  (`feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, and related
+  types) with a human name, previews the normalized branch and sibling folder,
+  then creates both from the active `HEAD` after confirmation;
+- branch movement, a newly occupied destination, a duplicate worktree, or a
+  branch without `package.json` stops creation and asks for a fresh review;
 - changing projects is disabled while a Codex run owns the current checkout.
 
 Browser-only directory handles are not used because they do not provide a

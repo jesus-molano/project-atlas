@@ -26,6 +26,17 @@ import {
   projectPathFromDrop,
   type AtlasDesktopFolderPicker,
 } from "~/utils/folder-picker";
+import {
+  branchAction,
+  detachedRepositoryWorktrees,
+  type ProjectRepositoryState,
+  type WorktreeCreationPreview,
+} from "~/utils/project-worktrees";
+import {
+  BRANCH_PREFIXES,
+  branchNameFromParts,
+  type BranchPrefix,
+} from "#shared/branch-conventions";
 
 type AvailableSection =
   | "home"
@@ -89,10 +100,12 @@ interface ProjectDestinationPreview {
   name: string;
   available: true;
   git: ProjectGitState;
+  repository?: ProjectRepositoryState;
 }
 
 interface ProjectsResponse {
   activeRoot?: string;
+  repository?: ProjectRepositoryState;
   projects: Array<{
     rootPath: string;
     name: string;
@@ -166,6 +179,20 @@ const otherRecentProjects = computed(
       .filter((project) => project.rootPath !== activeRoot.value)
       .slice(0, 4) ?? [],
 );
+const detachedWorktrees = computed(() =>
+  detachedRepositoryWorktrees(projects.value?.repository),
+);
+const isRepositoryCheckoutPreview = computed(() => {
+  const previewProjectPath =
+    projectPreview.value?.repository?.logicalProjectPath ??
+    projectPreview.value?.git.logicalProjectPath;
+  const activeProjectPath = projects.value?.repository?.logicalProjectPath;
+  return Boolean(
+    previewProjectPath &&
+      activeProjectPath &&
+      previewProjectPath.toLowerCase() === activeProjectPath.toLowerCase(),
+  );
+});
 const activeSection = ref<AvailableSection>("home");
 const navCollapsed = ref(false);
 const projectMenuOpen = ref(false);
@@ -175,6 +202,12 @@ const projectInspectPending = ref(false);
 const projectSwitchError = ref("");
 const projectPickerMessage = ref("");
 const projectPreview = ref<ProjectDestinationPreview>();
+const worktreePreview = ref<WorktreeCreationPreview>();
+const worktreePreviewPendingBranch = ref("");
+const newBranchFormOpen = ref(false);
+const newBranchType = ref<BranchPrefix>("feat");
+const newBranchName = ref("");
+const newBranchPreviewPending = ref(false);
 const folderPicker = shallowRef<AtlasDesktopFolderPicker>();
 const folderPickerPending = ref(false);
 const folderDropActive = ref(false);
@@ -538,6 +571,9 @@ function uiErrorMessage(caught: unknown, fallback: string): string {
 }
 
 watch(projectPath, (value) => {
+  if (value.trim() && worktreePreview.value) {
+    worktreePreview.value = undefined;
+  }
   if (
     projectPreview.value &&
     projectPreview.value.rootPath.toLowerCase() !== value.trim().toLowerCase()
@@ -546,6 +582,34 @@ watch(projectPath, (value) => {
   }
 });
 
+watch([newBranchType, newBranchName], () => {
+  if (worktreePreview.value?.creationMode === "new-branch") {
+    worktreePreview.value = undefined;
+  }
+});
+
+const proposedNewBranchName = computed(() => {
+  try {
+    return branchNameFromParts(newBranchType.value, newBranchName.value);
+  } catch {
+    return `${newBranchType.value}/`;
+  }
+});
+
+function resetSwitchedWorkspace(): void {
+  projectPath.value = "";
+  projectPreview.value = undefined;
+  worktreePreview.value = undefined;
+  projectMenuOpen.value = false;
+  activeSection.value = "home";
+  selectedComponentId.value = undefined;
+  selectedDesignNodeId.value = undefined;
+  selectedMemoryItemId.value = undefined;
+  pinnedHandles.value = [];
+  newBranchFormOpen.value = false;
+  newBranchName.value = "";
+}
+
 async function reviewProject(rootPath = projectPath.value): Promise<void> {
   const candidate = rootPath.trim();
   if (!candidate || projectInspectPending.value || projectSwitchPending.value) {
@@ -553,6 +617,7 @@ async function reviewProject(rootPath = projectPath.value): Promise<void> {
   }
   projectInspectPending.value = true;
   projectSwitchError.value = "";
+  worktreePreview.value = undefined;
   try {
     const session = await $fetch<{ token: string }>("/api/agent/session");
     projectPreview.value = await $fetch<ProjectDestinationPreview>(
@@ -579,6 +644,20 @@ function cancelProjectPreview(): void {
   projectPreview.value = undefined;
 }
 
+function cancelWorktreePreview(): void {
+  worktreePreview.value = undefined;
+}
+
+function toggleNewBranchForm(): void {
+  newBranchFormOpen.value = !newBranchFormOpen.value;
+  projectPreview.value = undefined;
+  worktreePreview.value = undefined;
+  projectSwitchError.value = "";
+  if (!newBranchFormOpen.value) {
+    newBranchName.value = "";
+  }
+}
+
 async function activateProject(
   rootPath = projectPreview.value?.rootPath ?? "",
 ): Promise<void> {
@@ -593,20 +672,129 @@ async function activateProject(
       headers: { "x-atlas-session": session.token },
       body: { rootPath: candidate },
     });
-    projectPath.value = "";
-    projectPreview.value = undefined;
-    projectMenuOpen.value = false;
-    activeSection.value = "home";
-    selectedComponentId.value = undefined;
-    selectedDesignNodeId.value = undefined;
-    selectedMemoryItemId.value = undefined;
-    pinnedHandles.value = [];
+    resetSwitchedWorkspace();
     await Promise.all([refreshProjects(), refreshWorkspace()]);
   } catch (caught) {
     projectSwitchError.value = uiErrorMessage(
       caught,
       "Project Atlas could not open that folder.",
     );
+  } finally {
+    projectSwitchPending.value = false;
+  }
+}
+
+async function reviewNewWorktree(branch: string): Promise<void> {
+  if (
+    !branch ||
+    worktreePreviewPendingBranch.value ||
+    projectSwitchPending.value ||
+    projectInspectPending.value
+  ) {
+    return;
+  }
+  worktreePreviewPendingBranch.value = branch;
+  projectSwitchError.value = "";
+  projectPreview.value = undefined;
+  try {
+    const session = await $fetch<{ token: string }>("/api/agent/session");
+    worktreePreview.value = await $fetch<WorktreeCreationPreview>(
+      "/api/projects/worktree/preview",
+      {
+        method: "POST",
+        headers: { "x-atlas-session": session.token },
+        body: { branch },
+      },
+    );
+  } catch (caught) {
+    worktreePreview.value = undefined;
+    projectSwitchError.value = uiErrorMessage(
+      caught,
+      "Project Atlas could not prepare that worktree.",
+    );
+  } finally {
+    worktreePreviewPendingBranch.value = "";
+  }
+}
+
+async function reviewNewBranchWorktree(): Promise<void> {
+  if (
+    !newBranchName.value.trim() ||
+    newBranchPreviewPending.value ||
+    projectSwitchPending.value ||
+    projectInspectPending.value
+  ) {
+    return;
+  }
+  newBranchPreviewPending.value = true;
+  projectSwitchError.value = "";
+  projectPreview.value = undefined;
+  worktreePreview.value = undefined;
+  try {
+    const session = await $fetch<{ token: string }>("/api/agent/session");
+    worktreePreview.value = await $fetch<WorktreeCreationPreview>(
+      "/api/projects/branch/preview",
+      {
+        method: "POST",
+        headers: { "x-atlas-session": session.token },
+        body: {
+          branchType: newBranchType.value,
+          branchNameInput: newBranchName.value,
+        },
+      },
+    );
+  } catch (caught) {
+    projectSwitchError.value = uiErrorMessage(
+      caught,
+      "Project Atlas could not prepare that branch.",
+    );
+  } finally {
+    newBranchPreviewPending.value = false;
+  }
+}
+
+async function createAndOpenWorktree(): Promise<void> {
+  const preview = worktreePreview.value;
+  if (!preview || projectSwitchPending.value) return;
+  projectSwitchPending.value = true;
+  projectSwitchError.value = "";
+  try {
+    const session = await $fetch<{ token: string }>("/api/agent/session");
+    const request =
+      preview.creationMode === "new-branch"
+        ? {
+            path: "/api/projects/branch/create",
+            body: {
+              branchType: preview.branchType,
+              branchNameInput: preview.branchNameInput,
+              expectedBaseHead: preview.baseHead,
+              sourceWorktreePath: preview.sourceWorktreePath,
+              worktreePath: preview.worktreePath,
+            },
+          }
+        : {
+            path: "/api/projects/worktree/create",
+            body: {
+              branch: preview.branch,
+              expectedHead: preview.head,
+              worktreePath: preview.worktreePath,
+            },
+          };
+    await $fetch(request.path, {
+      method: "POST",
+      headers: { "x-atlas-session": session.token },
+      body: request.body,
+    });
+    resetSwitchedWorkspace();
+    await Promise.all([refreshProjects(), refreshWorkspace()]);
+  } catch (caught) {
+    projectSwitchError.value = uiErrorMessage(
+      caught,
+      preview.creationMode === "new-branch"
+        ? "Project Atlas could not create that branch."
+        : "Project Atlas could not create that worktree.",
+    );
+    await refreshProjects();
   } finally {
     projectSwitchPending.value = false;
   }
@@ -671,6 +859,7 @@ function handleProjectDrop(event: DragEvent): void {
   if (droppedPath) {
     projectPath.value = droppedPath;
     projectPreview.value = undefined;
+    worktreePreview.value = undefined;
     projectSwitchError.value = "";
     return;
   }
@@ -1020,6 +1209,233 @@ onBeforeUnmount(() => {
               </div>
             </dl>
             <code :title="overview.data.project.rootPath">{{ overview.data.project.rootPath }}</code>
+            <section
+              v-if="projects.repository"
+              class="repository-checkouts"
+              :aria-label="t('Local branches and worktrees')"
+            >
+              <header>
+                <div>
+                  <span class="field-label">{{ t("Local branches and worktrees") }}</span>
+                  <small>
+                    {{
+                      t(
+                        projects.repository.branches.length === 1
+                          ? "{count} local branch"
+                          : "{count} local branches",
+                        { count: projects.repository.branches.length },
+                      )
+                    }}
+                    ·
+                    {{
+                      t(
+                        projects.repository.worktrees.length === 1
+                          ? "{count} worktree"
+                          : "{count} worktrees",
+                        { count: projects.repository.worktrees.length },
+                      )
+                    }}
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  class="text-button new-branch-toggle"
+                  aria-controls="new-branch-worktree-form"
+                  :aria-expanded="newBranchFormOpen"
+                  @click="toggleNewBranchForm"
+                >
+                  {{
+                    t(
+                      newBranchFormOpen
+                        ? "Cancel new branch"
+                        : "New branch + worktree",
+                    )
+                  }}
+                </button>
+              </header>
+              <form
+                v-if="newBranchFormOpen"
+                id="new-branch-worktree-form"
+                class="new-branch-form"
+                @submit.prevent="reviewNewBranchWorktree"
+              >
+                <div>
+                  <label for="new-branch-type">{{ t("Branch type") }}</label>
+                  <select
+                    id="new-branch-type"
+                    v-model="newBranchType"
+                    :disabled="newBranchPreviewPending || projectSwitchPending"
+                  >
+                    <option
+                      v-for="prefix in BRANCH_PREFIXES"
+                      :key="prefix"
+                      :value="prefix"
+                    >
+                      {{ prefix }}
+                    </option>
+                  </select>
+                </div>
+                <div class="new-branch-name-field">
+                  <label for="new-branch-name">{{ t("Branch name") }}</label>
+                  <input
+                    id="new-branch-name"
+                    v-model="newBranchName"
+                    type="text"
+                    maxlength="120"
+                    autocomplete="off"
+                    :placeholder="t('short-descriptive-name')"
+                    :disabled="newBranchPreviewPending || projectSwitchPending"
+                  >
+                </div>
+                <code :title="proposedNewBranchName">
+                  {{ proposedNewBranchName }}
+                </code>
+                <button
+                  type="submit"
+                  class="secondary-button"
+                  :disabled="
+                    !newBranchName.trim() ||
+                    newBranchPreviewPending ||
+                    projectSwitchPending
+                  "
+                >
+                  {{
+                    newBranchPreviewPending
+                      ? t("Preparing...")
+                      : t("Review branch")
+                  }}
+                </button>
+                <small>
+                  {{
+                    t(
+                      "The new branch starts at the active checkout HEAD and opens in a separate worktree.",
+                    )
+                  }}
+                </small>
+              </form>
+              <ul class="repository-branch-list">
+                <li
+                  v-for="branch in projects.repository.branches"
+                  :key="branch.name"
+                  :class="{ active: branch.isCurrent }"
+                >
+                  <AtlasIcon name="branch" />
+                  <span>
+                    <strong :title="branch.name">{{ branch.name }}</strong>
+                    <small
+                      :title="branch.worktree?.path"
+                    >
+                      {{
+                        branch.worktree
+                          ? branch.worktree.name
+                          : t("No worktree yet")
+                      }}
+                      · {{ branch.shortHead }}
+                    </small>
+                    <em
+                      v-if="branch.worktree?.git?.dirty"
+                      class="warning"
+                    >
+                      {{
+                        t(
+                          branch.worktree.git.changedFiles === 1
+                            ? "{count} changed file"
+                            : "{count} changed files",
+                          { count: branch.worktree.git.changedFiles },
+                        )
+                      }}
+                    </em>
+                    <em v-else-if="!branch.hasProjectManifest" class="warning">
+                      {{ t("No package.json on this branch") }}
+                    </em>
+                  </span>
+                  <button
+                    type="button"
+                    class="branch-action"
+                    :disabled="
+                      branchAction(branch) === 'current' ||
+                      branchAction(branch) === 'unsupported' ||
+                      projectSwitchPending ||
+                      projectInspectPending ||
+                      Boolean(worktreePreviewPendingBranch)
+                    "
+                    :aria-label="
+                      t(
+                        branchAction(branch) === 'current'
+                          ? 'Current checkout: {branch}'
+                          : branchAction(branch) === 'open-worktree'
+                            ? 'Review worktree for {branch}'
+                            : 'Create worktree for {branch}',
+                        { branch: branch.name },
+                      )
+                    "
+                    :title="
+                      branchAction(branch) === 'unsupported'
+                        ? t('This branch cannot be opened because it has no package.json.')
+                        : undefined
+                    "
+                    @click="
+                      branch.worktree
+                        ? reviewProject(branch.worktree.path)
+                        : reviewNewWorktree(branch.name)
+                    "
+                  >
+                    {{
+                      worktreePreviewPendingBranch === branch.name
+                        ? t("Preparing...")
+                        : t(
+                            branchAction(branch) === "current"
+                              ? "Current"
+                              : branchAction(branch) === "open-worktree"
+                                ? "Review"
+                                : branchAction(branch) === "unsupported"
+                                  ? "Unavailable"
+                                  : "Create...",
+                          )
+                    }}
+                  </button>
+                </li>
+              </ul>
+              <div
+                v-if="detachedWorktrees.length"
+                class="detached-worktrees"
+              >
+                <span class="field-label">{{ t("Detached worktrees") }}</span>
+                <button
+                  v-for="worktree in detachedWorktrees"
+                  :key="worktree.path"
+                  type="button"
+                  :disabled="
+                    worktree.isCurrent ||
+                    !worktree.available ||
+                    projectSwitchPending ||
+                    projectInspectPending
+                  "
+                  @click="reviewProject(worktree.path)"
+                >
+                  <span>
+                    <strong :title="worktree.path">{{ worktree.name }}</strong>
+                    <small>{{ worktree.head.slice(0, 10) }}</small>
+                  </span>
+                  <span>{{ t(worktree.isCurrent ? "Current" : "Review") }}</span>
+                </button>
+              </div>
+              <ProjectDestinationPreview
+                v-if="projectPreview && isRepositoryCheckoutPreview"
+                :destination="projectPreview"
+                :active-root="activeRoot"
+                :pending="projectSwitchPending"
+                @cancel="cancelProjectPreview"
+                @confirm="activateProject()"
+              />
+              <WorktreeCreationPreview
+                v-if="worktreePreview"
+                :preview="worktreePreview"
+                :pending="projectSwitchPending"
+                @cancel="cancelWorktreePreview"
+                @confirm="createAndOpenWorktree"
+              />
+            </section>
             <div class="popover-recents">
               <span class="field-label">{{ t("Recent projects") }}</span>
               <button
@@ -1080,7 +1496,7 @@ onBeforeUnmount(() => {
               {{ t(projectPickerMessage) }}
             </p>
             <ProjectDestinationPreview
-              v-if="projectPreview"
+              v-if="projectPreview && !isRepositoryCheckoutPreview"
               :destination="projectPreview"
               :active-root="activeRoot"
               :pending="projectSwitchPending"
