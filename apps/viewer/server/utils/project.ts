@@ -154,6 +154,7 @@ async function readRecentProjectsFile(): Promise<RecentProjectsFile> {
 export async function listRecentProjects(): Promise<{
   activeRoot?: string;
   projects: RecentProject[];
+  repository?: import("./git-worktrees").ProjectRepositoryState;
 }> {
   const file = await readRecentProjectsFile();
   const projects = file.projects.map((project) => ({
@@ -184,6 +185,13 @@ export async function listRecentProjects(): Promise<{
   return {
     ...(activeProjectRoot ? { activeRoot: activeProjectRoot } : {}),
     projects: projects.slice(0, 10),
+    ...(activeProjectRoot && existsSync(activeProjectRoot)
+      ? {
+          repository: (
+            await import("./git-worktrees")
+          ).projectRepositoryStateForRoot(activeProjectRoot),
+        }
+      : {}),
   };
 }
 
@@ -304,6 +312,7 @@ export interface ProjectDestinationPreview {
   name: string;
   available: true;
   git: ProjectGitState;
+  repository?: import("./git-worktrees").ProjectRepositoryState;
 }
 
 export async function inspectProjectRoot(
@@ -315,6 +324,9 @@ export async function inspectProjectRoot(
     name: projectName(rootPath),
     available: true,
     git: projectGitStateForRoot(rootPath),
+    repository: (
+      await import("./git-worktrees")
+    ).projectRepositoryStateForRoot(rootPath),
   };
 }
 
