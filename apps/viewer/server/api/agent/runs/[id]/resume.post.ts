@@ -6,9 +6,15 @@ import { assertAgentSession } from "../../../../utils/agent-session";
 interface ResumeBody {
   answer?: string;
   correction?: string;
+  nextStep?: string;
   sandbox?: AgentSandbox;
   mode?: Extract<AgentRunMode, "continue" | "correct" | "implement">;
   sourceDecisions?: TaskSourceDecision[];
+  budgetChars?: number;
+  topK?: number;
+  selectedHandles?: string[];
+  figmaFile?: string | null;
+  expectedFingerprint?: string;
 }
 
 export default defineEventHandler(async (event) => {

@@ -883,6 +883,35 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "{count} contracts": "{count} contratos",
   "{count} authentication schemes": "{count} esquemas de autenticación",
   "Needs review": "Requiere revisión",
+  Continue: "Continuar",
+  Correct: "Corregir",
+  "What is the next step?": "¿Cuál es el siguiente paso?",
+  "What should be corrected?": "¿Qué se debe corregir?",
+  "Describe only the next step for the selected Codex task.":
+    "Describe solo el siguiente paso para la tarea de Codex seleccionada.",
+  "Describe the incorrect result and the required correction.":
+    "Describe el resultado incorrecto y la corrección necesaria.",
+  "Codex task to resume": "Tarea de Codex que se reanudará",
+  "The Atlas snapshot changed; the current brief will be checked before resuming.":
+    "La instantánea de Atlas cambió; el encargo actual se comprobará antes de reanudar.",
+  "snapshot changed": "instantánea modificada",
+  "Review continuation": "Revisar continuación",
+  "Review correction": "Revisar corrección",
+  "Continue this Codex task": "Continuar esta tarea de Codex",
+  "Correct this Codex task": "Corregir esta tarea de Codex",
+  Replace: "Sustituir",
+  "Hide context options": "Ocultar opciones de contexto",
+  "Decision gate": "Control de decisión",
+  "{count} required reviews pending": "{count} revisiones obligatorias pendientes",
+  Reviewed: "Revisado",
+  "Review every decision-required finding before starting Codex.":
+    "Revisa todos los hallazgos que requieren una decisión antes de iniciar Codex.",
+  "Atlas evidence changed after this run was reviewed.":
+    "La evidencia de Atlas cambió después de revisar esta ejecución.",
+  "Run evidence": "Evidencia de la ejecución",
+  current: "actual",
+  "Confirmed references": "Referencias confirmadas",
+  "Repository + Atlas only": "Solo repositorio y Atlas",
   "Checking the local agent adapter…": "Comprobando el adaptador local del agente…",
   "Prepare with Codex & sync Figma": "Preparar con Codex y sincronizar Figma",
   "Prepare with Codex": "Preparar con Codex",
@@ -932,6 +961,11 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Agent · reviewed budget": "Agente · presupuesto revisado",
   "External write · approval": "Escritura externa · aprobación",
   "Review before Codex starts": "Revisar antes de iniciar Codex",
+  "Review before Codex resumes": "Revisar antes de reanudar Codex",
+  Risk: "Riesgo",
+  "Decision reviews": "Revisiones de decisiones",
+  "Exact sources": "Fuentes exactas",
+  "Codex may pause for": "Codex puede detenerse para",
   Permission: "Permiso",
   "{count} estimated tokens": "{count} tokens estimados",
   "repository + confirmed Atlas memory":
@@ -1123,6 +1157,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "La identidad del proyecto o checkout cambió. Inicia en su lugar un nuevo encargo de corrección.",
   "Provide a material answer or correction.":
     "Proporciona una respuesta o corrección sustancial.",
+  "Provide a material answer, next step, or correction.":
+    "Proporciona una respuesta, un siguiente paso o una corrección sustancial.",
   "Resolve every newly detected source before continuing.":
     "Resuelve todas las fuentes recién detectadas antes de continuar.",
   "Run ID is required.": "Se requiere el identificador de ejecución.",
@@ -1132,6 +1168,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "La instantánea del checkout de Atlas cambió después de la revisión. Actualiza antes de actuar.",
   "The Atlas snapshot changed after review. Refresh the task context before starting Codex.":
     "La instantánea de Atlas cambió después de la revisión. Actualiza el contexto de la tarea antes de iniciar Codex.",
+  "The Atlas snapshot changed after review. Refresh the task context before resuming Codex.":
+    "La instantánea de Atlas cambió después de la revisión. Actualiza el contexto de la tarea antes de reanudar Codex.",
   "The action item no longer exists in this checkout.":
     "El elemento de acción ya no existe en este checkout.",
   "The agent run is still active.": "La ejecución del agente sigue activa.",

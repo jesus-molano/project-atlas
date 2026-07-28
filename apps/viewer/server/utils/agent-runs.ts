@@ -45,6 +45,20 @@ export interface StartAgentRunInput {
   expectedFingerprint: string;
 }
 
+export interface ResumeAgentRunInput {
+  answer?: string;
+  correction?: string;
+  nextStep?: string;
+  sandbox?: AgentSandbox;
+  mode?: AgentRunMode;
+  sourceDecisions?: TaskSourceDecision[];
+  budgetChars?: number;
+  topK?: number;
+  selectedHandles?: string[];
+  figmaFile?: string | null;
+  expectedFingerprint?: string;
+}
+
 interface AgentRunRecord {
   id: string;
   state: AgentRunState;
@@ -108,6 +122,36 @@ function publicRun(record: AgentRunRecord, after = 0) {
     events: record.events.filter((event) => event.cursor > after),
     nextCursor: record.nextCursor,
   };
+}
+
+function publicRunSummary(record: AgentRunRecord) {
+  const currentSnapshot = loadProjectAtlasSnapshot();
+  const stale = currentSnapshot.fingerprint !== record.startingFingerprint;
+  return {
+    id: record.id,
+    state: record.state,
+    mode: record.mode,
+    sandbox: record.sandbox,
+    sourceKinds: [...new Set(record.sources.map((source) => source.kind))],
+    sourceDecisions: record.sourceDecisions.map((source) => ({ ...source })),
+    startingFingerprint: record.startingFingerprint,
+    currentFingerprint: currentSnapshot.fingerprint,
+    stale,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    threadId: record.threadId,
+    resumable:
+      Boolean(record.threadId) &&
+      ["awaiting-input", "completed", "failed", "cancelled"].includes(record.state),
+  };
+}
+
+export function listAgentRuns() {
+  const rootPath = projectRootPath();
+  return [...records.values()]
+    .filter((record) => record.rootPath === rootPath)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .map(publicRunSummary);
 }
 
 function trimRuns(): void {
@@ -431,13 +475,7 @@ export function cancelAgentRun(id: string) {
 
 export function resumeAgentRun(
   id: string,
-  input: {
-    answer?: string;
-    correction?: string;
-    sandbox?: AgentSandbox;
-    mode?: AgentRunMode;
-    sourceDecisions?: TaskSourceDecision[];
-  },
+  input: ResumeAgentRunInput,
 ) {
   const record = records.get(id);
   if (!record) {
@@ -451,6 +489,16 @@ export function resumeAgentRun(
   }
   const snapshot = loadProjectAtlasSnapshot();
   if (
+    input.expectedFingerprint &&
+    input.expectedFingerprint !== snapshot.fingerprint
+  ) {
+    throw createError({
+      statusCode: 409,
+      statusMessage:
+        "The Atlas snapshot changed after review. Refresh the task context before resuming Codex.",
+    });
+  }
+  if (
     snapshot.graph.project.id !== record.projectId ||
     snapshot.graph.project.identity?.checkoutId !== record.checkoutId
   ) {
@@ -462,14 +510,15 @@ export function resumeAgentRun(
   }
   const answer = input.answer?.trim();
   const correction = input.correction?.trim();
+  const nextStep = input.nextStep?.trim();
   let sourceLedgerChanged = false;
-  if (!answer && !correction) {
+  if (!answer && !correction && !nextStep) {
     throw createError({
       statusCode: 400,
-      statusMessage: "Provide a material answer or correction.",
+      statusMessage: "Provide a material answer, next step, or correction.",
     });
   }
-  assertMemoryContentSafe({ answer, correction });
+  assertMemoryContentSafe({ answer, correction, nextStep });
   if (input.sourceDecisions) {
     const nextDecisions = validateSourceDecisions(input.sourceDecisions);
     if (nextDecisions.some((source) => source.state === "pending")) {
@@ -501,6 +550,7 @@ export function resumeAgentRun(
     }
   }
   if (correction) record.task = `${record.task}\n\nCorrection: ${correction}`;
+  if (nextStep) record.task = `${record.task}\n\nNext step: ${nextStep}`;
   record.mode =
     input.mode === "implement"
       ? "implement"
@@ -509,6 +559,19 @@ export function resumeAgentRun(
         : "continue";
   if (input.sandbox) record.sandbox = input.sandbox;
   if (sourceLedgerChanged) record.sandbox = "read-only";
+  if (input.budgetChars !== undefined) {
+    record.budgetChars = Math.min(12_000, Math.max(800, input.budgetChars));
+  }
+  if (input.topK !== undefined) {
+    record.topK = Math.min(10, Math.max(1, input.topK));
+  }
+  if (input.selectedHandles) {
+    record.selectedHandles = validateHandles(input.selectedHandles);
+  }
+  if ("figmaFile" in input) {
+    if (input.figmaFile) record.figmaFile = input.figmaFile;
+    else delete record.figmaFile;
+  }
   record.startingFingerprint = snapshot.fingerprint;
   void execute(record, answer);
   return publicRun(record);

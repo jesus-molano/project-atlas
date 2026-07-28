@@ -5,6 +5,7 @@ import type {
   AgentRunEvent,
   AgentRunMode,
   AgentSandbox,
+  AgentSourceReference,
 } from "@component-atlas/agent";
 import { memoryCloseoutActionMessage } from "@component-atlas/agent";
 import {
@@ -28,6 +29,15 @@ import {
   isSimulatedCapability,
 } from "~/utils/capabilities";
 
+interface ContextFinding {
+  id: string;
+  level: "decision-required" | "warning" | "resolved";
+  title: string;
+  recommendation: string;
+  question?: string;
+  evidence?: string[];
+}
+
 interface CompactContext {
   task: string;
   project?: { name: string; framework: string; scannedAt: string };
@@ -46,8 +56,13 @@ interface CompactContext {
     operations: Array<{ method: string; path: string }>;
     authentication: Array<Record<string, unknown>>;
   };
-  findings?: Array<Record<string, unknown>>;
-  gate?: Record<string, unknown>;
+  findings?: ContextFinding[];
+  gate?: {
+    overall?: {
+      status: "blocked" | "review" | "clear";
+      questions: string[];
+    };
+  };
   nextSteps?: string[];
   metrics: {
     budgetChars: number;
@@ -78,6 +93,22 @@ interface RunResponse {
   threadId?: string;
   events: Array<{ cursor: number; event: AgentRunEvent }>;
   nextCursor: number;
+}
+
+interface RunSummary {
+  id: string;
+  state: RunState;
+  mode: AgentRunMode;
+  sandbox: AgentSandbox;
+  sourceKinds: AgentSourceReference["kind"][];
+  sourceDecisions: TaskSourceDecision[];
+  startingFingerprint: string;
+  currentFingerprint: string;
+  stale: boolean;
+  createdAt: string;
+  updatedAt: string;
+  threadId?: string;
+  resumable: boolean;
 }
 
 type FigmaSyncStatus =
@@ -117,11 +148,13 @@ const { formatDate, formatNumber, runtimeMessage, statusLabel, t } =
   useAtlasI18n();
 
 const task = ref(props.initialTask ?? "");
+const mode = ref<AgentRunMode>("prepare");
 const objectiveConfirmed = ref(false);
 const budgetChars = ref(props.defaultBudget);
 const topK = ref(props.defaultTopK);
 const figmaFile = ref("");
 const advancedOpen = ref(false);
+const contextOptionsOpen = ref(false);
 const sourceKind = ref<TaskSourceKind>("figma");
 const sourceValue = ref("");
 const replacementFor = ref("");
@@ -133,6 +166,8 @@ const agentStatus = ref<AgentAdapterStatus>();
 const agentToken = ref("");
 const actions = ref<ActionCapabilityManifest[]>([]);
 const activeRun = ref<RunResponse>();
+const runSummaries = ref<RunSummary[]>([]);
+const selectedRunId = ref("");
 const figmaSyncAttemptRunId = ref<string>();
 const figmaSyncAttemptSourceIds = ref<string[]>([]);
 const runEvents = ref<Array<{ cursor: number; event: AgentRunEvent }>>([]);
@@ -142,6 +177,7 @@ const launchSandbox = ref<AgentSandbox>("read-only");
 const answer = ref("");
 const correction = ref("");
 const copied = ref(false);
+const acknowledgedFindingIds = ref<Set<string>>(new Set());
 const recordedRuns = new Set<string>();
 const preparedAt = ref<number>();
 const preparationMs = ref(0);
@@ -174,6 +210,69 @@ const sourceCounts = computed(() => ({
     (source) => source.state === "unavailable",
   ).length,
 }));
+const resumableRuns = computed(() =>
+  runSummaries.value.filter((run) => run.resumable),
+);
+const selectedRun = computed(() =>
+  resumableRuns.value.find((run) => run.id === selectedRunId.value),
+);
+const taskModes = computed(() => [
+  { id: "prepare" as const, label: t("New task"), disabled: false },
+  {
+    id: "continue" as const,
+    label: t("Continue"),
+    disabled: !resumableRuns.value.length,
+  },
+  {
+    id: "correct" as const,
+    label: t("Correct"),
+    disabled: !resumableRuns.value.length,
+  },
+]);
+const intentLabel = computed(() =>
+  mode.value === "continue"
+    ? t("What is the next step?")
+    : mode.value === "correct"
+      ? t("What should be corrected?")
+      : t("What needs to change?"),
+);
+const intentPlaceholder = computed(() =>
+  mode.value === "continue"
+    ? t("Describe only the next step for the selected Codex task.")
+    : mode.value === "correct"
+      ? t("Describe the incorrect result and the required correction.")
+      : t("Describe the frontend outcome. Add links only when they are useful."),
+);
+const blockingFindings = computed(() =>
+  (context.value?.findings ?? []).filter(
+    (finding) => finding.level === "decision-required",
+  ),
+);
+const pendingBlockingFindings = computed(() =>
+  blockingFindings.value.filter(
+    (finding) => !acknowledgedFindingIds.value.has(finding.id),
+  ),
+);
+const displayGateStatus = computed(() => {
+  if (!context.value) return "not reviewed";
+  if (pendingBlockingFindings.value.length) {
+    return context.value.gate?.overall?.status ?? "review";
+  }
+  if (blockingFindings.value.length) return "reviewed";
+  return context.value.gate?.overall?.status ?? "clear";
+});
+const canGenerateContext = computed(
+  () =>
+    intakeAssessment.value.status === "ready" &&
+    Boolean(agentToken.value) &&
+    (mode.value === "prepare" || Boolean(selectedRun.value)),
+);
+const reviewFingerprint = computed(
+  () =>
+    activeRun.value?.currentFingerprint ??
+    selectedRun.value?.currentFingerprint ??
+    props.workspaceFingerprint,
+);
 const confirmedFigmaSources = computed(() =>
   sourceDecisions.value.filter(
     (source) => source.kind === "figma" && source.state === "confirmed",
@@ -264,11 +363,14 @@ const capabilitySummary = computed(() =>
 );
 
 const activeAction = computed(() =>
-  actions.value.find((action) =>
-    launchSandbox.value === "workspace-write"
+  actions.value.find((action) => {
+    if (mode.value === "continue" || mode.value === "correct") {
+      return action.id === "continue-frontend-task";
+    }
+    return launchSandbox.value === "workspace-write"
       ? action.id === "implement-frontend-task"
-      : action.id === "prepare-frontend-task",
-  ),
+      : action.id === "prepare-frontend-task";
+  }),
 );
 
 const latestResult = computed(() => {
@@ -374,9 +476,12 @@ function syncDetectedSources(): void {
     }
   }
   const detectedIds = new Set(detected.map((source) => source.id));
-  const retained = sourceDecisions.value.filter(
-    (source) => source.origin === "manual" || detectedIds.has(source.id),
-  );
+  const retained =
+    mode.value === "prepare"
+      ? sourceDecisions.value.filter(
+          (source) => source.origin === "manual" || detectedIds.has(source.id),
+        )
+      : [...sourceDecisions.value];
   for (const source of detected) {
     if (!retained.some((candidate) => candidate.id === source.id)) {
       retained.push(source);
@@ -385,8 +490,34 @@ function syncDetectedSources(): void {
   sourceDecisions.value = retained;
 }
 
+function selectMode(nextMode: AgentRunMode): void {
+  if (nextMode !== "prepare" && !resumableRuns.value.length) return;
+  mode.value = nextMode;
+  context.value = undefined;
+  activeRun.value = undefined;
+  runEvents.value = [];
+  acknowledgedFindingIds.value = new Set();
+  launchReviewOpen.value = false;
+  if (nextMode !== "prepare") {
+    selectedRunId.value ||= resumableRuns.value[0]?.id ?? "";
+    launchSandbox.value = selectedRun.value?.sandbox ?? "read-only";
+    sourceDecisions.value = selectedRun.value?.sourceDecisions ?? [];
+  } else {
+    launchSandbox.value = "read-only";
+  }
+}
+
+function selectResumableRun(): void {
+  launchSandbox.value = selectedRun.value?.sandbox ?? "read-only";
+  sourceDecisions.value = selectedRun.value?.sourceDecisions ?? [];
+  context.value = undefined;
+  activeRun.value = undefined;
+  runEvents.value = [];
+  acknowledgedFindingIds.value = new Set();
+}
+
 async function generateContext(): Promise<void> {
-  if (intakeAssessment.value.status !== "ready") return;
+  if (!canGenerateContext.value) return;
   if (!agentToken.value) await loadAgentSurface();
   if (!agentToken.value) return;
   preparedAt.value = Date.now();
@@ -420,10 +551,12 @@ async function loadAgentSurface(): Promise<void> {
     const session = await $fetch<{ token: string }>("/api/agent/session");
     agentToken.value = session.token;
     const headers = { "x-atlas-session": session.token };
-    [agentStatus.value, actions.value] = await Promise.all([
+    [agentStatus.value, actions.value, runSummaries.value] = await Promise.all([
       $fetch<AgentAdapterStatus>("/api/agent/status", { headers }),
       $fetch<ActionCapabilityManifest[]>("/api/actions"),
+      $fetch<RunSummary[]>("/api/agent/runs", { headers }),
     ]);
+    selectedRunId.value ||= resumableRuns.value[0]?.id ?? "";
   } catch (caught) {
     runError.value = atlasErrorSource(
       caught,
@@ -433,6 +566,7 @@ async function loadAgentSurface(): Promise<void> {
 }
 
 function reviewLaunch(sandbox: AgentSandbox): void {
+  if (pendingBlockingFindings.value.length) return;
   launchSandbox.value = sandbox;
   launchReviewOpen.value = true;
 }
@@ -442,7 +576,7 @@ async function startRun(): Promise<void> {
     !context.value ||
     !agentToken.value ||
     intakeAssessment.value.status !== "ready" ||
-    launchSandbox.value !== "read-only"
+    pendingBlockingFindings.value.length
   ) {
     return;
   }
@@ -450,20 +584,45 @@ async function startRun(): Promise<void> {
   runError.value = "";
   runEvents.value = [];
   try {
-    activeRun.value = await $fetch<RunResponse>("/api/agent/runs", {
-      method: "POST",
-      headers: { "x-atlas-session": agentToken.value },
-      body: {
-        task: task.value,
-        objectiveConfirmed: objectiveConfirmed.value,
-        sourceDecisions: sourceDecisions.value,
-        budgetChars: budgetChars.value,
-        topK: topK.value,
-        selectedHandles: props.pinnedHandles ?? [],
-        figmaFile: figmaFile.value || undefined,
-        expectedFingerprint: props.workspaceFingerprint,
-      },
-    });
+    if (
+      (mode.value === "continue" || mode.value === "correct") &&
+      selectedRun.value
+    ) {
+      activeRun.value = await $fetch<RunResponse>(
+        `/api/agent/runs/${selectedRun.value.id}/resume`,
+        {
+          method: "POST",
+          headers: { "x-atlas-session": agentToken.value },
+          body: {
+            ...(mode.value === "correct"
+              ? { correction: task.value }
+              : { nextStep: task.value }),
+            sourceDecisions: sourceDecisions.value,
+            sandbox: launchSandbox.value,
+            budgetChars: budgetChars.value,
+            topK: topK.value,
+            selectedHandles: props.pinnedHandles ?? [],
+            figmaFile: figmaFile.value || null,
+            expectedFingerprint: selectedRun.value.currentFingerprint,
+          },
+        },
+      );
+    } else {
+      activeRun.value = await $fetch<RunResponse>("/api/agent/runs", {
+        method: "POST",
+        headers: { "x-atlas-session": agentToken.value },
+        body: {
+          task: task.value,
+          objectiveConfirmed: objectiveConfirmed.value,
+          sourceDecisions: sourceDecisions.value,
+          budgetChars: budgetChars.value,
+          topK: topK.value,
+          selectedHandles: props.pinnedHandles ?? [],
+          figmaFile: figmaFile.value || undefined,
+          expectedFingerprint: props.workspaceFingerprint,
+        },
+      });
+    }
     if (confirmedFigmaSources.value.length) {
       figmaSyncAttemptRunId.value = activeRun.value.id;
       figmaSyncAttemptSourceIds.value = confirmedFigmaSources.value.map(
@@ -512,6 +671,8 @@ async function pollRun(): Promise<void> {
     }
     if (["queued", "running"].includes(response.state)) {
       pollTimer = setTimeout(pollRun, 700);
+    } else {
+      await refreshRunSummaries();
     }
   } catch (caught) {
     const message =
@@ -523,6 +684,16 @@ async function pollRun(): Promise<void> {
       runError.value =
         "The previous task thread expired. The draft and source ledger were kept; start a new read-only preparation.";
     }
+  }
+}
+
+async function refreshRunSummaries(): Promise<void> {
+  if (!agentToken.value) return;
+  runSummaries.value = await $fetch<RunSummary[]>("/api/agent/runs", {
+    headers: { "x-atlas-session": agentToken.value },
+  });
+  if (!selectedRun.value) {
+    selectedRunId.value = resumableRuns.value[0]?.id ?? "";
   }
 }
 
@@ -555,6 +726,11 @@ async function resumeRun(): Promise<void> {
         sandbox: launchSandbox.value,
         mode: correction.value.trim() ? "correct" : "continue",
         sourceDecisions: sourceDecisions.value,
+        budgetChars: budgetChars.value,
+        topK: topK.value,
+        selectedHandles: props.pinnedHandles ?? [],
+        figmaFile: figmaFile.value || null,
+        expectedFingerprint: activeRun.value.currentFingerprint,
       },
     },
   );
@@ -589,6 +765,7 @@ async function implementReviewedRun(): Promise<void> {
           "Implement the reviewed brief in this checkout. Preserve the confirmed task scope and source ledger.",
         mode: "implement",
         sandbox: "workspace-write",
+        expectedFingerprint: activeRun.value.currentFingerprint,
       },
     },
   );
@@ -596,7 +773,9 @@ async function implementReviewedRun(): Promise<void> {
 }
 
 function confirmLaunch(): void {
-  if (launchSandbox.value === "workspace-write") {
+  if (mode.value !== "prepare") {
+    void startRun();
+  } else if (launchSandbox.value === "workspace-write") {
     void implementReviewedRun();
   } else {
     void startRun();
@@ -605,6 +784,7 @@ function confirmLaunch(): void {
 
 function newTask(): void {
   if (pollTimer) clearTimeout(pollTimer);
+  mode.value = "prepare";
   task.value = "";
   objectiveConfirmed.value = false;
   sourceDecisions.value = [];
@@ -625,6 +805,8 @@ function persistTaskSession(): void {
       schemaVersion: 1,
       scope: "task",
       task: task.value,
+      mode: mode.value,
+      selectedRunId: selectedRunId.value,
       objectiveConfirmed: objectiveConfirmed.value,
       sourceDecisions: sourceDecisions.value,
       context: context.value,
@@ -647,6 +829,8 @@ function restoreTaskSession(): void {
       schemaVersion?: number;
       scope?: string;
       task?: string;
+      mode?: AgentRunMode;
+      selectedRunId?: string;
       objectiveConfirmed?: boolean;
       sourceDecisions?: TaskSourceDecision[];
       context?: CompactContext;
@@ -660,6 +844,8 @@ function restoreTaskSession(): void {
     };
     if (saved.schemaVersion !== 1 || saved.scope !== "task") return;
     if (saved.task) task.value = saved.task;
+    mode.value = saved.mode ?? "prepare";
+    selectedRunId.value = saved.selectedRunId ?? "";
     objectiveConfirmed.value = saved.objectiveConfirmed ?? false;
     sourceDecisions.value = saved.sourceDecisions ?? [];
     context.value = saved.context;
@@ -689,10 +875,40 @@ function eventLabel(event: AgentRunEvent): string {
   return statusLabel(event.type);
 }
 
+function toggleFindingAcknowledgement(finding: ContextFinding): void {
+  const next = new Set(acknowledgedFindingIds.value);
+  if (next.has(finding.id)) next.delete(finding.id);
+  else next.add(finding.id);
+  acknowledgedFindingIds.value = next;
+}
+
+function runOptionLabel(run: RunSummary): string {
+  return `${formatDate(run.updatedAt)} · ${statusLabel(run.state)} · ${statusLabel(run.sandbox)}${run.stale ? ` · ${t("snapshot changed")}` : ""}`;
+}
+
+function launchButtonLabel(): string {
+  if (mode.value === "continue") return t("Review continuation");
+  if (mode.value === "correct") return t("Review correction");
+  return confirmedFigmaSources.value.length
+    ? t("Prepare with Codex & sync Figma")
+    : t("Prepare with Codex");
+}
+
+const launchActionLabel = computed(() => {
+  if (mode.value === "continue") return t("Continue this Codex task");
+  if (mode.value === "correct") return t("Correct this Codex task");
+  return launchSandbox.value === "workspace-write"
+    ? t("Implement in this task")
+    : t("Start read-only preparation");
+});
+
 onMounted(async () => {
   restoreTaskSession();
   syncDetectedSources();
   await loadAgentSurface();
+  if (mode.value !== "prepare" && !sourceDecisions.value.length) {
+    sourceDecisions.value = selectedRun.value?.sourceDecisions ?? [];
+  }
   if (activeRun.value) pollRun();
 });
 watch(task, (value, previous) => {
@@ -760,6 +976,16 @@ onBeforeUnmount(() => {
   <div class="workbench">
     <section class="workbench-composer" aria-labelledby="task-intent-heading">
       <div class="mode-switch" :aria-label="t('Task intake status')">
+        <button
+          v-for="item in taskModes"
+          :key="item.id"
+          :class="['mode-button', { active: mode === item.id }]"
+          :disabled="item.disabled || Boolean(activeRun)"
+          :aria-pressed="mode === item.id"
+          @click="selectMode(item.id)"
+        >
+          {{ item.label }}
+        </button>
         <span :class="['capability-pill', risk.level]">
           {{ t("{level} risk", { level: statusLabel(risk.level) }) }}
         </span>
@@ -771,13 +997,33 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
+      <label v-if="mode !== 'prepare'" class="resume-picker">
+        <span>{{ t("Codex task to resume") }}</span>
+        <select
+          v-model="selectedRunId"
+          :disabled="Boolean(activeRun)"
+          @change="selectResumableRun"
+        >
+          <option
+            v-for="run in resumableRuns"
+            :key="run.id"
+            :value="run.id"
+          >
+            {{ runOptionLabel(run) }}
+          </option>
+        </select>
+        <small v-if="selectedRun?.stale">
+          {{ t("The Atlas snapshot changed; the current brief will be checked before resuming.") }}
+        </small>
+      </label>
+
       <label class="workbench-intent">
-        <span id="task-intent-heading">{{ t("What needs to change?") }}</span>
+        <span id="task-intent-heading">{{ intentLabel }}</span>
         <textarea
           v-model="task"
           rows="5"
           :disabled="Boolean(activeRun)"
-          :placeholder="t('Describe the frontend outcome. Add links only when they are useful.')"
+          :placeholder="intentPlaceholder"
         />
       </label>
 
@@ -840,21 +1086,36 @@ onBeforeUnmount(() => {
                 {{ t("Replace or add") }}
               </button>
             </div>
-            <button
-              v-else-if="source.origin === 'manual'"
-              class="text-button"
-              :aria-label="t('Remove manually added source')"
-              @click="removeManualSource(source.id)"
-            >
-              {{ t("Remove") }}
-            </button>
-            <button
-              v-else-if="source.state !== 'confirmed'"
-              class="text-button"
-              @click="decideSource(source.id, 'confirmed')"
-            >
-              {{ t("Use instead") }}
-            </button>
+            <div v-else class="source-decision-actions">
+              <button
+                v-if="source.state !== 'confirmed'"
+                class="text-button"
+                @click="decideSource(source.id, 'confirmed')"
+              >
+                {{ t("Use instead") }}
+              </button>
+              <button
+                class="text-button"
+                @click="beginSourceReplacement(source.id)"
+              >
+                {{ t("Replace") }}
+              </button>
+              <button
+                v-if="source.state === 'confirmed'"
+                class="text-button"
+                @click="decideSource(source.id, 'omitted')"
+              >
+                {{ t("Continue without it") }}
+              </button>
+              <button
+                v-if="source.origin === 'manual'"
+                class="text-button"
+                :aria-label="t('Remove manually added source')"
+                @click="removeManualSource(source.id)"
+              >
+                {{ t("Remove") }}
+              </button>
+            </div>
           </article>
         </div>
         <div v-if="advancedOpen" class="source-adder">
@@ -908,16 +1169,20 @@ onBeforeUnmount(() => {
       <div class="workbench-actions">
         <button
           class="primary-button"
-          :disabled="contextPending || intakeAssessment.status !== 'ready' || !agentToken"
+          :disabled="contextPending || !canGenerateContext"
           @click="generateContext"
         >
           {{ contextPending ? t("Preparing local evidence…") : t("Prepare task") }}
         </button>
-        <button class="text-button" @click="advancedOpen = !advancedOpen">
-          {{ t("Context options") }}
+        <button
+          class="text-button"
+          :aria-expanded="contextOptionsOpen"
+          @click="contextOptionsOpen = !contextOptionsOpen"
+        >
+          {{ contextOptionsOpen ? t("Hide context options") : t("Context options") }}
         </button>
       </div>
-      <div v-if="advancedOpen" class="compact-options">
+      <div v-if="contextOptionsOpen" class="compact-options">
         <label>
           {{ t("Design map") }}
           <select v-model="figmaFile">
@@ -1040,28 +1305,67 @@ onBeforeUnmount(() => {
         </div>
 
         <section v-if="context.findings?.length" class="decision-band">
-          <span>{{ t("Needs review") }}</span>
-          <div>
-            <strong>{{ context.findings[0]?.title }}</strong>
-            <p>{{ context.findings[0]?.recommendation }}</p>
-          </div>
+          <header>
+            <div>
+              <span class="eyebrow">{{ t("Decision gate") }}</span>
+              <strong>
+                {{ t("{count} findings enter the decision gate.", { count: context.findings.length }) }}
+                ·
+                {{ t("{count} required reviews pending", { count: pendingBlockingFindings.length }) }}
+              </strong>
+            </div>
+            <span :class="['gate-state', displayGateStatus]">
+              {{ statusLabel(displayGateStatus) }}
+            </span>
+          </header>
+          <article
+            v-for="finding in context.findings"
+            :key="finding.id"
+            :class="['decision-record', finding.level]"
+          >
+            <div>
+              <span>{{ statusLabel(finding.level) }}</span>
+              <strong>{{ finding.title }}</strong>
+              <p v-if="finding.question">{{ finding.question }}</p>
+              <p>{{ finding.recommendation }}</p>
+              <ul v-if="finding.evidence?.length">
+                <li v-for="item in finding.evidence.slice(0, 3)" :key="item">
+                  {{ item }}
+                </li>
+              </ul>
+            </div>
+            <button
+              v-if="finding.level === 'decision-required'"
+              class="secondary-button"
+              :aria-pressed="acknowledgedFindingIds.has(finding.id)"
+              @click="toggleFindingAcknowledgement(finding)"
+            >
+              {{
+                acknowledgedFindingIds.has(finding.id)
+                  ? t("Reviewed")
+                  : t("Mark reviewed")
+              }}
+            </button>
+          </article>
         </section>
 
         <section v-if="!activeRun" class="launch-row">
           <div>
             <strong>{{ agentStatus?.label ?? "Codex" }}</strong>
             <span>{{ agentStatus?.detail ? t(agentStatus.detail) : t("Checking the local agent adapter…") }}</span>
+            <span v-if="pendingBlockingFindings.length" class="launch-blocker">
+              {{ t("Review every decision-required finding before starting Codex.") }}
+            </span>
           </div>
           <button
             class="secondary-button"
-            :disabled="agentStatus?.state !== 'detected'"
-            @click="reviewLaunch('read-only')"
+            :disabled="
+              agentStatus?.state !== 'detected' ||
+              pendingBlockingFindings.length > 0
+            "
+            @click="reviewLaunch(mode === 'prepare' ? 'read-only' : (selectedRun?.sandbox ?? 'read-only'))"
           >
-            {{
-              confirmedFigmaSources.length
-                ? t("Prepare with Codex & sync Figma")
-                : t("Prepare with Codex")
-            }}
+            {{ launchButtonLabel() }}
           </button>
         </section>
 
@@ -1070,6 +1374,9 @@ onBeforeUnmount(() => {
             <div>
               <span class="eyebrow">{{ t("Agent activity") }} · {{ statusLabel(activeRun.state) }}</span>
               <h2>{{ activeRun.threadId ? t("Codex task in progress") : t("Starting Codex") }}</h2>
+              <p v-if="activeRun.stale" class="stale-warning">
+                {{ t("Atlas evidence changed after this run was reviewed.") }}
+              </p>
             </div>
             <button
               v-if="['queued', 'running'].includes(activeRun.state)"
@@ -1258,7 +1565,7 @@ onBeforeUnmount(() => {
         <div><dt>{{ t("Project") }}</dt><dd>{{ projectName }}</dd></div>
         <div><dt>{{ t("Branch") }}</dt><dd>{{ identity?.branch ?? t("detached / unknown") }}</dd></div>
         <div><dt>{{ t("Checkout") }}</dt><dd>{{ identity?.checkoutId.slice(0, 8) ?? t("path scoped") }}</dd></div>
-        <div><dt>{{ t("Snapshot") }}</dt><dd>{{ workspaceFingerprint.slice(0, 8) }}</dd></div>
+        <div><dt>{{ t("Snapshot") }}</dt><dd>{{ reviewFingerprint.slice(0, 8) }}</dd></div>
         <div>
           <dt>{{ t("Sources") }}</dt>
           <dd>
@@ -1271,7 +1578,22 @@ onBeforeUnmount(() => {
         </div>
         <div><dt>{{ t("Context") }}</dt><dd>{{ t("{used} / {budget} chars", { used: formatNumber(context?.metrics.usedChars ?? 0), budget: formatNumber(budgetChars) }) }}</dd></div>
         <div><dt>{{ t("Truncated") }}</dt><dd>{{ context?.metrics.truncated ? t("Yes") : t("No") }}</dd></div>
+        <div><dt>{{ t("Decision gate") }}</dt><dd>{{ statusLabel(displayGateStatus) }}</dd></div>
+        <div>
+          <dt>{{ t("Run evidence") }}</dt>
+          <dd>{{ activeRun?.stale || selectedRun?.stale ? t("snapshot changed") : t("current") }}</dd>
+        </div>
       </dl>
+      <section class="inspector-sources">
+        <span>{{ t("Confirmed references") }}</span>
+        <p v-if="!sources.length">{{ t("Repository + Atlas only") }}</p>
+        <p v-for="source in sources" :key="`${source.kind}:${source.value}`">
+          <strong>{{ statusLabel(source.kind) }}</strong>
+          <span :title="source.value">
+            {{ source.value.replace(/^https?:\/\//, "").slice(0, 46) }}
+          </span>
+        </p>
+      </section>
       <div class="boundary-legend">
         <span><i class="local" />{{ t("Local · 0 tokens") }}</span>
         <span><i class="agent" />{{ t("Agent · reviewed budget") }}</span>
@@ -1281,23 +1603,52 @@ onBeforeUnmount(() => {
 
     <div v-if="launchReviewOpen" class="dialog-backdrop" @click.self="launchReviewOpen = false">
       <section class="launch-dialog" role="dialog" aria-modal="true" aria-labelledby="launch-title">
-        <span class="eyebrow">{{ t("Review before Codex starts") }}</span>
+        <span class="eyebrow">
+          {{
+            mode === "continue" || mode === "correct"
+              ? t("Review before Codex resumes")
+              : t("Review before Codex starts")
+          }}
+        </span>
         <h2 id="launch-title">{{ t(activeAction?.intent ?? "") }}</h2>
         <p>{{ t(activeAction?.description ?? "") }}</p>
         <dl>
           <div><dt>{{ t("Project") }}</dt><dd>{{ projectName }}</dd></div>
           <div><dt>{{ t("Worktree") }}</dt><dd>{{ projectRoot }}</dd></div>
           <div><dt>{{ t("Branch") }}</dt><dd>{{ identity?.branch ?? t("unknown") }}</dd></div>
+          <div><dt>{{ t("Snapshot") }}</dt><dd>{{ reviewFingerprint.slice(0, 8) }}</dd></div>
           <div><dt>{{ t("Permission") }}</dt><dd>{{ statusLabel(launchSandbox) }}</dd></div>
+          <div><dt>{{ t("Risk") }}</dt><dd>{{ statusLabel(activeAction?.risk ?? risk.level) }}</dd></div>
           <div><dt>{{ t("Context") }}</dt><dd>{{ t("{count} estimated tokens", { count: formatNumber(context?.metrics.estimatedTokens ?? 0) }) }}</dd></div>
-          <div><dt>{{ t("Sources") }}</dt><dd>{{ sources.map((source) => statusLabel(source.kind)).join(", ") || t("repository + confirmed Atlas memory") }}</dd></div>
+          <div><dt>{{ t("Decision reviews") }}</dt><dd>{{ blockingFindings.length }}</dd></div>
           <div><dt>{{ t("Possible writes") }}</dt><dd>{{ activeAction?.possibleWrites.map(statusLabel).join(", ") || t("none") }}</dd></div>
           <div><dt>{{ t("External writes") }}</dt><dd>{{ t("prohibited in this run") }}</dd></div>
         </dl>
+        <section class="launch-review-section">
+          <strong>{{ t("Exact sources") }}</strong>
+          <p v-if="!sources.length">{{ t("Repository + Atlas only") }}</p>
+          <ul v-else>
+            <li v-for="source in sources" :key="`${source.kind}:${source.value}`">
+              <span>{{ statusLabel(source.kind) }}</span>
+              <code>{{ source.value }}</code>
+            </li>
+          </ul>
+        </section>
+        <section
+          v-if="activeAction?.expectedQuestions.length"
+          class="launch-review-section"
+        >
+          <strong>{{ t("Codex may pause for") }}</strong>
+          <ul>
+            <li v-for="question in activeAction.expectedQuestions" :key="question">
+              {{ t(question) }}
+            </li>
+          </ul>
+        </section>
         <div class="dialog-actions">
           <button class="secondary-button" @click="launchReviewOpen = false">{{ t("Back") }}</button>
           <button class="primary-button" @click="confirmLaunch">
-            {{ launchSandbox === "workspace-write" ? t("Implement in this task") : t("Start read-only preparation") }}
+            {{ launchActionLabel }}
           </button>
         </div>
       </section>
