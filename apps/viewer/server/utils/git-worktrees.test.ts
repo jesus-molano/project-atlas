@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { filesystemPathsEquivalent } from "@component-atlas/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createNewProjectBranchWorktree,
@@ -72,8 +73,8 @@ describe("Git branch and worktree inventory", () => {
       isCurrent: true,
       hasProjectManifest: true,
     });
-    expect(repository?.branches[1]?.worktree).toMatchObject({
-      path: releasePath,
+    const releaseWorktree = repository?.branches[1]?.worktree;
+    expect(releaseWorktree).toMatchObject({
       branch: "release",
       isCurrent: false,
       available: true,
@@ -82,6 +83,10 @@ describe("Git branch and worktree inventory", () => {
         changedFiles: 1,
       },
     });
+    expect(releaseWorktree?.path).toBeDefined();
+    expect(filesystemPathsEquivalent(releaseWorktree!.path, releasePath)).toBe(
+      true,
+    );
     expect(repository?.branches[2]).toMatchObject({
       hasProjectManifest: true,
     });
