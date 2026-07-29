@@ -516,10 +516,14 @@ export function resolveExplicitDesignTarget(
     .filter(
       (receipt) =>
         receipt.provider === "figma" &&
-        receipt.scope.kind === "node" &&
+        ["node", "selection"].includes(receipt.scope.kind) &&
         receipt.scope.id === normalizedNodeId &&
         receipt.resolved.fileKey === index.file.key &&
-        receipt.resolved.nodeId === normalizedNodeId &&
+        (receipt.resolved.nodeId === normalizedNodeId ||
+          (receipt.scopeRelation?.kind === "contained-scope" &&
+            receipt.scopeRelation.targetId === normalizedNodeId &&
+            (receipt.scopeRelation.sourceId === receipt.resolved.nodeId ||
+              receipt.scopeRelation.sourceId === receipt.resolved.fileKey))) &&
         receipt.coverage === "exact",
     );
   if (exactReceipts.length === 0) {
@@ -957,7 +961,8 @@ export function inspectDesignNode(
       : index.variables.availability === "selection-only"
         ? ["get_variable_defs"]
         : [];
-  if (node.codeConnections.length === 0) recommendedTools.push("get_code_connect_map");
+  const optionalEnrichmentTools =
+    node.codeConnections.length === 0 ? ["get_code_connect_map"] : [];
   const candidateSubtreeIds = node.childIds
     .map((childId) => byId.get(childId))
     .filter(
@@ -999,6 +1004,12 @@ export function inspectDesignNode(
           ? ["get_metadata", "get_design_context", "get_screenshot"]
           : ["get_design_context", "get_screenshot"],
       recommendedTools,
+      optionalEnrichmentTools,
+      codeConnect: {
+        status: node.codeConnections.length > 0 ? "mapped" : "unmapped",
+        policy: "advisory",
+        blocksFidelity: false,
+      },
       budgetPolicy: {
         preserveTargetFirst: true,
         omitFirst: [

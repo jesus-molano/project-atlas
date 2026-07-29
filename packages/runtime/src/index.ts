@@ -99,6 +99,7 @@ export {
   appendTaskJournalMilestone,
   encodeResumeCapsule,
   expandSourceReceipt,
+  loadConfirmedTaskSourceDecision,
   loadTaskResumeCapsule,
   loadTaskResumeTransport,
   persistSourceReceipts,
@@ -109,6 +110,7 @@ export {
   type TaskCheckpointInput,
   type TaskJournalMilestone,
   type TaskResumeCapsule,
+  type TaskSourceLedger,
   type TaskContextHandleSource,
 } from "./task-state.js";
 export {

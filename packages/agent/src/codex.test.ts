@@ -342,8 +342,11 @@ describe("Codex Agent Adapter", () => {
     expect(observed.prompt).toContain("Synchronize the exact confirmed Figma target");
     expect(observed.prompt).toContain("Do not inspect the repository");
     expect(observed.prompt).toContain("compose Atlas task context");
-    expect(observed.prompt).toContain("single exact confirmed Figma fileKey+nodeId");
-    expect(observed.prompt).toContain("Never replace the confirmed target");
+    expect(observed.prompt).toContain("ledger-declared primary route");
+    expect(observed.prompt).toContain("proven contained scope");
+    expect(observed.prompt).toContain("Never replace the confirmed source");
+    expect(observed.prompt).toContain("immutable `source_decision_id`");
+    expect(observed.prompt).toContain("Code Connect is advisory only");
     expect(observed.prompt).toContain("`map_figma_file`");
     expect(observed.prompt).not.toContain("Reviewed compact Project Atlas context");
     expect(observed.prompt).not.toContain("`sync_figma_variables`");

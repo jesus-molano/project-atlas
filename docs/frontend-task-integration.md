@@ -44,15 +44,18 @@ No manual scan, memory, context, or Figma command is required first.
    a separate form.
 8. Reduce the brief to one implementation intent.
 9. Call `scan_repository` and one budgeted `get_task_context` with one stable
-   `task_id`, the approved objective flag, and complete source-decision ledger.
+   `task_id`, the approved objective flag, and complete source-decision ledger,
+   including authority roles, provider/fallback policy, and explicit
+   cross-source scope relations.
    Preserve the returned `taskId` across the native Codex task. The runtime gate runs
    first. The response contains only the most relevant summaries, handles,
    SourceReceipt IDs, and compact retrieval telemetry under a shared cap; no
    index or receipt body is injected by default.
 10. At the start of preparation, ingest every confirmed Figma reference into
-   Design Atlas: retrieve sparse metadata and call `map_figma_file` with a
-   SourceReceipt bound to the exact decision and actual adapter route, including
-   for a concrete node. A concrete node preserves `fileKey+nodeId`, skips
+   Design Atlas: retrieve sparse metadata and call `map_figma_file` with the
+   same `task_id`, immutable `source_decision_id`, and actual adapter route,
+   including for a concrete node. Atlas resolves the confirmed reference from
+   its runtime ledger instead of trusting a recreated ID. A concrete node preserves `fileKey+nodeId`, skips
    candidate ranking, and blocks if missing/mismatched/stale; a file/page
    continues with `find_design_candidates`. Refresh the task/design snapshot so
    persisted nodes are visible before code work or task completion. Use the
@@ -63,7 +66,8 @@ No manual scan, memory, context, or Figma command is required first.
    instructions or mandatory prerequisites, not a replacement route. Use
    another connector, manual selection, or alternative evidence only when the
    local MCP is not connected, rejects/times out, does not respond, is
-   unauthorized, or lacks the operation, and briefly state the fallback
+   unauthorized, or lacks the operation and the task ledger explicitly allows
+   that fallback adapter. `ask` is not permission. Briefly state the fallback
    reason. Never probe it before source confirmation, and surface loading,
    available, confirmed-unsynchronized, or access/sync-error state instead of
    an unexplained empty design view. In the Workbench, an exact unsynchronized
@@ -72,7 +76,10 @@ No manual scan, memory, context, or Figma command is required first.
    task context, reads no unrelated connector, exposes progress/error/retry,
    and cannot substitute a ranked candidate.
 11. Treat Ready for dev as a ranking boost, never a filter or prerequisite.
-   Treat `source-unavailable` as a connector limitation, not a missing state.
+    Treat `source-unavailable` as a connector limitation, not a missing state.
+    Treat missing Code Connect as advisory enrichment: continue fidelity from
+    the confirmed Figma graph plus Code Atlas reuse graph, without pausing or
+    asking whether components should be mapped first.
 12. Stop for `decision-required`, surface `warning` with its recommendation, and
    retain `resolved` findings without interrupting the user.
     Medium-risk work also stops when sources conflict, persistence/cancel

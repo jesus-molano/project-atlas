@@ -182,14 +182,16 @@ Use another connector, manual selection, cached Atlas evidence, screenshots,
 supplied exports, or other alternatives only when the local Desktop MCP is not
 connected, rejects or times out on the request, does not respond, is not
 authorized, or does not expose the required operation. When falling back,
-include one brief explanation naming the local failure condition and the
-alternative used.
+the task ledger must explicitly allow the exact alternative adapter. `ask`
+means stop for permission; it is not permission. Include one brief explanation
+naming the local failure condition and the alternative used.
 
 At the start of preparation, before investigating code, ingest every confirmed
 Figma source through that route: retrieve sparse metadata from Figma Desktop
 MCP and immediately call Project Atlas `map_figma_file` with the exact project
-root and confirmed reference. Include a `source_receipt` bound to the exact
-source-decision ID, adapter/route/operation, observed time, scope, freshness,
+root, stable `task_id`, immutable `source_decision_id`, observed scope, and
+metadata. Atlas resolves the confirmed reference from its task ledger. Include
+a `source_receipt` with adapter/route/operation, observed time, scope, freshness,
 coverage, and any identity-preserving fallback. Do this for file, page, and direct-node links so
 Design Atlas persists the available nodes and relationships while preparation
 is still running. Refresh the task/design snapshot after mapping. Never probe
@@ -266,7 +268,10 @@ asset URLs; retain file/node identity and resolve relevant assets on demand.
 
 Use global Variables collection/mode summaries only when read access exists.
 Otherwise retrieve `get_variable_defs` for the confirmed node. Code Connect,
-global Variables, and library data improve evidence but are optional.
+global Variables, and library data improve evidence but are optional. Missing
+Code Connect never pauses fidelity, never requires a mapping decision, and
+never blocks continued use of the confirmed Figma graph plus Code Atlas reuse
+evidence.
 
 ## Preserve source identity and resumability
 
@@ -274,6 +279,11 @@ global Variables, and library data improve evidence but are optional.
   OpenAPI/Swagger contract is authoritative. Search results are candidates, not
   substitutes. A linked secondary source returns to `pending` until explicitly
   promoted to a primary source and confirmed.
+- Keep authority domains explicit: Jira/Confluence constrain requirements,
+  Figma constrains visual scope, OpenAPI constrains the contract, and repository
+  evidence constrains implementation/reuse. Record a requirement-to-Figma
+  selected-scope relation separately; never say Confluence fixes a Figma node
+  or let that relation replace either source identity.
 - Every external evidence item must reference a SourceReceipt ID bound to its
   confirmed source decision. Requested/resolved identity, adapter route,
   operation, exact scope, observation/version/hash, fallback condition,

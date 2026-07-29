@@ -82,6 +82,13 @@ flowchart LR
   versioned core schema, while the runtime validates persisted receipts again at
   the trust boundary.
 
+SourceReceipt v2 binds immutable source identity separately from observed
+scope. A contained Figma selection carries a validated `scopeRelation` while
+the complete task source ledger remains outside the checkout. Provider policy
+is evaluated against that ledger: `deny` forbids fallback, `ask` pauses before
+access, and `allow-list` permits only named adapters with a recorded condition.
+Legacy v1 receipts remain readable and are not rewritten automatically.
+
 ## Agent context contract
 
 `buildReuseContext` is the stable integration boundary. Given a repository graph,

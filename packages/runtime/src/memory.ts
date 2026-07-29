@@ -822,11 +822,33 @@ export async function getTaskContext(
       (target): target is typeof target & { nodeId: string } =>
         Boolean(target.nodeId),
     );
+    const relatedFigmaScopes = (options.sourcePolicy?.relations ?? [])
+      .filter(
+        (relation) =>
+          relation.targetScope?.provider === "figma" &&
+          ["node", "selection"].includes(relation.targetScope?.kind ?? ""),
+      )
+      .map((relation) => relation.targetScope!)
+      .filter(
+        (scope, index, collection) =>
+          collection.findIndex((candidate) => candidate.id === scope.id) ===
+          index,
+      );
+    const relatedDirectTarget =
+      confirmedFigmaTargets.length === 1 && relatedFigmaScopes.length === 1
+        ? {
+            ...confirmedFigmaTargets[0]!,
+            nodeId: relatedFigmaScopes[0]!.id,
+          }
+        : undefined;
+    const effectiveDirectFigmaTargets = relatedDirectTarget
+      ? [relatedDirectTarget]
+      : directFigmaTargets;
     const selectedDirectTarget =
-      directFigmaTargets.length === 1
-        ? directFigmaTargets[0]
+      effectiveDirectFigmaTargets.length === 1
+        ? effectiveDirectFigmaTargets[0]
         : selectedDesign?.nodeId
-          ? directFigmaTargets.find(
+          ? effectiveDirectFigmaTargets.find(
               (target) =>
                 target.fileKey === selectedDesign.fileKey &&
                 target.nodeId === selectedDesign.nodeId,
@@ -856,20 +878,22 @@ export async function getTaskContext(
             ? eligibleIndexes[0]
             : undefined;
     const designIdentityFindings: DesignFinding[] =
-      directFigmaTargets.length > 1 && !selectedDirectTarget
+      effectiveDirectFigmaTargets.length > 1 && !selectedDirectTarget
         ? [
             {
               id: "source-contradiction:multiple-explicit-figma-targets",
               level: "decision-required",
               code: "source-contradiction",
               title: "Multiple explicit Figma nodes are confirmed as the target",
-              evidence: directFigmaTargets
+              evidence: effectiveDirectFigmaTargets
                 .slice(0, 5)
                 .map((target) => `${target.fileKey}::${target.nodeId}`),
               recommendation:
                 "Select one exact target or explicitly define how the confirmed nodes form one implementation scope.",
               question: "Which confirmed Figma node is the implementation target?",
-              nodeIds: directFigmaTargets.map((target) => target.nodeId),
+              nodeIds: effectiveDirectFigmaTargets.map(
+                (target) => target.nodeId,
+              ),
             },
           ]
         : selectedDirectTarget && !selectedIndex

@@ -17,6 +17,9 @@ export type AgentSourceReceiptAdapter =
   | "openapi-public-http"
   | "openapi-internal-connector"
   | "github-connector"
+  | "browser-in-app"
+  | "chrome-browser"
+  | "web-http"
   | "atlas-cache"
   | "manual-import"
   | "other";
@@ -37,7 +40,7 @@ export interface AgentSourceIdentity {
 }
 
 export interface AgentSourceReceipt {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   sourceDecisionId: string;
   provider: AgentSourceReceiptProvider;
@@ -59,6 +62,13 @@ export interface AgentSourceReceipt {
       | "unknown";
     id: string;
     parentId?: string;
+  };
+  scopeRelation?: {
+    kind: "same-scope" | "contained-scope";
+    sourceId: string;
+    targetId: string;
+    ancestorIds?: string[];
+    proofHash?: string;
   };
   contentHash?: string;
   observedAt: string;
@@ -119,6 +129,16 @@ export interface AgentSourceDecision {
   replacementFor?: string;
   parentSourceId?: string;
   relationship?: "primary" | "search-candidate" | "linked-secondary";
+  authorityRole?:
+    | "requirement"
+    | "visual"
+    | "contract"
+    | "implementation-reference";
+  routePolicy?: {
+    primaryAdapter: string;
+    fallback: "deny" | "ask" | "allow-list";
+    allowedFallbackAdapters?: string[];
+  };
   decidedAt?: string;
 }
 

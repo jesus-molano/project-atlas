@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   assessTaskRisk,
+  assertSourceReceiptMatchesDecision,
   buildComponentContext,
   buildImpactContext,
   buildReuseContext,
@@ -13,10 +14,10 @@ import {
   createSourceReceipt,
   findComponent,
   normalizeTaskSourceDecisions,
+  normalizeTaskSourceRelations,
   searchComponentContext,
   searchComponents,
   sourceIdentityFromReference,
-  taskSourceId,
   similarComponents,
   type ComponentGraph,
   type ComponentNode,
@@ -45,6 +46,7 @@ import {
   recordProjectOutcome,
   recordTaskEvaluation,
   loadTaskResumeTransport,
+  loadConfirmedTaskSourceDecision,
   claimTaskRetrieval,
   completeTaskRetrieval,
   reuseRetrievalKey,
@@ -60,6 +62,85 @@ import {
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+
+const taskSourceDecisionSchema = z.object({
+  id: z.string().optional(),
+  kind: z.enum([
+    "jira",
+    "confluence",
+    "figma",
+    "github",
+    "openapi",
+    "other",
+  ]),
+  reference: z.string(),
+  origin: z.enum(["explicit", "inferred", "manual"]),
+  state: z.enum([
+    "pending",
+    "confirmed",
+    "omitted",
+    "unavailable",
+    "replaced",
+  ]),
+  required: z.boolean(),
+  replacementFor: z.string().optional(),
+  parentSourceId: z.string().optional(),
+  relationship: z
+    .enum(["primary", "search-candidate", "linked-secondary"])
+    .optional(),
+  authorityRole: z
+    .enum([
+      "requirement",
+      "visual",
+      "contract",
+      "implementation-reference",
+    ])
+    .optional(),
+  routePolicy: z
+    .object({
+      primaryAdapter: z.string().regex(/^[a-z0-9][a-z0-9-]{1,79}$/u),
+      fallback: z.enum(["deny", "ask", "allow-list"]),
+      allowedFallbackAdapters: z
+        .array(z.string().regex(/^[a-z0-9][a-z0-9-]{1,79}$/u))
+        .max(8)
+        .optional(),
+    })
+    .optional(),
+  decidedAt: z.string().optional(),
+});
+
+const taskSourceRelationSchema = z.object({
+  id: z.string().optional(),
+  fromSourceId: z.string().max(160),
+  toSourceId: z.string().max(160),
+  kind: z.enum([
+    "references-design",
+    "constrains-contract",
+    "secondary-implementation-reference",
+  ]),
+  targetScope: z
+    .object({
+      provider: z.enum([
+        "jira",
+        "confluence",
+        "figma",
+        "github",
+        "openapi",
+        "other",
+      ]),
+      kind: z.enum([
+        "file",
+        "page",
+        "node",
+        "selection",
+        "operation",
+        "unknown",
+      ]),
+      id: z.string().min(1).max(500),
+    })
+    .optional(),
+  confirmedAt: z.string().datetime().optional(),
+});
 
 function text(value: unknown) {
   const serialized = JSON.stringify(value) ?? "null";
@@ -548,6 +629,8 @@ export function createMcpServer(): McpServer {
     {
       root_path: z.string(),
       figma_url: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u).optional(),
+      source_decision_id: z.string().max(160).optional(),
       metadata: z.union([z.string(), z.record(z.unknown())]),
       format: z
         .enum(["auto", "figma-mcp-xml", "figma-rest"])
@@ -610,6 +693,8 @@ export function createMcpServer(): McpServer {
     async ({
       root_path,
       figma_url,
+      task_id,
+      source_decision_id,
       metadata,
       format,
       file_name,
@@ -623,13 +708,64 @@ export function createMcpServer(): McpServer {
       force,
       budget_chars,
     }) => {
-      const identity = sourceIdentityFromReference("figma", figma_url);
-      const exactNodeId = scope_node_id ?? identity.nodeId;
+      if (Boolean(task_id) !== Boolean(source_decision_id)) {
+        throw new Error(
+          "Authoritative Figma mapping requires both task_id and source_decision_id.",
+        );
+      }
+      const observedIdentity = sourceIdentityFromReference("figma", figma_url);
+      const authoritativeDecision =
+        task_id && source_decision_id
+          ? await loadConfirmedTaskSourceDecision(
+              root_path,
+              task_id,
+              source_decision_id,
+            )
+          : undefined;
+      if (authoritativeDecision && authoritativeDecision.kind !== "figma") {
+        throw new Error("The task source decision is not a Figma source.");
+      }
+      if (authoritativeDecision && !source_receipt) {
+        throw new Error(
+          "Authoritative Figma mapping requires route evidence in source_receipt.",
+        );
+      }
+      const confirmedReference =
+        authoritativeDecision?.reference ?? figma_url;
+      const identity = sourceIdentityFromReference(
+        "figma",
+        confirmedReference,
+      );
+      if (
+        identity.fileKey !== observedIdentity.fileKey ||
+        (identity.host &&
+          observedIdentity.host &&
+          identity.host !== observedIdentity.host)
+      ) {
+        throw new Error(
+          "The observed Figma scope belongs to a different confirmed file.",
+        );
+      }
+      const exactNodeId =
+        scope_node_id ?? observedIdentity.nodeId ?? identity.nodeId;
+      const sourceScopeId = identity.nodeId ?? identity.fileKey!;
+      const scopeRelation =
+        exactNodeId
+          ? {
+              kind:
+                sourceScopeId === exactNodeId
+                  ? ("same-scope" as const)
+                  : ("contained-scope" as const),
+              sourceId: sourceScopeId,
+              targetId: exactNodeId,
+            }
+          : undefined;
       const receipt = source_receipt
         ? createSourceReceipt({
             sourceDecisionId:
+              authoritativeDecision?.id ??
               source_receipt.source_decision_id ??
-              taskSourceId("figma", figma_url),
+              "unbound-figma-observation",
             provider: "figma",
             requested: identity,
             resolved: {
@@ -648,6 +784,7 @@ export function createMcpServer(): McpServer {
                     : {}),
                 }
               : { kind: "file", id: identity.fileKey! },
+            ...(scopeRelation ? { scopeRelation } : {}),
             observedAt:
               source_receipt.observed_at ?? new Date().toISOString(),
             ...(source_receipt.fallback
@@ -660,13 +797,30 @@ export function createMcpServer(): McpServer {
                   },
                 }
               : {}),
-            coverage: "exact",
+            coverage: authoritativeDecision ? "exact" : "candidate",
             freshness: source_receipt.freshness ?? "current",
           })
         : undefined;
+      if (authoritativeDecision && receipt) {
+        assertSourceReceiptMatchesDecision(
+          {
+            id: authoritativeDecision.id,
+            kind: authoritativeDecision.kind,
+            reference: authoritativeDecision.reference,
+            state: authoritativeDecision.state,
+            ...(authoritativeDecision.routePolicy
+              ? { routePolicy: authoritativeDecision.routePolicy }
+              : {}),
+          },
+          receipt,
+        );
+      }
       const result = await mapFigmaDesign({
           rootPath: root_path,
           figmaUrl: figma_url,
+          ...(authoritativeDecision
+            ? { confirmedSourceReference: authoritativeDecision.reference }
+            : {}),
           metadata,
           ...(format ? { format } : {}),
           ...(file_name ? { fileName: file_name } : {}),
@@ -968,38 +1122,8 @@ export function createMcpServer(): McpServer {
         .max(8)
         .optional(),
       objective_confirmed: z.boolean().optional(),
-      source_decisions: z
-        .array(
-          z.object({
-            id: z.string().optional(),
-            kind: z.enum([
-              "jira",
-              "confluence",
-              "figma",
-              "github",
-              "openapi",
-              "other",
-            ]),
-            reference: z.string(),
-            origin: z.enum(["explicit", "inferred", "manual"]),
-            state: z.enum([
-              "pending",
-              "confirmed",
-              "omitted",
-              "unavailable",
-              "replaced",
-            ]),
-            required: z.boolean(),
-            replacementFor: z.string().optional(),
-            parentSourceId: z.string().optional(),
-            relationship: z
-              .enum(["primary", "search-candidate", "linked-secondary"])
-              .optional(),
-            decidedAt: z.string().optional(),
-          }),
-        )
-        .max(12)
-        .optional(),
+      source_decisions: z.array(taskSourceDecisionSchema).max(12).optional(),
+      source_relations: z.array(taskSourceRelationSchema).max(12).optional(),
     },
     async ({
       root_path,
@@ -1012,9 +1136,14 @@ export function createMcpServer(): McpServer {
       selected_handles,
       objective_confirmed,
       source_decisions,
+      source_relations,
     }) => {
       const resolvedTaskId = task_id ?? `task-${randomUUID()}`;
       const decisions = normalizeTaskSourceDecisions(source_decisions ?? []);
+      const relations = normalizeTaskSourceRelations(
+        source_relations ?? [],
+        decisions,
+      );
       const budgetChars = budget_chars ?? 4_200;
       await writeTaskCheckpoint(root_path, {
         taskId: resolvedTaskId,
@@ -1022,6 +1151,7 @@ export function createMcpServer(): McpServer {
         objective: task,
         objectiveApproved: objective_confirmed ?? false,
         decisions,
+        sourceRelations: relations,
         sourceReceiptIds: [],
         handles: selected_handles ?? [],
         covered: ["task intake"],
@@ -1040,6 +1170,7 @@ export function createMcpServer(): McpServer {
             objectiveConfirmed: objective_confirmed ?? false,
             risk: assessTaskRisk(task),
             sources: decisions,
+            relations,
           },
           {
             ...(figma_file ? { figmaFile: figma_file } : {}),
@@ -1048,13 +1179,16 @@ export function createMcpServer(): McpServer {
             ...(refresh_memory ? { refreshMemory: true } : {}),
             ...(selected_handles ? { selectedHandles: selected_handles } : {}),
             taskId: resolvedTaskId,
-            sourceLedgerHash: JSON.stringify(
-              decisions.map((decision) => [
+            sourceLedgerHash: JSON.stringify({
+              decisions: decisions.map((decision) => [
                 decision.id,
                 decision.state,
                 decision.reference,
+                decision.authorityRole,
+                decision.routePolicy,
               ]),
-            ),
+              relations,
+            }),
           },
         );
         await writeTaskCheckpoint(root_path, {
@@ -1066,6 +1200,7 @@ export function createMcpServer(): McpServer {
           objective: task,
           objectiveApproved: objective_confirmed ?? false,
           decisions,
+          sourceRelations: relations,
           sourceReceiptIds: context.sourceReceiptIds,
           handles: taskContextResumeHandles(context),
           covered: ["task intake", "source preflight", "bounded context"],
@@ -1084,6 +1219,7 @@ export function createMcpServer(): McpServer {
           objective: task,
           objectiveApproved: objective_confirmed ?? false,
           decisions,
+          sourceRelations: relations,
           sourceReceiptIds: [],
           handles: selected_handles ?? [],
           covered: ["task intake"],
@@ -1229,38 +1365,8 @@ export function createMcpServer(): McpServer {
       ]),
       objective: z.string().min(1).max(6_000),
       objective_approved: z.boolean(),
-      source_decisions: z
-        .array(
-          z.object({
-            id: z.string().optional(),
-            kind: z.enum([
-              "jira",
-              "confluence",
-              "figma",
-              "github",
-              "openapi",
-              "other",
-            ]),
-            reference: z.string(),
-            origin: z.enum(["explicit", "inferred", "manual"]),
-            state: z.enum([
-              "pending",
-              "confirmed",
-              "omitted",
-              "unavailable",
-              "replaced",
-            ]),
-            required: z.boolean(),
-            replacementFor: z.string().optional(),
-            parentSourceId: z.string().optional(),
-            relationship: z
-              .enum(["primary", "search-candidate", "linked-secondary"])
-              .optional(),
-            decidedAt: z.string().optional(),
-          }),
-        )
-        .max(12)
-        .optional(),
+      source_decisions: z.array(taskSourceDecisionSchema).max(12).optional(),
+      source_relations: z.array(taskSourceRelationSchema).max(12).optional(),
       source_receipt_ids: z
         .array(z.string().regex(/^receipt-[a-f0-9]{16}$/u))
         .max(20)
@@ -1312,6 +1418,7 @@ export function createMcpServer(): McpServer {
       objective,
       objective_approved,
       source_decisions,
+      source_relations,
       source_receipt_ids,
       handles,
       execution_manifest,
@@ -1322,13 +1429,18 @@ export function createMcpServer(): McpServer {
       estimated_tokens,
       next_safe_action,
     }) => {
+      const decisions = normalizeTaskSourceDecisions(source_decisions ?? []);
       const capsule = await writeTaskCheckpoint(root_path, {
         taskId: task_id,
         ...(status ? { status } : {}),
         milestone,
         objective,
         objectiveApproved: objective_approved,
-        decisions: normalizeTaskSourceDecisions(source_decisions ?? []),
+        decisions,
+        sourceRelations: normalizeTaskSourceRelations(
+          source_relations ?? [],
+          decisions,
+        ),
         sourceReceiptIds: source_receipt_ids ?? [],
         handles: handles ?? [],
         ...(execution_manifest

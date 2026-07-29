@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { taskSourceId } from "@component-atlas/core";
 import { describe, expect, it } from "vitest";
 import { createMcpServer } from "./index.js";
 
@@ -68,6 +69,8 @@ describe("Project Atlas MCP surface", () => {
           "metadata",
         ]),
         properties: {
+          task_id: { type: "string" },
+          source_decision_id: { type: "string" },
           enrichment: { type: "object" },
           force: { type: "boolean" },
         },
@@ -95,6 +98,7 @@ describe("Project Atlas MCP surface", () => {
             minimum: 1,
             maximum: 10,
           },
+          source_relations: { type: "array", maxItems: 12 },
         },
       });
       expect(
@@ -113,6 +117,7 @@ describe("Project Atlas MCP surface", () => {
         properties: {
           source_receipt_ids: { type: "array", maxItems: 20 },
           handles: { type: "array", maxItems: 8 },
+          source_relations: { type: "array", maxItems: 12 },
         },
       });
       expect(
@@ -233,14 +238,76 @@ describe("Project Atlas MCP surface", () => {
       });
       expect(invalidReuseLimit.isError).toBe(true);
 
+      const figmaReference =
+        "https://www.figma.com/design/PersonalShop/Personal-shop";
+      const figmaSourceDecisionId = taskSourceId("figma", figmaReference);
+      const sourceCheckpoint = await client.callTool({
+        name: "checkpoint_task",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-mcp-e2e",
+          milestone: "decision-confirmed",
+          objective: "add study filter to search on mobile",
+          objective_approved: true,
+          source_decisions: [
+            {
+              kind: "figma",
+              reference: figmaReference,
+              origin: "manual",
+              state: "confirmed",
+              required: false,
+              relationship: "primary",
+              authorityRole: "visual",
+              routePolicy: {
+                primaryAdapter: "figma-desktop-mcp-local",
+                fallback: "deny",
+              },
+            },
+          ],
+          source_receipt_ids: [],
+          handles: [],
+          covered: ["intake"],
+          remaining: ["source synchronization"],
+          budget_chars: 2800,
+          next_safe_action: "Synchronize the confirmed Figma source.",
+        },
+      });
+      expect(sourceCheckpoint.isError).not.toBe(true);
+
+      const forbiddenFigmaFallback = await client.callTool({
+        name: "map_figma_file",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-mcp-e2e",
+          source_decision_id: figmaSourceDecisionId,
+          figma_url: figmaReference,
+          metadata,
+          format: "figma-mcp-xml",
+          source_receipt: {
+            adapter: "figma-remote-connector",
+            route: "figma-remote:get-metadata",
+            operation: "get_metadata",
+            observed_at: "2026-07-29T11:59:00.000Z",
+          },
+        },
+      });
+      expect(forbiddenFigmaFallback.isError).toBe(true);
+
       const mapped = await client.callTool({
         name: "map_figma_file",
         arguments: {
           root_path: rootPath,
-          figma_url:
-            "https://www.figma.com/design/PersonalShop/Personal-shop",
+          task_id: "task-mcp-e2e",
+          source_decision_id: figmaSourceDecisionId,
+          figma_url: figmaReference,
           metadata,
           format: "figma-mcp-xml",
+          source_receipt: {
+            adapter: "figma-desktop-mcp-local",
+            route: "http://127.0.0.1:3845/mcp",
+            operation: "get_metadata",
+            observed_at: "2026-07-29T12:00:00.000Z",
+          },
           budget_chars: 1_600,
         },
       });
@@ -257,6 +324,117 @@ describe("Project Atlas MCP surface", () => {
       expect(JSON.stringify(mapped.structuredContent).length).toBeLessThanOrEqual(
         1_600,
       );
+
+      const confluenceReference = "confluence:470516116";
+      const confluenceDecisionId = taskSourceId(
+        "confluence",
+        confluenceReference,
+      );
+      const figmaPageReference =
+        "https://www.figma.com/design/PersonalShop/Personal-shop?node-id=0-10";
+      const figmaPageDecisionId = taskSourceId("figma", figmaPageReference);
+      const scopedDecisions = [
+        {
+          kind: "confluence" as const,
+          reference: confluenceReference,
+          origin: "manual" as const,
+          state: "confirmed" as const,
+          required: false,
+          relationship: "primary" as const,
+          authorityRole: "requirement" as const,
+          routePolicy: {
+            primaryAdapter: "atlassian-rovo",
+            fallback: "deny" as const,
+          },
+        },
+        {
+          kind: "figma" as const,
+          reference: figmaPageReference,
+          origin: "manual" as const,
+          state: "confirmed" as const,
+          required: false,
+          relationship: "primary" as const,
+          authorityRole: "visual" as const,
+          routePolicy: {
+            primaryAdapter: "figma-desktop-mcp-local",
+            fallback: "deny" as const,
+          },
+        },
+      ];
+      const scopedRelations = [
+        {
+          fromSourceId: confluenceDecisionId,
+          toSourceId: figmaPageDecisionId,
+          kind: "references-design" as const,
+          targetScope: {
+            provider: "figma" as const,
+            kind: "selection" as const,
+            id: "60:2",
+          },
+        },
+      ];
+      await client.callTool({
+        name: "checkpoint_task",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-figma-scope",
+          milestone: "decision-confirmed",
+          objective: "Match the confirmed responsive card design.",
+          objective_approved: true,
+          source_decisions: scopedDecisions,
+          source_relations: scopedRelations,
+          budget_chars: 2800,
+          next_safe_action: "Map only the selected Figma scope.",
+        },
+      });
+      const scopedMap = await client.callTool({
+        name: "map_figma_file",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-figma-scope",
+          source_decision_id: figmaPageDecisionId,
+          figma_url:
+            "https://www.figma.com/design/PersonalShop/Personal-shop?node-id=60-2",
+          metadata,
+          format: "figma-mcp-xml",
+          scope_node_id: "60:2",
+          scope_page_id: "0:10",
+          source_receipt: {
+            adapter: "figma-desktop-mcp-local",
+            route: "http://127.0.0.1:3845/mcp",
+            operation: "get_metadata",
+            observed_at: "2026-07-29T12:05:00.000Z",
+          },
+          budget_chars: 1600,
+        },
+      });
+      expect(scopedMap.isError).not.toBe(true);
+      const scopedContext = await client.callTool({
+        name: "get_task_context",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-figma-scope",
+          task: "Match the confirmed responsive card design.",
+          objective_confirmed: true,
+          source_decisions: scopedDecisions,
+          source_relations: scopedRelations,
+          budget_chars: 2800,
+        },
+      });
+      expect(
+        scopedContext.isError,
+        JSON.stringify(scopedContext),
+      ).not.toBe(true);
+      expect(scopedContext.structuredContent).toMatchObject({
+        design: {
+          candidates: [
+            expect.objectContaining({
+              id: "60:2",
+              origin: "user-confirmed-target",
+            }),
+          ],
+        },
+      });
 
       const invalidGlobalVariables = await client.callTool({
         name: "sync_figma_variables",
@@ -405,12 +583,16 @@ describe("Project Atlas MCP surface", () => {
           source_decisions: [
             {
               kind: "figma",
-              reference:
-                "https://www.figma.com/design/PersonalShop/Personal-shop",
+              reference: figmaReference,
               origin: "manual",
               state: "confirmed",
               required: false,
               relationship: "primary",
+              authorityRole: "visual",
+              routePolicy: {
+                primaryAdapter: "figma-desktop-mcp-local",
+                fallback: "deny",
+              },
             },
           ],
         },

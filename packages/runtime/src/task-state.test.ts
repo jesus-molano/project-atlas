@@ -6,6 +6,7 @@ import { projectStorageDirectory } from "@component-atlas/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveProjectIdentity } from "./identity.js";
 import {
+  loadConfirmedTaskSourceDecision,
   loadTaskResumeCapsule,
   loadTaskResumeTransport,
   pruneExpiredTaskState,
@@ -117,6 +118,69 @@ describe("task checkpoint and resume", () => {
     expect(transport?.body).toContain("nextSafeAction");
     expect(transport?.fallbackAvailable).toBe(true);
     expect(transport).not.toHaveProperty("fallbackJson");
+  });
+
+  it("retains confirmed source authority and route policy across later checkpoints", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-ledger-"));
+    const exactReference =
+      "https://example.atlassian.net/wiki/spaces/HH/pages/470516116/Two-factor-authentication?source=confirmed-short-link-resolution-and-version";
+    const decisions: TaskSourceDecision[] = [
+      {
+        id: taskSourceId("confluence", exactReference),
+        kind: "confluence",
+        reference: exactReference,
+        origin: "explicit",
+        state: "confirmed",
+        required: true,
+        authorityRole: "requirement",
+        routePolicy: {
+          primaryAdapter: "atlassian-rovo",
+          fallback: "deny",
+        },
+      },
+    ];
+    await writeTaskCheckpoint(root, {
+      taskId: "task-ledger",
+      milestone: "decision-confirmed",
+      objective: "Implement the confirmed requirement",
+      objectiveApproved: true,
+      decisions,
+      sourceReceiptIds: [],
+      handles: [],
+      covered: ["intake"],
+      remaining: ["implementation"],
+      budgetChars: 2_400,
+      nextSafeAction: "Resolve the confirmed issue.",
+    });
+    await writeTaskCheckpoint(root, {
+      taskId: "task-ledger",
+      milestone: "batch-completed",
+      objective: "Implement the confirmed requirement",
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      handles: [],
+      covered: ["intake", "requirements"],
+      remaining: ["implementation"],
+      budgetChars: 2_400,
+      nextSafeAction: "Implement without asking for the source again.",
+    });
+
+    await expect(
+      loadConfirmedTaskSourceDecision(
+        root,
+        "task-ledger",
+        decisions[0]!.id,
+      ),
+    ).resolves.toMatchObject({
+      reference: exactReference,
+      authorityRole: "requirement",
+      routePolicy: {
+        primaryAdapter: "atlassian-rovo",
+        fallback: "deny",
+      },
+    });
+    await rm(root, { recursive: true, force: true });
   });
 
   it("keeps a minimal final receipt and removes expired capsule/journal state", async () => {

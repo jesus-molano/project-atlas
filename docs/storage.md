@@ -31,6 +31,7 @@ ProjectAtlas/
 │       │   └── local/
 │       └── task-state/
 │           ├── capsules/
+│           ├── ledgers/
 │           ├── journals/
 │           ├── manifests/
 │           ├── receipts/
@@ -44,6 +45,11 @@ ProjectAtlas/
 `projects/` is durable. `temp/` is ephemeral and every owned session has an
 expiry plus explicit close/cancel cleanup. Cleanup verifies ownership and
 never recursively deletes an unverified path.
+
+`ledgers/` holds the complete immutable source decisions, provider policies,
+and cross-source scope relations. Capsules contain only a bounded resume
+projection, so a long confirmed URL is never truncated at the trust boundary
+and later checkpoints do not require the user to repeat it.
 
 Logical project identity is based on the normalized Git remote, then the Git
 common directory, and finally the canonical path. Worktrees share the logical

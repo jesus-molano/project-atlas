@@ -12,9 +12,14 @@ import {
 import path from "node:path";
 import { promisify } from "node:util";
 import {
+  defaultTaskSourceAuthorityRole,
+  defaultTaskSourceRoutePolicy,
+  normalizeTaskSourceDecisions,
+  normalizeTaskSourceRelations,
   parseSourceReceipt,
   type SourceReceipt,
   type TaskSourceDecision,
+  type TaskSourceRelation,
 } from "@component-atlas/core";
 import { fitBudgetedResponse } from "@component-atlas/memory";
 import { projectStorageDirectory } from "@component-atlas/store";
@@ -58,7 +63,10 @@ export interface TaskResumeCapsule {
     state: TaskSourceDecision["state"];
     required: boolean;
     reference: string;
+    authorityRole?: TaskSourceDecision["authorityRole"];
+    routePolicy?: TaskSourceDecision["routePolicy"];
   }>;
+  sourceRelations?: TaskSourceRelation[];
   sourceReceiptIds: string[];
   handles: string[];
   scope: {
@@ -95,6 +103,7 @@ export interface TaskCheckpointInput {
   objective: string;
   objectiveApproved: boolean;
   decisions: TaskSourceDecision[];
+  sourceRelations?: TaskSourceRelation[];
   sourceReceiptIds: string[];
   handles: string[];
   covered: string[];
@@ -106,6 +115,14 @@ export interface TaskCheckpointInput {
   nextSafeAction: string;
   head?: string;
   at?: string;
+}
+
+export interface TaskSourceLedger {
+  schemaVersion: 1;
+  taskId: string;
+  updatedAt: string;
+  decisions: TaskSourceDecision[];
+  relations: TaskSourceRelation[];
 }
 
 export interface ResumeCapsuleTransport {
@@ -233,6 +250,9 @@ function fitCapsuleStorageBudget(
       id: short(decision.id, 120),
       reference: short(decision.reference, 80),
     })),
+    ...(capsule.sourceRelations
+      ? { sourceRelations: capsule.sourceRelations.slice(0, 8) }
+      : {}),
     sourceReceiptIds: capsule.sourceReceiptIds.slice(0, 12),
     handles: capsule.handles.slice(0, 4),
     scope: {
@@ -370,6 +390,47 @@ export async function writeTaskCheckpoint(
   const executionManifest =
     input.executionManifest ?? existingCapsule?.executionManifest;
   const activePolicy = input.activePolicy ?? existingCapsule?.activePolicy;
+  const existingLedger = await loadTaskSourceLedger(
+    rootPath,
+    input.taskId,
+  );
+  const effectiveDecisions =
+    input.decisions.length > 0
+      ? normalizeTaskSourceDecisions(input.decisions)
+      : existingLedger?.decisions ??
+        (existingCapsule?.decisions.map((decision) => ({
+            id: decision.id,
+            kind: decision.kind,
+            state: decision.state,
+            required: decision.required,
+            reference: decision.reference,
+            origin: "manual" as const,
+            relationship: "primary" as const,
+            authorityRole:
+              decision.authorityRole ??
+              defaultTaskSourceAuthorityRole(decision.kind),
+            routePolicy:
+              decision.routePolicy ??
+              defaultTaskSourceRoutePolicy(decision.kind, decision.reference),
+          })) ?? []);
+  const normalizedRelations = normalizeTaskSourceRelations(
+    input.sourceRelations ??
+      existingLedger?.relations ??
+      existingCapsule?.sourceRelations ??
+      [],
+    effectiveDecisions,
+  );
+  if (effectiveDecisions.length > 0) {
+    const ledgerDirectory = path.join(await taskStateRoot(rootPath), "ledgers");
+    await mkdir(ledgerDirectory, { recursive: true });
+    await atomicJson(path.join(ledgerDirectory, `${input.taskId}.json`), {
+      schemaVersion: 1,
+      taskId: input.taskId,
+      updatedAt: now,
+      decisions: effectiveDecisions,
+      relations: normalizedRelations,
+    } satisfies TaskSourceLedger);
+  }
   const capsule = fitCapsuleStorageBudget({
     schemaVersion: CAPSULE_SCHEMA_VERSION,
     taskId: input.taskId,
@@ -383,13 +444,22 @@ export async function writeTaskCheckpoint(
       text: short(input.objective, 480),
       approved: input.objectiveApproved,
     },
-    decisions: input.decisions.slice(0, 12).map((decision) => ({
+    decisions: effectiveDecisions.slice(0, 12).map((decision) => ({
       id: short(decision.id, 160),
       kind: decision.kind,
       state: decision.state,
       required: decision.required,
       reference: short(decision.reference, 120),
+      authorityRole:
+        decision.authorityRole ??
+        defaultTaskSourceAuthorityRole(decision.kind),
+      routePolicy:
+        decision.routePolicy ??
+        defaultTaskSourceRoutePolicy(decision.kind, decision.reference),
     })),
+    ...(normalizedRelations.length > 0
+      ? { sourceRelations: normalizedRelations }
+      : {}),
     sourceReceiptIds: [
       ...new Set(
         input.sourceReceiptIds
@@ -484,6 +554,75 @@ export async function loadTaskResumeCapsule(
     }
     throw error;
   }
+}
+
+function validateSourceLedger(value: unknown): TaskSourceLedger {
+  if (!value || typeof value !== "object") {
+    throw new Error("Task source ledger is invalid.");
+  }
+  const ledger = value as TaskSourceLedger;
+  if (
+    ledger.schemaVersion !== 1 ||
+    !TASK_ID.test(ledger.taskId) ||
+    !Number.isFinite(Date.parse(ledger.updatedAt))
+  ) {
+    throw new Error("Task source ledger is invalid.");
+  }
+  const decisions = normalizeTaskSourceDecisions(ledger.decisions);
+  return {
+    ...ledger,
+    decisions,
+    relations: normalizeTaskSourceRelations(ledger.relations, decisions),
+  };
+}
+
+async function loadTaskSourceLedger(
+  rootPath: string,
+  taskId: string,
+): Promise<TaskSourceLedger | undefined> {
+  const stateRoot = await taskStateRoot(rootPath);
+  try {
+    const ledger = validateSourceLedger(
+      JSON.parse(
+        await readFile(
+          path.join(stateRoot, "ledgers", `${taskId}.json`),
+          "utf8",
+        ),
+      ),
+    );
+    if (ledger.taskId !== taskId) {
+      throw new Error("Task source ledger identity is invalid.");
+    }
+    return ledger;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+export async function loadConfirmedTaskSourceDecision(
+  rootPath: string,
+  taskId: string,
+  sourceDecisionId: string,
+): Promise<TaskSourceDecision | TaskResumeCapsule["decisions"][number]> {
+  const ledger = await loadTaskSourceLedger(rootPath, taskId);
+  const capsule = ledger
+    ? undefined
+    : await loadTaskResumeCapsule(rootPath, taskId);
+  if (!ledger && !capsule) {
+    throw new Error(
+      "The task source ledger is unavailable. Checkpoint confirmed sources before authoritative retrieval.",
+    );
+  }
+  const decision = (ledger?.decisions ?? capsule!.decisions).find(
+    (candidate) => candidate.id === sourceDecisionId,
+  );
+  if (!decision || decision.state !== "confirmed") {
+    throw new Error(
+      "The source decision is not confirmed in the task source ledger.",
+    );
+  }
+  return decision;
 }
 
 export async function loadTaskResumeTransport(

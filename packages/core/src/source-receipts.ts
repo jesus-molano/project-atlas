@@ -1,4 +1,5 @@
-export const SOURCE_RECEIPT_SCHEMA_VERSION = 1 as const;
+export const SOURCE_RECEIPT_SCHEMA_VERSION = 2 as const;
+export const LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION = 1 as const;
 
 export type SourceReceiptProvider =
   | "figma"
@@ -17,6 +18,9 @@ export type SourceReceiptAdapter =
   | "openapi-public-http"
   | "openapi-internal-connector"
   | "github-connector"
+  | "browser-in-app"
+  | "chrome-browser"
+  | "web-http"
   | "atlas-cache"
   | "manual-import"
   | "other";
@@ -48,7 +52,9 @@ export interface SourceIdentity {
 }
 
 export interface SourceReceipt {
-  schemaVersion: typeof SOURCE_RECEIPT_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION
+    | typeof SOURCE_RECEIPT_SCHEMA_VERSION;
   id: string;
   sourceDecisionId: string;
   provider: SourceReceiptProvider;
@@ -61,6 +67,13 @@ export interface SourceReceipt {
     kind: SourceReceiptScopeKind;
     id: string;
     parentId?: string;
+  };
+  scopeRelation?: {
+    kind: "same-scope" | "contained-scope";
+    sourceId: string;
+    targetId: string;
+    ancestorIds?: string[];
+    proofHash?: string;
   };
   contentHash?: string;
   observedAt: string;
@@ -78,6 +91,11 @@ interface ReceiptSourceDecision {
   kind: SourceReceiptProvider;
   reference: string;
   state: string;
+  routePolicy?: {
+    primaryAdapter: string;
+    fallback: "deny" | "ask" | "allow-list";
+    allowedFallbackAdapters?: string[];
+  };
 }
 
 const NODE_ID = /^[A-Za-z0-9_.:-]{1,240}$/u;
@@ -220,14 +238,17 @@ export function sourceIdentityMatches(
 }
 
 export function sourceReceiptId(input: {
+  schemaVersion?: 1 | 2;
   sourceDecisionId: string;
   resolved: SourceIdentity;
   adapter: SourceReceiptAdapter;
   operation: string;
   observedAt: string;
   contentHash?: string;
+  scope?: SourceReceipt["scope"];
+  scopeRelation?: SourceReceipt["scopeRelation"];
 }): string {
-  const value = [
+  const immutable = [
     input.sourceDecisionId,
     input.resolved.provider,
     input.resolved.canonicalId,
@@ -235,7 +256,20 @@ export function sourceReceiptId(input: {
     input.operation,
     input.observedAt,
     input.contentHash ?? "",
-  ].join("\0");
+  ];
+  if ((input.schemaVersion ?? SOURCE_RECEIPT_SCHEMA_VERSION) >= 2) {
+    immutable.push(
+      input.scope?.kind ?? "",
+      input.scope?.id ?? "",
+      input.scope?.parentId ?? "",
+      input.scopeRelation?.kind ?? "",
+      input.scopeRelation?.sourceId ?? "",
+      input.scopeRelation?.targetId ?? "",
+      ...(input.scopeRelation?.ancestorIds ?? []),
+      input.scopeRelation?.proofHash ?? "",
+    );
+  }
+  const value = immutable.join("\0");
   let first = 0x811c9dc5;
   let second = 0x9e3779b9;
   for (let index = 0; index < value.length; index += 1) {
@@ -251,7 +285,10 @@ export function sourceReceiptId(input: {
 }
 
 export function createSourceReceipt(
-  input: Omit<SourceReceipt, "schemaVersion" | "id"> & { id?: string },
+  input: Omit<SourceReceipt, "schemaVersion" | "id"> & {
+    schemaVersion?: typeof SOURCE_RECEIPT_SCHEMA_VERSION;
+    id?: string;
+  },
 ): SourceReceipt {
   const observedAt = short(input.observedAt, 100);
   if (!Number.isFinite(Date.parse(observedAt))) {
@@ -273,6 +310,36 @@ export function createSourceReceipt(
   const contentHash = input.contentHash
     ? short(input.contentHash, 200)
     : undefined;
+  const scopeRelation = input.scopeRelation
+    ? {
+        kind: input.scopeRelation.kind,
+        sourceId: short(input.scopeRelation.sourceId, 500),
+        targetId: short(input.scopeRelation.targetId, 500),
+        ...(input.scopeRelation.ancestorIds
+          ? {
+              ancestorIds: [
+                ...new Set(
+                  input.scopeRelation.ancestorIds.map((id) => short(id, 500)),
+                ),
+              ].slice(0, 128),
+            }
+          : {}),
+        ...(input.scopeRelation.proofHash
+          ? { proofHash: short(input.scopeRelation.proofHash, 200) }
+          : {}),
+      }
+    : undefined;
+  if (
+    scopeRelation &&
+    (!["same-scope", "contained-scope"].includes(scopeRelation.kind) ||
+      scopeRelation.targetId !== scopeId ||
+      (scopeRelation.kind === "same-scope" &&
+        scopeRelation.sourceId !== scopeRelation.targetId) ||
+      (scopeRelation.kind === "contained-scope" &&
+        scopeRelation.sourceId === scopeRelation.targetId))
+  ) {
+    throw new Error("Source receipt scope relation is invalid.");
+  }
   const normalized = {
     ...input,
     sourceDecisionId,
@@ -285,6 +352,7 @@ export function createSourceReceipt(
         ? { parentId: short(input.scope.parentId, 500) }
         : {}),
     },
+    ...(scopeRelation ? { scopeRelation } : {}),
     ...(contentHash ? { contentHash } : {}),
     observedAt,
   };
@@ -295,6 +363,8 @@ export function createSourceReceipt(
     operation,
     observedAt,
     ...(contentHash ? { contentHash } : {}),
+    scope: normalized.scope,
+    ...(scopeRelation ? { scopeRelation } : {}),
   });
   if (input.id && input.id !== expectedId) {
     throw new Error("Source receipt ID does not match its immutable fields.");
@@ -312,7 +382,10 @@ export function parseSourceReceipt(value: unknown): SourceReceipt {
   }
   const receipt = value as Partial<SourceReceipt>;
   if (
-    receipt.schemaVersion !== SOURCE_RECEIPT_SCHEMA_VERSION ||
+    ![
+      LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION,
+      SOURCE_RECEIPT_SCHEMA_VERSION,
+    ].includes(receipt.schemaVersion as 1 | 2) ||
     typeof receipt.id !== "string" ||
     typeof receipt.sourceDecisionId !== "string" ||
     !receipt.requested ||
@@ -327,9 +400,37 @@ export function parseSourceReceipt(value: unknown): SourceReceipt {
   ) {
     throw new Error("Source receipt is invalid.");
   }
+  if (receipt.schemaVersion === LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION) {
+    const legacy = receipt as SourceReceipt;
+    const expectedId = sourceReceiptId({
+      schemaVersion: LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION,
+      sourceDecisionId: short(legacy.sourceDecisionId, 160),
+      resolved: legacy.resolved,
+      adapter: legacy.adapter,
+      operation: short(legacy.operation, 160),
+      observedAt: short(legacy.observedAt, 100),
+      ...(legacy.contentHash
+        ? { contentHash: short(legacy.contentHash, 200) }
+        : {}),
+    });
+    if (
+      legacy.id !== expectedId ||
+      !Number.isFinite(Date.parse(legacy.observedAt)) ||
+      !sourceIdentityMatches(legacy.requested, legacy.resolved) ||
+      (legacy.fallback && !legacy.fallback.identityPreserved)
+    ) {
+      throw new Error("Legacy source receipt is invalid.");
+    }
+    return legacy;
+  }
+  const {
+    schemaVersion: _schemaVersion,
+    id,
+    ...currentReceipt
+  } = receipt as SourceReceipt;
   return createSourceReceipt({
-    ...(receipt as SourceReceipt),
-    id: receipt.id,
+    ...currentReceipt,
+    id,
   });
 }
 
@@ -345,6 +446,27 @@ export function assertSourceReceiptMatchesDecision(
     decision.kind !== receipt.provider
   ) {
     throw new Error("Source receipt is not bound to the confirmed source decision.");
+  }
+  const routePolicy = decision.routePolicy;
+  if (routePolicy && receipt.adapter !== routePolicy.primaryAdapter) {
+    const allowed =
+      routePolicy.fallback === "allow-list" &&
+      routePolicy.allowedFallbackAdapters?.includes(receipt.adapter);
+    if (!allowed) {
+      throw new Error(
+        routePolicy.fallback === "deny"
+          ? "The confirmed source forbids provider fallback."
+          : "Provider fallback requires an explicit allow-list decision.",
+      );
+    }
+    if (
+      !receipt.fallback ||
+      receipt.fallback.fromAdapter !== routePolicy.primaryAdapter
+    ) {
+      throw new Error(
+        "An allowed provider fallback must record the primary adapter and fallback condition.",
+      );
+    }
   }
   const requested = sourceIdentityFromReference(decision.kind, decision.reference);
   if (

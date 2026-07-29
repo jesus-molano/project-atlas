@@ -1,11 +1,13 @@
 import {
   assessTaskIntake,
+  assertSourceReceiptMatchesDecision,
   confirmedTaskSources,
   ensureTaskSourceDecisions,
   taskContextSourcePolicy,
   type TaskIntakeAssessment,
   type TaskIntakeState,
   type TaskSourceDecision,
+  type TaskSourceRelation,
 } from "@component-atlas/core";
 import {
   parseFigmaReference,
@@ -55,6 +57,7 @@ export async function preflightConfirmedSourceIntegrity(
   objective: string,
   confirmed: TaskSourceDecision[],
   openApiResolver?: OpenApiSourceResolver,
+  relations: TaskSourceRelation[] = [],
 ): Promise<TaskSourcePreflight> {
   const reasons: string[] = [];
   const figmaSources = confirmed.filter((source) => source.kind === "figma");
@@ -88,6 +91,47 @@ export async function preflightConfirmedSourceIntegrity(
             );
             continue;
           }
+          const authoritativeReceipts = index.sources
+            .map((entry) => entry.receipt)
+            .filter((receipt) => receipt.sourceDecisionId === source.id)
+            .filter((receipt) => {
+              try {
+                assertSourceReceiptMatchesDecision(source, receipt);
+                return true;
+              } catch {
+                return false;
+              }
+            });
+          if (authoritativeReceipts.length === 0) {
+            reasons.push(
+              `The confirmed Figma source ${source.id} has no current exact receipt from its authorized provider route. Re-synchronize it with the same task_id and source_decision_id; do not substitute another connector.`,
+            );
+            continue;
+          }
+          const relatedScope = relations.find(
+            (relation) =>
+              relation.toSourceId === source.id &&
+              relation.targetScope?.provider === "figma" &&
+              ["node", "selection"].includes(
+                relation.targetScope?.kind ?? "",
+              ),
+          )?.targetScope;
+          if (relatedScope) {
+            const scoped = resolveExplicitDesignTarget(index, relatedScope.id);
+            const receiptProvesScope = authoritativeReceipts.some(
+              (receipt) =>
+                receipt.scope.id === relatedScope.id &&
+                receipt.scopeRelation?.targetId === relatedScope.id &&
+                (receipt.scopeRelation.sourceId === target.nodeId ||
+                  receipt.scopeRelation.sourceId === target.fileKey),
+            );
+            if (scoped.gate.status === "blocked" || !receiptProvesScope) {
+              reasons.push(
+                `The selected Figma scope ${relatedScope.id} is not proven within confirmed source ${source.id}. Re-synchronize that exact contained scope through the authorized provider route.`,
+              );
+            }
+            continue;
+          }
           if (target.nodeId) {
             const resolved = resolveExplicitDesignTarget(index, target.nodeId);
             if (resolved.gate.status === "blocked") {
@@ -105,15 +149,9 @@ export async function preflightConfirmedSourceIntegrity(
             }
             continue;
           }
-          const currentFileReceipt = index.sources
-            .map((entry) => entry.receipt)
-            .some(
-              (receipt) =>
-                receipt.sourceDecisionId === source.id &&
-                receipt.resolved.fileKey === target.fileKey &&
-                receipt.coverage === "exact" &&
-                receipt.freshness === "current",
-            );
+          const currentFileReceipt = authoritativeReceipts.some(
+            (receipt) => receipt.resolved.fileKey === target.fileKey,
+          );
           if (!currentFileReceipt) {
             reasons.push(
               `The confirmed Figma file ${target.fileKey} has no exact current source receipt. Synchronize that file through the confirmed adapter before context retrieval.`,
@@ -209,6 +247,7 @@ export async function prepareTaskContext(
     intake.objective,
     confirmed,
     options.openApiResolver,
+    effectiveIntake.relations ?? [],
   );
   if (preflight.reasons.length > 0) {
     throw new TaskPreparationBlockedError({
@@ -219,7 +258,10 @@ export async function prepareTaskContext(
 
   return dependencies.getContext(rootPath, intake.objective, {
     ...options,
-    sourcePolicy: taskContextSourcePolicy(effectiveIntake.sources),
+    sourcePolicy: taskContextSourcePolicy(
+      effectiveIntake.sources,
+      effectiveIntake.relations ?? [],
+    ),
     confirmedFigmaReferences: confirmed
       .filter((source) => source.kind === "figma")
       .map((source) => source.reference),

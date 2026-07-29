@@ -1068,6 +1068,57 @@ function sourceHash(serialized: string): string {
   return createHash("sha256").update(serialized).digest("hex").slice(0, 24);
 }
 
+function metadataPathToNode(
+  roots: RawDesignNode[],
+  targetId: string,
+): string[] | undefined {
+  const visit = (
+    node: RawDesignNode,
+    ancestors: string[],
+  ): string[] | undefined => {
+    const path = [...ancestors, node.id];
+    if (node.id === targetId) return path;
+    for (const child of node.children) {
+      const match = visit(child, path);
+      if (match) return match;
+    }
+    return undefined;
+  };
+  for (const root of roots) {
+    const match = visit(root, []);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+function assertObservedFigmaScope(
+  input: BuildFigmaDesignIndexInput,
+  roots: RawDesignNode[],
+): void {
+  const relation = input.sourceReceipt?.scopeRelation;
+  if (!relation) return;
+  const targetPath = metadataPathToNode(roots, relation.targetId);
+  if (!targetPath) {
+    throw new Error(
+      "The observed Figma scope is absent from the supplied metadata.",
+    );
+  }
+  if (relation.kind === "same-scope") return;
+  const sourceIsFile =
+    input.sourceReceipt?.requested.fileKey === relation.sourceId;
+  const sourcePrecedesTarget =
+    targetPath.includes(relation.sourceId) &&
+    targetPath.indexOf(relation.sourceId) <
+      targetPath.indexOf(relation.targetId);
+  const scopedPageProvesContainment =
+    input.scopePageId === relation.sourceId;
+  if (!sourceIsFile && !sourcePrecedesTarget && !scopedPageProvesContainment) {
+    throw new Error(
+      "The supplied metadata does not prove that the observed Figma scope is contained by the confirmed source.",
+    );
+  }
+}
+
 export function finalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
   const pageMetadata = new Map(
     index.pages.map((page) => [page.id, page] as const),
@@ -1275,7 +1326,7 @@ export function buildFigmaDesignIndex(
   const observedVersion = input.version ?? text(parsed.rest?.version);
   const requestedIdentity = sourceIdentityFromReference(
     "figma",
-    input.figmaUrl,
+    input.confirmedSourceReference ?? input.figmaUrl,
   );
   if (
     input.sourceReceipt &&
@@ -1286,6 +1337,7 @@ export function buildFigmaDesignIndex(
       "The Figma source receipt does not match the requested file and node identity.",
     );
   }
+  assertObservedFigmaScope(input, parsed.roots);
   if (
     input.sourceReceipt?.contentHash &&
     input.sourceReceipt.contentHash !== metadataHash
@@ -1294,9 +1346,17 @@ export function buildFigmaDesignIndex(
       "The Figma source receipt hash does not match the supplied metadata.",
     );
   }
+  const providedReceipt = input.sourceReceipt
+    ? (({ id: _id, schemaVersion: _schemaVersion, ...receipt }) => receipt)(
+        input.sourceReceipt,
+      )
+    : undefined;
   const sourceReceipt = createSourceReceipt({
-    ...(input.sourceReceipt ?? {
-      sourceDecisionId: taskSourceId("figma", input.figmaUrl),
+    ...(providedReceipt ?? {
+      sourceDecisionId: taskSourceId(
+        "figma",
+        input.confirmedSourceReference ?? input.figmaUrl,
+      ),
       provider: "figma" as const,
       requested: requestedIdentity,
       resolved: requestedIdentity,
@@ -1315,12 +1375,12 @@ export function buildFigmaDesignIndex(
       freshness: "current" as const,
     }),
     resolved: {
-      ...(input.sourceReceipt?.resolved ?? requestedIdentity),
+      ...(providedReceipt?.resolved ?? requestedIdentity),
       ...(observedVersion ? { version: observedVersion } : {}),
     },
     contentHash: metadataHash,
-    observedAt: input.sourceReceipt?.observedAt ?? indexedAt,
-    freshness: input.sourceReceipt?.freshness ?? "current",
+    observedAt: providedReceipt?.observedAt ?? indexedAt,
+    freshness: providedReceipt?.freshness ?? "current",
   });
   const restComponents = componentSummaries(parsed.rest?.components);
   const componentSets = componentSummaries(parsed.rest?.componentSets);

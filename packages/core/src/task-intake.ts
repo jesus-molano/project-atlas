@@ -36,6 +36,18 @@ export type TaskSourceState =
   | "omitted"
   | "unavailable"
   | "replaced";
+export type TaskSourceAuthorityRole =
+  | "requirement"
+  | "visual"
+  | "contract"
+  | "implementation-reference";
+export type TaskSourceFallbackPolicy = "deny" | "ask" | "allow-list";
+
+export interface TaskSourceRoutePolicy {
+  primaryAdapter: string;
+  fallback: TaskSourceFallbackPolicy;
+  allowedFallbackAdapters?: string[];
+}
 
 export interface TaskSourceDecision {
   id: string;
@@ -47,7 +59,27 @@ export interface TaskSourceDecision {
   replacementFor?: string;
   parentSourceId?: string;
   relationship?: "primary" | "search-candidate" | "linked-secondary";
+  authorityRole?: TaskSourceAuthorityRole;
+  routePolicy?: TaskSourceRoutePolicy;
   decidedAt?: string;
+}
+
+export type TaskSourceRelationKind =
+  | "references-design"
+  | "constrains-contract"
+  | "secondary-implementation-reference";
+
+export interface TaskSourceRelation {
+  id: string;
+  fromSourceId: string;
+  toSourceId: string;
+  kind: TaskSourceRelationKind;
+  targetScope?: {
+    provider: TaskSourceKind;
+    kind: "file" | "page" | "node" | "selection" | "operation" | "unknown";
+    id: string;
+  };
+  confirmedAt?: string;
 }
 
 export interface TaskRiskAssessment {
@@ -63,6 +95,7 @@ export interface TaskIntakeState {
   objectiveConfirmed: boolean;
   risk: TaskRiskAssessment;
   sources: TaskSourceDecision[];
+  relations?: TaskSourceRelation[];
 }
 
 export interface TaskIntakeAssessment {
@@ -75,6 +108,14 @@ export interface TaskContextSourcePolicy {
   confirmedKinds: TaskSourceKind[];
   omittedKinds: TaskSourceKind[];
   unavailableKinds: TaskSourceKind[];
+  routes?: Array<{
+    sourceDecisionId: string;
+    authorityRole: TaskSourceAuthorityRole;
+    primaryAdapter: string;
+    fallback: TaskSourceFallbackPolicy;
+    allowedFallbackAdapters: string[];
+  }>;
+  relations?: TaskSourceRelation[];
 }
 
 const TASK_SOURCE_KINDS: TaskSourceKind[] = [
@@ -98,7 +139,9 @@ const TASK_SOURCE_STATES: TaskSourceState[] = [
   "replaced",
 ];
 const MAX_TASK_SOURCES = 12;
+const MAX_TASK_SOURCE_RELATIONS = 12;
 const MAX_SOURCE_REFERENCE_CHARS = 1_000;
+const ADAPTER_ID = /^[a-z0-9][a-z0-9-]{1,79}$/u;
 export const HIGH_RISK_INTAKE_SOURCE_KINDS = [
   "jira",
   "confluence",
@@ -148,6 +191,67 @@ export function taskSourceId(kind: TaskSourceKind, reference: string): string {
     hash = Math.imul(hash, 16_777_619);
   }
   return `source-${kind}-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function defaultTaskSourceAuthorityRole(
+  kind: TaskSourceKind,
+): TaskSourceAuthorityRole {
+  if (kind === "jira" || kind === "confluence") return "requirement";
+  if (kind === "figma") return "visual";
+  if (kind === "openapi") return "contract";
+  return "implementation-reference";
+}
+
+export function defaultTaskSourceRoutePolicy(
+  kind: TaskSourceKind,
+  reference = "",
+): TaskSourceRoutePolicy {
+  const primaryAdapter =
+    kind === "figma"
+      ? "figma-desktop-mcp-local"
+      : kind === "jira" || kind === "confluence"
+        ? "atlassian-rovo"
+        : kind === "github"
+          ? "github-connector"
+          : kind === "openapi"
+            ? /^https?:\/\//iu.test(reference)
+              ? "openapi-public-http"
+              : /\.(?:json|ya?ml)(?:$|[?#])/iu.test(reference)
+                ? "openapi-local-file"
+                : "openapi-pasted"
+            : "manual-import";
+  return { primaryAdapter, fallback: "ask" };
+}
+
+function normalizeRoutePolicy(
+  kind: TaskSourceKind,
+  reference: string,
+  input: TaskSourceRoutePolicy | undefined,
+): TaskSourceRoutePolicy {
+  const fallback = input?.fallback ?? "ask";
+  const primaryAdapter =
+    input?.primaryAdapter ?? defaultTaskSourceRoutePolicy(kind, reference).primaryAdapter;
+  const allowedFallbackAdapters = [
+    ...new Set(input?.allowedFallbackAdapters ?? []),
+  ];
+  if (
+    !ADAPTER_ID.test(primaryAdapter) ||
+    !["deny", "ask", "allow-list"].includes(fallback) ||
+    allowedFallbackAdapters.some(
+      (adapter) => !ADAPTER_ID.test(adapter) || adapter === primaryAdapter,
+    ) ||
+    (fallback !== "allow-list" && allowedFallbackAdapters.length > 0) ||
+    (fallback === "allow-list" && allowedFallbackAdapters.length === 0)
+  ) {
+    throw new Error("A task source route policy is invalid.");
+  }
+  return {
+    primaryAdapter,
+    fallback,
+    ...(allowedFallbackAdapters.length > 0
+      ? { allowedFallbackAdapters }
+      : {}),
+  };
 }
 
 export function normalizeTaskSourceDecisions(
@@ -221,6 +325,18 @@ export function normalizeTaskSourceDecisions(
       );
     }
     const kind = source.kind as TaskSourceKind;
+    const authorityRole =
+      source.authorityRole ?? defaultTaskSourceAuthorityRole(kind);
+    if (
+      ![
+        "requirement",
+        "visual",
+        "contract",
+        "implementation-reference",
+      ].includes(authorityRole)
+    ) {
+      throw new Error("A task source authority role is invalid.");
+    }
     return {
       id: taskSourceId(kind, reference),
       kind,
@@ -235,6 +351,8 @@ export function normalizeTaskSourceDecisions(
         ? { parentSourceId: source.parentSourceId }
         : {}),
       ...(source.relationship ? { relationship: source.relationship } : {}),
+      authorityRole,
+      routePolicy: normalizeRoutePolicy(kind, reference, source.routePolicy),
       ...(source.decidedAt ? { decidedAt: source.decidedAt } : {}),
     };
   });
@@ -242,6 +360,116 @@ export function normalizeTaskSourceDecisions(
     throw new Error("A task source appears more than once.");
   }
   return normalized;
+}
+
+export function taskSourceRelationId(
+  fromSourceId: string,
+  toSourceId: string,
+  kind: TaskSourceRelationKind,
+  targetScopeId = "",
+): string {
+  let hash = 2_166_136_261;
+  for (const character of `${fromSourceId}\0${toSourceId}\0${kind}\0${targetScopeId}`) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `relation-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function normalizeTaskSourceRelations(
+  input: unknown,
+  decisions: TaskSourceDecision[],
+): TaskSourceRelation[] {
+  if (!Array.isArray(input) || input.length > MAX_TASK_SOURCE_RELATIONS) {
+    throw new Error(
+      `A task may contain at most ${MAX_TASK_SOURCE_RELATIONS} source relations.`,
+    );
+  }
+  const decisionById = new Map(decisions.map((decision) => [decision.id, decision]));
+  const relations = input.map((candidate) => {
+    if (!candidate || typeof candidate !== "object") {
+      throw new Error("Every source relation must be an object.");
+    }
+    const relation = candidate as Partial<TaskSourceRelation>;
+    const from = decisionById.get(String(relation.fromSourceId ?? ""));
+    const to = decisionById.get(String(relation.toSourceId ?? ""));
+    if (
+      !from ||
+      !to ||
+      from.state !== "confirmed" ||
+      to.state !== "confirmed" ||
+      from.id === to.id ||
+      ![
+        "references-design",
+        "constrains-contract",
+        "secondary-implementation-reference",
+      ].includes(String(relation.kind))
+    ) {
+      throw new Error("A source relation must connect two confirmed sources.");
+    }
+    if (
+      relation.kind === "references-design" &&
+      ((
+        from.authorityRole ?? defaultTaskSourceAuthorityRole(from.kind)
+      ) !== "requirement" ||
+        (to.authorityRole ?? defaultTaskSourceAuthorityRole(to.kind)) !==
+          "visual")
+    ) {
+      throw new Error(
+        "A design reference relation must point from requirement authority to visual authority.",
+      );
+    }
+    const targetScope = relation.targetScope;
+    if (
+      targetScope &&
+      (targetScope.provider !== to.kind ||
+        !["file", "page", "node", "selection", "operation", "unknown"].includes(
+          targetScope.kind,
+        ) ||
+        typeof targetScope.id !== "string" ||
+        !targetScope.id.trim() ||
+        targetScope.id.length > 500 ||
+        /[\u0000-\u001f]/u.test(targetScope.id))
+    ) {
+      throw new Error("A source relation target scope is invalid.");
+    }
+    if (
+      relation.confirmedAt !== undefined &&
+      (typeof relation.confirmedAt !== "string" ||
+        !Number.isFinite(Date.parse(relation.confirmedAt)))
+    ) {
+      throw new Error("A source relation timestamp is invalid.");
+    }
+    const kind = relation.kind as TaskSourceRelationKind;
+    const id = taskSourceRelationId(
+      from.id,
+      to.id,
+      kind,
+      targetScope?.id,
+    );
+    if (relation.id && relation.id !== id) {
+      throw new Error("A source relation ID does not match its immutable fields.");
+    }
+    return {
+      id,
+      fromSourceId: from.id,
+      toSourceId: to.id,
+      kind,
+      ...(targetScope
+        ? {
+            targetScope: {
+              ...targetScope,
+              id: targetScope.id.trim(),
+            },
+          }
+        : {}),
+      ...(relation.confirmedAt ? { confirmedAt: relation.confirmedAt } : {}),
+    };
+  });
+  if (new Set(relations.map((relation) => relation.id)).size !== relations.length) {
+    throw new Error("A task source relation appears more than once.");
+  }
+  return relations;
 }
 
 export function classifyTaskSource(reference: string): TaskSourceKind {
@@ -336,6 +564,8 @@ export function detectTaskSources(task: string): TaskSourceDecision[] {
         state: "pending" as const,
         required: taskRequiredSourceKinds(task).includes(kind),
         relationship: "primary" as const,
+        authorityRole: defaultTaskSourceAuthorityRole(kind),
+        routePolicy: defaultTaskSourceRoutePolicy(kind, reference),
       };
     })
     .filter(
@@ -415,6 +645,8 @@ export function ensureTaskSourceDecisions(
         state: "pending",
         required: requiredKinds.has(kind),
         relationship: "primary",
+        authorityRole: defaultTaskSourceAuthorityRole(kind),
+        routePolicy: defaultTaskSourceRoutePolicy(kind, reference),
       });
     }
   }
@@ -517,6 +749,7 @@ export function confirmedTaskSources(
 
 export function taskContextSourcePolicy(
   sources: TaskSourceDecision[],
+  relations: TaskSourceRelation[] = [],
 ): TaskContextSourcePolicy {
   const kindsFor = (state: TaskSourceState) => [
     ...new Set(
@@ -530,5 +763,22 @@ export function taskContextSourcePolicy(
     confirmedKinds: kindsFor("confirmed"),
     omittedKinds: kindsFor("omitted"),
     unavailableKinds: kindsFor("unavailable"),
+    routes: sources
+      .filter((source) => source.state === "confirmed")
+      .map((source) => {
+        const authorityRole =
+          source.authorityRole ?? defaultTaskSourceAuthorityRole(source.kind);
+        const routePolicy =
+          source.routePolicy ??
+          defaultTaskSourceRoutePolicy(source.kind, source.reference);
+        return {
+          sourceDecisionId: source.id,
+          authorityRole,
+          primaryAdapter: routePolicy.primaryAdapter,
+          fallback: routePolicy.fallback,
+          allowedFallbackAdapters: routePolicy.allowedFallbackAdapters ?? [],
+        };
+      }),
+    relations: normalizeTaskSourceRelations(relations, sources),
   };
 }

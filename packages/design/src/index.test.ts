@@ -1,4 +1,9 @@
 import { readFile } from "node:fs/promises";
+import {
+  createSourceReceipt,
+  sourceIdentityFromReference,
+  taskSourceId,
+} from "@component-atlas/core";
 import { describe, expect, it } from "vitest";
 import {
   buildFigmaDesignIndex,
@@ -66,6 +71,88 @@ describe("Figma Design Index", () => {
       code: "explicit-target-stale",
       level: "decision-required",
     });
+  });
+
+  it("validates a selected Figma subtree against its confirmed page scope", async () => {
+    const metadata = await readFile(fixture("checkout-depth-2.json"), "utf8");
+    const confirmed =
+      "https://www.figma.com/design/StorefrontKey/Storefront?node-id=0-1";
+    const identity = sourceIdentityFromReference("figma", confirmed);
+    const index = buildFigmaDesignIndex({
+      figmaUrl:
+        "https://www.figma.com/design/StorefrontKey/Storefront?node-id=10-1",
+      confirmedSourceReference: confirmed,
+      metadata,
+      scopeNodeId: "10:1",
+      scopePageId: "0:1",
+      sourceReceipt: createSourceReceipt({
+        sourceDecisionId: taskSourceId("figma", confirmed),
+        provider: "figma",
+        requested: identity,
+        resolved: identity,
+        adapter: "figma-desktop-mcp-local",
+        route: "http://127.0.0.1:3845/mcp",
+        operation: "get_metadata",
+        scope: { kind: "selection", id: "10:1", parentId: "0:1" },
+        scopeRelation: {
+          kind: "contained-scope",
+          sourceId: "0:1",
+          targetId: "10:1",
+        },
+        observedAt: "2026-07-29T12:00:00.000Z",
+        coverage: "exact",
+        freshness: "current",
+      }),
+    });
+
+    expect(index.sources[0]?.receipt).toMatchObject({
+      requested: { canonicalId: "StorefrontKey::0:1" },
+      scope: { id: "10:1" },
+      scopeRelation: {
+        kind: "contained-scope",
+        sourceId: "0:1",
+        targetId: "10:1",
+      },
+      contentHash: expect.any(String),
+    });
+    const resolvedSelection = resolveExplicitDesignTarget(index, "10:1");
+    expect(resolvedSelection).toMatchObject({
+      candidates: [
+        expect.objectContaining({
+          origin: "user-confirmed-target",
+          node: expect.objectContaining({ id: "10:1" }),
+        }),
+      ],
+    });
+    expect(resolvedSelection.gate.status).not.toBe("blocked");
+    expect(() =>
+      buildFigmaDesignIndex({
+        figmaUrl:
+          "https://www.figma.com/design/StorefrontKey/Storefront?node-id=10-1",
+        confirmedSourceReference: confirmed,
+        metadata,
+        scopeNodeId: "10:1",
+        scopePageId: "0:1",
+        sourceReceipt: createSourceReceipt({
+          sourceDecisionId: taskSourceId("figma", confirmed),
+          provider: "figma",
+          requested: identity,
+          resolved: identity,
+          adapter: "figma-desktop-mcp-local",
+          route: "http://127.0.0.1:3845/mcp",
+          operation: "get_metadata",
+          scope: { kind: "selection", id: "10:1" },
+          scopeRelation: {
+            kind: "contained-scope",
+            sourceId: "99:99",
+            targetId: "10:1",
+          },
+          observedAt: "2026-07-29T12:00:00.000Z",
+          coverage: "exact",
+          freshness: "current",
+        }),
+      }),
+    ).toThrow(/does not prove/i);
   });
 
   it("builds a lightweight REST map with statuses, code links, and variables", async () => {
@@ -512,6 +599,15 @@ describe("Figma Design Index", () => {
     expect(
       inspectDesignNode(index, "60:2").deepContextRequest.recommendedTools,
     ).not.toContain("get_variable_defs");
+    expect(inspectDesignNode(index, "60:2").deepContextRequest).toMatchObject({
+      recommendedTools: expect.not.arrayContaining(["get_code_connect_map"]),
+      optionalEnrichmentTools: ["get_code_connect_map"],
+      codeConnect: {
+        status: "unmapped",
+        policy: "advisory",
+        blocksFidelity: false,
+      },
+    });
     const selectionFallback = buildFigmaDesignIndex({
       figmaUrl: "https://www.figma.com/design/PersonalShop/Personal-shop",
       metadata,
