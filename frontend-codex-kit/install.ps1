@@ -283,7 +283,7 @@ if (-not $SkipDependencies) {
   Invoke-Native $pnpm @("install", "--frozen-lockfile") "install workspace dependencies"
 }
 if (-not $SkipBuild) {
-  Invoke-Native $pnpm @("build:packages") "build Atlas CLI and MCP packages"
+  Invoke-Native $pnpm @("build") "build Project Atlas packages and local product"
 }
 
 if (-not $DryRun -and -not (Test-Path -LiteralPath $cliEntry)) {
@@ -342,3 +342,4 @@ Write-Host "  2. Open the product repository in your agent."
 Write-Host "  3. Invoke `$frontend-task in Codex or /frontend-task in Claude Code."
 Write-Host "  4. Describe the task; the skill handles Atlas bootstrap and compact retrieval."
 Write-Host "  5. Connect Jira, Confluence, or Figma only when the task needs them."
+Write-Host "  6. Optional local product: from $AtlasRoot run 'pnpm atlas'."

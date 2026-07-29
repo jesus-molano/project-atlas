@@ -25,8 +25,8 @@ Set-Location .\project-atlas
 .\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions
 ```
 
-The installer builds Atlas, installs the skills, adds the small optional routing
-instruction, and registers the local Atlas server in Codex's shared
+The installer builds the complete local product, installs the skills, adds the
+small optional routing instruction, and registers the local Atlas server in Codex's shared
 `config.toml`. Restart Codex and open a new task after it finishes.
 
 Now open your product repository in Codex and invoke:
@@ -77,14 +77,30 @@ truncation state, matches, and IDs that can be expanded deliberately.
 
 ## Open the GUI
 
-From the Project Atlas clone:
+For local-product-only use from a fresh clone:
 
 ```powershell
-node .\packages\cli\dist\index.js open "C:\path\to\product-repository"
+git clone https://github.com/jesus-molano/project-atlas.git
+Set-Location .\project-atlas
+pnpm install --frozen-lockfile
+
+# Open the project selector.
+pnpm atlas
+
+# Or open one product repository directly.
+pnpm atlas -- "C:\path\to\product-repository"
 ```
 
-Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The desktop-shaped local
-workspace lets you:
+If the normal Codex installer was already run, dependencies and the initial
+production build are already present; use the same `pnpm atlas` commands.
+
+`pnpm atlas` builds the production product only when its build is missing or
+older than its sources, selects a free loopback port, starts only the local
+viewer, ensures `.component-atlas/` stays in the global Git ignore, opens the
+browser, and prints the URL. Keep that terminal open and press Ctrl+C there to
+close Atlas and its viewer process.
+
+The desktop-shaped local workspace lets you:
 
 - see the exact logical project, checkout/worktree, branch, HEAD, and diff state;
 - list local branches independently of recent projects, open an existing branch
@@ -166,8 +182,10 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
   version and ensure `FNM_DIR` is available, then rerun.
 - **`$frontend-task` is not detected:** restart Codex and open a new task.
   Confirm `~/.agents/skills/frontend-task/SKILL.md` exists.
-- **Port 4173 is busy:** stop the existing process or add `--port <port>` to
-  the `open` command.
+- **A fixed port is required for diagnostics:** add `--port <port>` to
+  `pnpm atlas`; normal use selects a free port automatically.
+- **The browser did not open:** copy the printed loopback URL, or add
+  `--no-browser` when opening the product intentionally without it.
 - **The Atlas clone has local changes:** inspect `git status`; do not use
   `git pull` until those changes are committed, moved, or intentionally removed.
 - **Installation must continue without MCP:** use `-SkipMcp` as an escape hatch,

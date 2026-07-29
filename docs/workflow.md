@@ -103,7 +103,8 @@ explicit Task Workbench package is meant to be copied or sent.
 
 The GUI is an alternative entry point to the same workflow:
 
-1. Open the exact product checkout with `project-atlas open`.
+1. Run `pnpm atlas` from the Project Atlas clone and choose the exact product
+   checkout, or pass it directly with `pnpm atlas -- "<path>"`.
 2. Use global search or Code, Design, and Memory goal views to select evidence.
 3. Choose **Use in task**. The selected handles are pinned and guaranteed to
    enter the bounded package even when task wording alone ranks them lower.

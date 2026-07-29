@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   access,
@@ -10,6 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -65,18 +66,52 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+interface ViewerReadiness {
+  sessionToken: string;
+  expectedProjectId?: string;
+}
+
 export async function waitForViewer(
   url: string,
-  expectedProjectId: string,
-  attempts = 30,
+  readiness: ViewerReadiness,
+  attempts = 50,
 ): Promise<void> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const response = await fetch(`${url}/api/workspace`, {
+      const sessionResponse = await fetch(`${url}/api/agent/session`, {
+        signal: AbortSignal.timeout(500),
+      });
+      if (!sessionResponse.ok) throw new Error("session-unavailable");
+      const session = (await sessionResponse.json()) as unknown;
+      if (
+        !session ||
+        typeof session !== "object" ||
+        !("token" in session) ||
+        session.token !== readiness.sessionToken
+      ) {
+        throw new Error("session-mismatch");
+      }
+
+      const endpoint = readiness.expectedProjectId
+        ? "/api/workspace"
+        : "/api/projects";
+      const response = await fetch(`${url}${endpoint}`, {
         signal: AbortSignal.timeout(500),
       });
       if (response.ok) {
         const payload = (await response.json()) as unknown;
+        if (!readiness.expectedProjectId) {
+          if (
+            payload &&
+            typeof payload === "object" &&
+            "projects" in payload &&
+            Array.isArray(payload.projects) &&
+            !("activeRoot" in payload)
+          ) {
+            return;
+          }
+          throw new Error("launcher-state-mismatch");
+        }
         if (
           payload &&
           typeof payload === "object" &&
@@ -87,7 +122,7 @@ export async function waitForViewer(
           payload.graph.project &&
           typeof payload.graph.project === "object" &&
           "id" in payload.graph.project &&
-          payload.graph.project.id === expectedProjectId
+          payload.graph.project.id === readiness.expectedProjectId
         ) {
           return;
         }
@@ -98,6 +133,37 @@ export async function waitForViewer(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Local server did not become ready at ${url}.`);
+}
+
+export async function findAvailableLoopbackPort(): Promise<number> {
+  const server = net.createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(
+        { host: "127.0.0.1", port: 0, exclusive: true },
+        () => resolve(),
+      );
+    });
+    const address = server.address();
+    if (!address || typeof address === "string" || address.port <= 0) {
+      throw new Error("Windows did not provide a free loopback port.");
+    }
+    return address.port;
+  } finally {
+    if (server.listening) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+}
+
+export function parseViewerPort(value: string): number | undefined {
+  if (value.trim().toLowerCase() === "auto") return undefined;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error('Viewer port must be "auto" or an integer from 1 to 65535.');
+  }
+  return port;
 }
 
 function printJson(value: unknown): void {
@@ -134,7 +200,7 @@ function parseBudget(value: string): number {
   return Math.min(parsed, 12_000);
 }
 
-async function configureGlobalIgnore(): Promise<string> {
+export async function configureGlobalIgnore(): Promise<string> {
   const configured = spawnSync(
     "git",
     ["config", "--global", "--get", "core.excludesFile"],
@@ -262,10 +328,10 @@ export async function resolveBundledCodexBinary(
 }
 
 async function openViewer(
-  rootPath: string,
+  rootPath: string | undefined,
   options: { port: string; browser: boolean },
 ): Promise<void> {
-  const graph = await scanProject(rootPath);
+  const graph = rootPath ? await scanProject(rootPath) : undefined;
   const currentFile = fileURLToPath(import.meta.url);
   const repositoryRoot = path.resolve(path.dirname(currentFile), "../../..");
   const serverEntry = path.join(
@@ -278,52 +344,144 @@ async function openViewer(
   );
   if (!(await fileExists(serverEntry))) {
     throw new Error(
-      `Viewer build not found at ${serverEntry}. Run "pnpm --filter @component-atlas/viewer build".`,
+      `Project Atlas is not built at ${serverEntry}. From ${repositoryRoot}, run "pnpm atlas" to build and open it.`,
     );
   }
-  const url = `http://127.0.0.1:${options.port}`;
   const codexPath = await resolveBundledCodexBinary(repositoryRoot);
-  const child = spawn(process.execPath, [serverEntry], {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      ATLAS_PROJECT_ROOT: graph.project.rootPath,
-      ATLAS_PROJECT_ID: graph.project.id,
-      ...(graph.project.identity?.checkoutId
-        ? { ATLAS_CHECKOUT_ID: graph.project.identity.checkoutId }
-        : {}),
+  const explicitPort = parseViewerPort(options.port);
+  const attempts = explicitPort ? 1 : 5;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const port = explicitPort ?? (await findAvailableLoopbackPort());
+    const url = `http://127.0.0.1:${port}`;
+    const sessionToken = randomBytes(32).toString("base64url");
+    const {
+      ATLAS_PROJECT_ROOT: _projectRoot,
+      ATLAS_PROJECT_ID: _projectId,
+      ATLAS_CHECKOUT_ID: _checkoutId,
+      ATLAS_GUI_SESSION_TOKEN: _sessionToken,
+      NITRO_HOST: _nitroHost,
+      NITRO_PORT: _nitroPort,
+      ...baseEnvironment
+    } = process.env;
+    const child = spawn(process.execPath, [serverEntry], {
+      stdio: "inherit",
+      windowsHide: true,
+      env: {
+        ...baseEnvironment,
+        ...(graph
+          ? {
+              ATLAS_PROJECT_ROOT: graph.project.rootPath,
+              ATLAS_PROJECT_ID: graph.project.id,
+              ...(graph.project.identity?.checkoutId
+                ? { ATLAS_CHECKOUT_ID: graph.project.identity.checkoutId }
+                : {}),
+            }
+          : {}),
         ATLAS_CLI_ENTRY: currentFile,
-        ATLAS_GUI_SESSION_TOKEN: randomBytes(32).toString("base64url"),
+        ATLAS_GUI_SESSION_TOKEN: sessionToken,
         ...(codexPath ? { ATLAS_CODEX_PATH: codexPath } : {}),
         NITRO_HOST: "127.0.0.1",
-      NITRO_PORT: options.port,
-    },
+        NITRO_PORT: String(port),
+      },
+    });
+
+    try {
+      await waitForViewerChild(child, url, {
+        sessionToken,
+        ...(graph ? { expectedProjectId: graph.project.id } : {}),
+      });
+      if (options.browser) await open(url);
+    } catch (error) {
+      lastError = error;
+      await stopViewerChild(child);
+      if (explicitPort) {
+        throw new Error(
+          `Port ${port} is unavailable or the viewer could not start there. Use "--port auto" or choose another port.`,
+          { cause: error },
+        );
+      }
+      continue;
+    }
+
+    manageViewerLifecycle(child);
+    process.stdout.write(`Project Atlas GUI is running at ${url}\n`);
+    process.stdout.write("Press Ctrl+C in this terminal to close it.\n");
+    return;
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Project Atlas could not reserve a free loopback port.");
+}
+
+async function waitForViewerChild(
+  child: ChildProcess,
+  url: string,
+  readiness: ViewerReadiness,
+): Promise<void> {
+  let onError: ((error: Error) => void) | undefined;
+  let onExit:
+    | ((code: number | null, signal: NodeJS.Signals | null) => void)
+    | undefined;
+  const stopped = new Promise<never>((_resolve, reject) => {
+    onError = (error) => reject(error);
+    onExit = (code, signal) =>
+      reject(
+        new Error(
+          `Viewer process exited before it was ready (code ${code ?? "none"}, signal ${signal ?? "none"}).`,
+        ),
+      );
+    child.once("error", onError);
+    child.once("exit", onExit);
   });
+  try {
+    await Promise.race([waitForViewer(url, readiness), stopped]);
+  } finally {
+    if (onError) child.removeListener("error", onError);
+    if (onExit) child.removeListener("exit", onExit);
+  }
+}
+
+async function stopViewerChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill();
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+      resolve();
+    }, 2_000);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+function manageViewerLifecycle(child: ChildProcess): void {
   const shutdown = (): void => {
-    if (!child.killed) child.kill();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
   };
-  const removeSignalListeners = (): void => {
+  const removeListeners = (): void => {
     process.removeListener("SIGINT", shutdown);
     process.removeListener("SIGTERM", shutdown);
+    process.removeListener("SIGHUP", shutdown);
+    process.removeListener("exit", shutdown);
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+  process.once("SIGHUP", shutdown);
+  process.once("exit", shutdown);
   child.once("error", (error) => {
     process.stderr.write(`Viewer process failed: ${error.message}\n`);
   });
-  child.on("exit", (code) => {
-    removeSignalListeners();
+  child.once("exit", (code) => {
+    removeListeners();
     if (code && code !== 0) process.exitCode = code;
   });
-  try {
-    await waitForViewer(url, graph.project.id);
-  } catch (error) {
-    shutdown();
-    removeSignalListeners();
-    throw error;
-  }
-  if (options.browser) await open(url);
-  process.stdout.write(`Project Atlas GUI is running at ${url}\n`);
 }
 
 export function createProgram(): Command {
@@ -991,13 +1149,19 @@ export function createProgram(): Command {
 
   program
     .command("open")
-    .argument("[path]", "repository root", ".")
-    .option("-p, --port <port>", "local viewer port", "4173")
+    .argument("[path]", "repository root; omit it to use the project launcher")
+    .option(
+      "-p, --port <port>",
+      'local viewer port or "auto" for a free loopback port',
+      "auto",
+    )
     .option("--no-browser", "do not open the default browser")
-    .description("Refresh Code Atlas and launch the complete local Project Atlas GUI.")
+    .description(
+      "Launch the local Project Atlas product, optionally opening one repository.",
+    )
     .action(
       async (
-        rootPath: string,
+        rootPath: string | undefined,
         options: { port: string; browser: boolean },
       ) => openViewer(rootPath, options),
     );
