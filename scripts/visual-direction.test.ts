@@ -10,6 +10,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildAtlasHandoff } from "../skills/visual-direction/scripts/build-atlas-handoff.mjs";
 import { resolveAuthority } from "../skills/visual-direction/scripts/resolve-authority.mjs";
 import {
   CleanupPendingError,
@@ -390,9 +391,220 @@ describe("visual-direction temporary artifact lifecycle", () => {
   });
 });
 
+describe("visual-direction Atlas handoff", () => {
+  it("preserves exact Figma identity and exposes no alternatives or payloads", () => {
+    const authorityDecision = resolveAuthority({
+      scope: "component",
+      hasExistingProject: true,
+      hasExactFigma: true,
+      exactFigma: {
+        fileKey: "ExactFile",
+        nodeId: "42:7",
+        url: "https://www.figma.com/design/ExactFile/Product?node-id=42-7",
+      },
+    });
+    const handoff = buildAtlasHandoff({
+      authorityDecision,
+      workflowState: "locked",
+      cleanup: { state: "not-applicable" },
+      sourceReceiptIds: ["receipt-0123456789abcdef"],
+      atlasHandles: ["design:figma:ExactFile:42:7"],
+      previewPayload: "data:image/png;base64,SHOULD_NOT_CROSS",
+      temporaryPath: "C:\\Temp\\visual-direction\\preview.png",
+    });
+
+    expect(handoff).toMatchObject({
+      surface: {
+        primary: "codex-handoff",
+        runner: "secondary-experimental",
+        inspector: "progressive-disclosure",
+      },
+      status: "locked",
+      readyForImplementation: true,
+      authority: {
+        mode: "fidelity",
+        inventionBudget: 0,
+        visual: "exact-figma",
+        exactFigmaIdentity: authorityDecision.exactFigmaIdentity,
+      },
+      provenance: {
+        sourceReceiptIds: ["receipt-0123456789abcdef"],
+        receiptsExpanded: false,
+      },
+    });
+    expect(handoff).not.toHaveProperty("directionCards");
+    expect(JSON.stringify(handoff)).not.toMatch(
+      /SHOULD_NOT_CROSS|data:image|preview\.png|temporaryPath/i,
+    );
+  });
+
+  it("shows bounded cards only for pending selection", () => {
+    const authorityDecision = resolveAuthority({
+      scope: "section",
+      hasExistingProject: true,
+      materialVisualChoice: true,
+    });
+    const handoff = buildAtlasHandoff({
+      authorityDecision,
+      workflowState: "needs-selection",
+      directionCards: [
+        {
+          id: "direction-a",
+          name: "Quiet hierarchy",
+          premise: "Keep density and emphasize one incumbent heading tier.",
+          artifact_handle: "visual-artifact:must-not-cross",
+        },
+        {
+          id: "direction-b",
+          name: "Grouped rhythm",
+          premise: "Keep tokens and compare one grouped composition.",
+          artifact_handle: "visual-artifact:must-not-cross",
+        },
+      ],
+      cleanup: { state: "ephemeral-active" },
+      sourceReceiptIds: [],
+      atlasHandles: ["code:incumbent-section"],
+    });
+
+    expect(handoff).toMatchObject({
+      status: "needs-selection",
+      readyForImplementation: false,
+      directionCards: [
+        { id: "direction-a", name: "Quiet hierarchy" },
+        { id: "direction-b", name: "Grouped rhythm" },
+      ],
+      nextSafeAction: "select-or-combine-direction",
+    });
+    expect(JSON.stringify(handoff)).not.toContain("artifact_handle");
+    expect(Buffer.byteLength(JSON.stringify(handoff), "utf8")).toBeLessThanOrEqual(
+      3_072,
+    );
+  });
+
+  it("projects one visual handle into the existing capsule without receipt bodies", () => {
+    const authorityDecision = resolveAuthority({
+      scope: "greenfield",
+      hasExistingProject: false,
+      visualDecision: "selected-direction",
+    });
+    const handoff = buildAtlasHandoff({
+      authorityDecision,
+      workflowState: "locked",
+      selectedContract: {
+        contractHandle: "visual:vd-task-42:0123456789abcdef",
+        contractHash:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        expiresAt: "2026-07-30T12:00:00.000Z",
+        contract: { should: "remain behind the handle" },
+      },
+      stateMatrix: {
+        surface: "Pricing comparison",
+        viewports: ["desktop", "narrow"],
+        requiredStates: ["default", "focus-visible", "overflow"],
+      },
+      cleanup: { state: "selected-retained" },
+      sourceReceiptIds: ["receipt-fedcba9876543210"],
+      atlasHandles: ["code:pricing-shell", "memory:accessibility-rule"],
+      sourceReceipts: [{ body: "must not be expanded" }],
+    });
+
+    expect(handoff.capsuleProjection).toEqual({
+      sourceReceiptIds: ["receipt-fedcba9876543210"],
+      handles: [
+        "visual:vd-task-42:0123456789abcdef",
+        "code:pricing-shell",
+        "memory:accessibility-rule",
+      ],
+      nextSafeAction: "implement-one-selected-direction",
+    });
+    expect(JSON.stringify(handoff)).not.toMatch(
+      /remain behind|must not be expanded|sourceReceipts/i,
+    );
+  });
+
+  it("makes cleanup failure recoverable and blocks ready claims", () => {
+    const authorityDecision = resolveAuthority({
+      scope: "component",
+      hasExistingProject: true,
+      visualDecision: "selected-direction",
+    });
+    const handoff = buildAtlasHandoff({
+      authorityDecision,
+      workflowState: "locked",
+      selectedContract: {
+        contractHandle: "visual:vd-cleanup:abcdef0123456789",
+        contractHash: "abcdef0123456789abcdef0123456789",
+        expiresAt: "2026-07-30T12:00:00.000Z",
+      },
+      cleanup: {
+        state: "cleanup-pending",
+        retrySessionId: "vd-cleanup",
+      },
+      sourceReceiptIds: [],
+      atlasHandles: [],
+    });
+
+    expect(handoff).toMatchObject({
+      status: "cleanup-pending",
+      readyForImplementation: false,
+      cleanup: {
+        state: "cleanup-pending",
+        blocksCompletion: true,
+        retrySessionId: "vd-cleanup",
+      },
+      nextSafeAction: "retry-temporary-cleanup",
+    });
+  });
+
+  it("rejects cards after selection and full SourceReceipt-shaped inputs", () => {
+    const authorityDecision = resolveAuthority({
+      scope: "section",
+      hasExistingProject: true,
+      visualDecision: "selected-direction",
+    });
+    expect(() =>
+      buildAtlasHandoff({
+        authorityDecision,
+        workflowState: "locked",
+        directionCards: [
+          { id: "direction-a", name: "A", premise: "A premise" },
+        ],
+        selectedContract: {
+          contractHandle: "visual:vd-task:0123456789abcdef",
+          contractHash: "0123456789abcdef",
+          expiresAt: "2026-07-30T12:00:00.000Z",
+        },
+        cleanup: { state: "selected-retained" },
+      }),
+    ).toThrow(/only while selection is pending/i);
+
+    expect(() =>
+      buildAtlasHandoff({
+        authorityDecision,
+        workflowState: "locked",
+        selectedContract: {
+          contractHandle: "visual:vd-task:0123456789abcdef",
+          contractHash: "0123456789abcdef",
+          expiresAt: "2026-07-30T12:00:00.000Z",
+        },
+        cleanup: { state: "selected-retained" },
+        sourceReceiptIds: [{ id: "receipt-0123456789abcdef", body: "raw" }],
+      }),
+    ).toThrow(/sourceReceiptIds\[0\] must be a non-empty string/i);
+  });
+});
+
 describe("visual-direction skill contract", () => {
   it("is explicit-only and integrated without repository preview artifacts", async () => {
-    const [skill, metadata, authority, temporary, frontendTask, brief] =
+    const [
+      skill,
+      metadata,
+      authority,
+      temporary,
+      atlasHandoff,
+      frontendTask,
+      brief,
+    ] =
       await Promise.all([
         readFile(
           new URL("../skills/visual-direction/SKILL.md", import.meta.url),
@@ -420,6 +632,13 @@ describe("visual-direction skill contract", () => {
           "utf8",
         ),
         readFile(
+          new URL(
+            "../skills/visual-direction/references/atlas-handoff.md",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+        readFile(
           new URL("../skills/frontend-task/SKILL.md", import.meta.url),
           "utf8",
         ),
@@ -441,6 +660,10 @@ describe("visual-direction skill contract", () => {
     expect(skill).toMatch(/On close or cancellation, purge the entire session/i);
     expect(authority).toMatch(/Direction cards[\s\S]*DesignContract[\s\S]*State matrix/i);
     expect(temporary).toMatch(/cleanup-pending[\s\S]*TTL sweep/i);
+    expect(atlasHandoff).toMatch(
+      /Work \/ Codex handoff[\s\S]*progressive[\s\S]*capsuleProjection/i,
+    );
+    expect(atlasHandoff).toMatch(/never crosses[\s\S]*preview image bytes/i);
     expect(frontendTask).toMatch(/`\$visual-direction`/);
     expect(brief).toMatch(/visual_direction:/);
 

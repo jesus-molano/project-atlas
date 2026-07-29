@@ -132,6 +132,24 @@ Figma source does not authorize modification.
 7. Verify Git contains no preview, sandbox, generated image, or temporary
    direction residue.
 
+## Hand off compactly to Project Atlas
+
+Read `references/atlas-handoff.md` before exposing visual-direction state to
+Project Atlas or its Workbench. Use `scripts/build-atlas-handoff.mjs` to create
+one bounded, progressive-inspection view model. Pass only its
+`capsuleProjection` to the existing task capsule.
+
+- Keep **Work / Codex handoff** primary and the embedded runner secondary and
+  experimental.
+- Reuse the existing capsule, SourceReceipts, and inspector. Do not create a
+  second Workbench, receipt system, runtime state, navigation item, or
+  dashboard.
+- Carry IDs and opaque handles, never preview payloads, temp paths, expanded
+  receipts, or the full DesignContract.
+- Treat `cleanup-pending` as blocking implementation/completion claims.
+- A GUI may render the skill result but cannot reclassify authority, replace
+  exact Figma identity, or select a direction.
+
 During selection, return the AuthorityDecision and bounded direction cards.
 After selection, return only the selected DesignContract, state matrix,
 receipt/hash, and VisualReview. A GUI may render these objects later but must
