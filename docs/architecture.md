@@ -6,9 +6,10 @@ compatible while the product surface is Project Atlas.
 
 ```mermaid
 flowchart LR
-  R[Vue/Nuxt or React/Next repository]
+  R[React, Next, Vue, Nuxt, or Astro repository]
   V[Vue adapter]
   X[React adapter]
+  O[Astro adapter]
   G[Framework-neutral graph]
   F[Sparse Figma metadata]
   D[Lightweight Design Index]
@@ -27,8 +28,10 @@ flowchart LR
 
   R --> V
   R --> X
+  R --> O
   V --> G
   X --> G
+  O --> G
   F --> D
   G --> S
   D --> S
@@ -56,6 +59,8 @@ flowchart LR
   and mirrored tests.
 - `adapter-react`: exported and file-local React components, props, JSX
   composition, styling tokens, and tests.
+- `adapter-astro`: Astro components, routes, layouts, props, slots, and
+  client/server island boundaries.
 - `design`: provider-neutral Figma metadata normalization, cached node maps,
   task ranking, variable summaries, and explainable findings.
 - `memory`: typed Project Memory, Markdown frontmatter, ranking, hard response
@@ -131,7 +136,8 @@ Findings use three levels:
 
 ## Graph model
 
-A code node records source/runtime names, kind (component, route, or layout),
+A code node records source/runtime names, kind (component, route, layout, or
+framework-special file),
 scope, props, emits, slots,
 models, rendered components, imports, tests, source location, class tokens, and
 a content hash.
@@ -139,6 +145,8 @@ a content hash.
 Edge types:
 
 - `renders`: composition and reverse impact traversal;
+- `uses_layout` and `route_parent`: package-scoped framework conventions;
+- `hydrates` and `defers`: Astro client and server island boundaries;
 - `similar_to`: weighted structural evidence;
 - `tested_by`: component-to-test traceability.
 
@@ -147,9 +155,13 @@ tokens 15%, and API shape 10%. Candidate discovery uses bounded shared-signal
 neighborhoods and retains at most eight strongest candidates per component, so
 a family of similar components cannot create a complete quadratic graph.
 
-Route and layout SFCs participate in render edges so an actual page consumer is
-visible in impact traversal, but they are excluded from reusable-component
-candidate ranking.
+Route, layout, and special framework files participate in composition so an
+actual page consumer is visible in impact traversal, but they are excluded from
+reusable-component search and similarity. Exact imports take precedence over
+unique framework conventions; identical global names are never enough to
+choose between multiple targets. See
+[Frontend framework support](frontend-framework-support.md) for the support
+matrix and honest degradation boundary.
 
 ## Storage
 

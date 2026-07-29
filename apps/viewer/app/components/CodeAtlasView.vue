@@ -46,6 +46,31 @@ const inspectorIsDrawer = ref(false);
 let inspectorMedia: MediaQueryList | undefined;
 let inspectorReturnFocus: HTMLElement | undefined;
 
+const coverage = computed(() => props.graph.project.scan?.coverage);
+const profileLabel = computed(() => {
+  const profile = props.graph.project.profile;
+  if (!profile) return props.graph.project.framework;
+  return [
+    ...new Set(
+      profile.packages.map((packageProfile) => {
+        const technology =
+          packageProfile.metaFramework ?? packageProfile.primaryFramework;
+        const version =
+          packageProfile.versions[technology] ??
+          packageProfile.versions[packageProfile.primaryFramework];
+        return `${technology}${version ? ` ${version}` : ""}`;
+      }),
+    ),
+  ].join(" · ");
+});
+const coverageTone = computed(() =>
+  coverage.value?.errorFiles
+    ? "danger"
+    : !coverage.value?.complete
+      ? "warning"
+      : "healthy",
+);
+
 const scopeOptions = [
   { value: "all", label: "All", description: "Every indexed code node" },
   { value: "public", label: "Shared", description: "Reusable across features" },
@@ -85,7 +110,11 @@ const filteredComponents = computed(() => {
         ).map((result) => result.component),
         ...props.graph.components.filter(
           (component) =>
-            (component.kind === "route" || component.kind === "layout") &&
+            (
+              component.kind === "route" ||
+              component.kind === "layout" ||
+              component.kind === "special"
+            ) &&
             [
               component.name,
               component.effectiveName,
@@ -136,7 +165,12 @@ const filteredEdges = computed(() =>
       filteredIds.value.has(edge.source) &&
       filteredIds.value.has(edge.target) &&
       ((edge.kind === "similar_to" && showSimilar.value) ||
-        (edge.kind === "renders" && showComposition.value)),
+        (
+          ["renders", "uses_layout", "route_parent", "hydrates", "defers"].includes(
+            edge.kind,
+          ) &&
+          showComposition.value
+        )),
   ),
 );
 
@@ -239,6 +273,7 @@ function scopeLabel(visibility: ComponentNode["visibility"]): string {
 function apiLabel(component: ComponentNode): string {
   if (component.kind === "route") return statusLabel("route");
   if (component.kind === "layout") return statusLabel("layout");
+  if (component.kind === "special") return t(component.role ?? "special");
   const count = component.props.length;
   return t(count === 1 ? "{count} prop" : "{count} props", { count });
 }
@@ -441,6 +476,39 @@ onBeforeUnmount(() => {
         <span class="result-count">{{ filteredComponents.length }}</span>
       </div>
 
+      <details
+        v-if="coverage"
+        class="coverage-strip"
+        :data-tone="coverageTone"
+      >
+        <summary>
+          <strong :title="profileLabel">{{ profileLabel }}</strong>
+          <span>
+            {{ coverage.parsedFiles }}/{{ coverage.candidateFiles }}
+            {{ t("parsed") }}
+            <template v-if="coverage.skippedFiles">
+              · {{ coverage.skippedFiles }} {{ t("skipped") }}
+            </template>
+            <template v-if="coverage.errorFiles">
+              · {{ coverage.errorFiles }} {{ t("errors") }}
+            </template>
+          </span>
+        </summary>
+        <ul v-if="coverage.diagnostics.length">
+          <li
+            v-for="diagnostic in coverage.diagnostics.slice(0, 5)"
+            :key="`${diagnostic.code}:${diagnostic.path ?? diagnostic.message}`"
+          >
+            <strong>{{ diagnostic.code }}</strong>
+            <span>
+              <template v-if="diagnostic.path">{{ diagnostic.path }} · </template>
+              {{ diagnostic.message }}
+            </span>
+          </li>
+        </ul>
+        <p v-else>{{ t("All discovered frontend files were parsed.") }}</p>
+      </details>
+
       <label class="local-search">
         <AtlasIcon name="search" />
         <input
@@ -518,7 +586,7 @@ onBeforeUnmount(() => {
       <div class="map-toolbar">
         <div>
           <span class="eyebrow">{{ t("Dependency field") }}</span>
-          <p>{{ t("Explore exact relationships in the graph, then inspect evidence for the selected component.") }}</p>
+          <p>{{ t("Explore resolved and inferred relationships, then inspect evidence for the selected node.") }}</p>
         </div>
         <details class="graph-options">
           <summary>{{ t("Relations") }}</summary>
@@ -621,6 +689,8 @@ onBeforeUnmount(() => {
             {{ scopeLabel(selected.visibility) }}
           </span>
           <span>{{ statusLabel(selected.kind ?? "component") }}</span>
+          <span v-if="selected.runtime">{{ statusLabel(selected.runtime) }}</span>
+          <span v-if="selected.routePath">{{ selected.routePath }}</span>
           <span>{{ t(selected.props.length === 1 ? "{count} prop" : "{count} props", { count: selected.props.length }) }}</span>
         </div>
         <h2>{{ selected.effectiveName }}</h2>
@@ -704,7 +774,11 @@ onBeforeUnmount(() => {
           <small>{{ t("direct") }}</small>
         </button>
         <p v-if="details?.impact.directConsumers.length === 0" class="muted">
-          {{ t("No indexed code node consumes it.") }}
+          {{
+            coverage?.complete
+              ? t("No indexed code node consumes it.")
+              : t("No consumer was found within the successfully parsed files.")
+          }}
         </p>
       </section>
 
@@ -735,6 +809,14 @@ onBeforeUnmount(() => {
         </button>
         <p v-if="details?.similar.length === 0" class="muted">
           {{ t("No strong structural match yet.") }}
+        </p>
+      </section>
+      <section
+        v-else-if="goal === 'reuse'"
+        class="detail-section"
+      >
+        <p class="muted">
+          {{ t("Framework structure is inspectable for impact, but excluded from reusable-component matches.") }}
         </p>
       </section>
 

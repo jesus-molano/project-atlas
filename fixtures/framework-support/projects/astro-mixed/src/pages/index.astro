@@ -1,0 +1,13 @@
+---
+import Base from "../layouts/Base.astro";
+import Card from "../components/Card.astro";
+import Counter from "../components/Counter";
+import Status from "../components/Status.vue";
+---
+
+<Base title="Home">
+  <Card title="Atlas" server:defer>
+    <Counter client:load />
+    <Status label="Ready" client:visible />
+  </Card>
+</Base>

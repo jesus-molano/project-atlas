@@ -62,7 +62,11 @@ const DYNAMIC_UI_VALUES = [
   "authenticated", "unauthenticated", "needs-input", "implemented",
   "prepared", "run-started", "activity", "question", "approval", "result",
   "usage", "session-report", "design-index", "local-index", "route",
-  "layout", "component", "public", "private", "feature",
+  "layout", "component", "special", "public", "private", "feature",
+  "degraded", "server", "client", "universal", "static", "island-client",
+  "island-server", "page", "app-shell", "document", "error", "template",
+  "loading", "global-error", "not-found", "parallel-default",
+  "intercepting-route",
 ] as const;
 
 const ALLOWED_UNTRANSLATED_TEMPLATE_TEXT = new Set([

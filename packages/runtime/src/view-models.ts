@@ -79,7 +79,13 @@ export interface SourceHealthViewModel {
   id: string;
   source: "repository" | "figma" | "jira" | "confluence" | "memory";
   label: string;
-  status: "healthy" | "stale" | "unavailable" | "permission-required" | "error";
+  status:
+    | "healthy"
+    | "stale"
+    | "degraded"
+    | "unavailable"
+    | "permission-required"
+    | "error";
   lastIndexedAt?: string;
   detail?: string;
   refreshAvailable: boolean;
@@ -279,9 +285,14 @@ export function buildProjectOverviewViewModel(
       id: "repository",
       source: "repository",
       label: "Repository index",
-      status: sourceFreshness(graph.project.scannedAt, 1, now),
+      status: graph.project.scan?.coverage?.errorFiles
+        ? "error"
+        : graph.project.scan?.coverage &&
+            !graph.project.scan.coverage.complete
+          ? "degraded"
+          : sourceFreshness(graph.project.scannedAt, 1, now),
       lastIndexedAt: graph.project.scannedAt,
-      detail: `${graph.components.length} components · ${graph.edges.length} relations`,
+      detail: `${graph.components.length} code nodes · ${graph.edges.length} relations`,
       refreshAvailable: true,
     },
     designIndexes.length
@@ -429,7 +440,9 @@ export function buildProjectOverviewViewModel(
         rootPath: graph.project.rootPath,
       },
       counts: {
-        components: graph.components.length,
+        components: graph.components.filter(
+          (component) => (component.kind ?? "component") === "component",
+        ).length,
         designNodes,
         memoryItems: memoryItems.length,
         currentDecisions:

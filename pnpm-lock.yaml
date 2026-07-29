@@ -68,6 +68,25 @@ importers:
         specifier: ^3.0.0
         version: 3.3.8(@typescript/typescript6@6.0.2)
 
+  packages/adapter-astro:
+    dependencies:
+      '@astrojs/compiler':
+        specifier: ^4.0.0
+        version: 4.0.0
+      '@component-atlas/core':
+        specifier: workspace:*
+        version: link:../core
+      fast-glob:
+        specifier: ^3.3.3
+        version: 3.3.3
+      typescript:
+        specifier: npm:@typescript/typescript6@^6.0.2
+        version: '@typescript/typescript6@6.0.2'
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+
   packages/adapter-react:
     dependencies:
       '@component-atlas/core':
@@ -202,6 +221,9 @@ importers:
 
   packages/runtime:
     dependencies:
+      '@component-atlas/adapter-astro':
+        specifier: workspace:*
+        version: link:../adapter-astro
       '@component-atlas/adapter-react':
         specifier: workspace:*
         version: link:../adapter-react
@@ -257,6 +279,9 @@ importers:
         version: '@typescript/typescript6@6.0.2'
 
 packages:
+
+  '@astrojs/compiler@4.0.0':
+    resolution: {integrity: sha512-eouss7G8ygdZqHuke033VMcVw5HTZUu+PXd/h06DGDUg/jt5btPYPqh66ENWw/mU78rBrf/oeC4oqoBwMtDMNA==}
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -4306,6 +4331,8 @@ packages:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
+
+  '@astrojs/compiler@4.0.0': {}
 
   '@babel/code-frame@7.29.7':
     dependencies:

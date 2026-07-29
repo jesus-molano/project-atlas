@@ -1,7 +1,9 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { scanReactProject } from "./index.js";
+import { scanReactProject, scanReactProjectDetailed } from "./index.js";
 
 const fixture = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -34,5 +36,30 @@ describe("ReactAdapter", () => {
       expect.arrayContaining(["DialogSummary", "Button"]),
     );
     expect(summary?.visibility).toBe("private");
+  });
+
+  it("reports syntax failures instead of claiming complete coverage", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-react-error-"));
+    try {
+      await mkdir(path.join(root, "src"), { recursive: true });
+      await writeFile(
+        path.join(root, "src", "Broken.tsx"),
+        "export function Broken( { return <div />; }",
+        "utf8",
+      );
+      const result = await scanReactProjectDetailed({ rootPath: root });
+      expect(result.coverage).toMatchObject({
+        candidateFiles: 1,
+        parsedFiles: 0,
+        errorFiles: 1,
+        complete: false,
+      });
+      expect(result.coverage.diagnostics[0]).toMatchObject({
+        code: "react-syntax",
+        path: "src/Broken.tsx",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

@@ -2164,6 +2164,67 @@ textarea::placeholder {
   display: none;
 }
 
+.coverage-strip {
+  flex: 0 0 auto;
+  margin: 0 14px 12px;
+  border: 1px solid var(--atlas-rule);
+  border-left: 3px solid var(--atlas-success);
+  border-radius: 10px;
+  background: var(--atlas-raised);
+  color: var(--atlas-ink-muted);
+  font-size: 0.72rem;
+}
+
+.coverage-strip[data-tone="warning"] {
+  border-left-color: var(--atlas-warning);
+}
+
+.coverage-strip[data-tone="danger"] {
+  border-left-color: var(--atlas-danger);
+}
+
+.coverage-strip > summary {
+  display: grid;
+  cursor: pointer;
+  gap: 2px;
+  padding: 8px 10px;
+  list-style: none;
+}
+
+.coverage-strip > summary::-webkit-details-marker {
+  display: none;
+}
+
+.coverage-strip > summary strong {
+  overflow: hidden;
+  color: var(--atlas-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coverage-strip > ul,
+.coverage-strip > p {
+  margin: 0;
+  padding: 0 10px 9px;
+}
+
+.coverage-strip > ul {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+}
+
+.coverage-strip li {
+  display: grid;
+  gap: 1px;
+}
+
+.coverage-strip li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-atlas .component-list {
   min-height: 0;
   flex: 1;

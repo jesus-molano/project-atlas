@@ -147,4 +147,58 @@ describe("component graph", () => {
     expect(similarities.length).toBeGreaterThan(0);
     expect(similarities.length).toBeLessThanOrEqual(family.length * 8);
   });
+
+  it("keeps conventional route and layout relations inside one package scope", () => {
+    const routeOne = {
+      ...component("Page", [], []),
+      id: "react:apps/one/src/app/page.tsx#Page",
+      framework: "react" as const,
+      kind: "route" as const,
+      routePath: "/",
+      relativePath: "apps/one/src/app/page.tsx",
+      sourcePath: "/repo/apps/one/src/app/page.tsx",
+    };
+    const layoutOne = {
+      ...component("RootLayout", [], []),
+      id: "react:apps/one/src/app/layout.tsx#RootLayout",
+      framework: "react" as const,
+      kind: "layout" as const,
+      routePath: "/",
+      relativePath: "apps/one/src/app/layout.tsx",
+      sourcePath: "/repo/apps/one/src/app/layout.tsx",
+    };
+    const routeTwo = {
+      ...routeOne,
+      id: "react:apps/two/src/app/page.tsx#Page",
+      relativePath: "apps/two/src/app/page.tsx",
+      sourcePath: "/repo/apps/two/src/app/page.tsx",
+    };
+    const layoutTwo = {
+      ...layoutOne,
+      id: "react:apps/two/src/app/layout.tsx#RootLayout",
+      relativePath: "apps/two/src/app/layout.tsx",
+      sourcePath: "/repo/apps/two/src/app/layout.tsx",
+    };
+
+    const edges = buildGraphEdges([routeOne, layoutOne, routeTwo, layoutTwo]);
+    expect(
+      edges
+        .filter((edge) => edge.kind === "uses_layout")
+        .map((edge) => [edge.source, edge.target]),
+    ).toEqual(
+      expect.arrayContaining([
+        [routeOne.id, layoutOne.id],
+        [routeTwo.id, layoutTwo.id],
+      ]),
+    );
+    expect(
+      edges.some(
+        (edge) =>
+          edge.kind === "uses_layout" &&
+          ((edge.source === routeOne.id && edge.target === layoutTwo.id) ||
+            (edge.source === routeTwo.id && edge.target === layoutOne.id)),
+      ),
+    ).toBe(false);
+    expect(edges.some((edge) => edge.kind === "similar_to")).toBe(false);
+  });
 });

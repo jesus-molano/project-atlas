@@ -1,0 +1,11 @@
+{
+  "name": "fixture-astro-mixed",
+  "private": true,
+  "dependencies": {
+    "astro": "^6.0.0",
+    "@astrojs/react": "^6.0.0",
+    "@astrojs/vue": "^7.0.0",
+    "react": "^19.0.0",
+    "vue": "^3.5.0"
+  }
+}

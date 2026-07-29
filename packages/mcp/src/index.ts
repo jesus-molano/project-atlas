@@ -169,10 +169,10 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     "scan_repository",
-    "Index Vue/Nuxt or React/Next components and refresh the local graph.",
+    "Index Astro, Vue/Nuxt, or React/Next frontend nodes and refresh the local graph.",
     {
       root_path: z.string().describe("Absolute repository root."),
-      framework: z.enum(["vue", "react"]).optional(),
+      framework: z.enum(["vue", "react", "astro"]).optional(),
     },
     async ({ root_path, framework }) => {
       const graph = await scanProject(root_path, framework ? { framework } : {});

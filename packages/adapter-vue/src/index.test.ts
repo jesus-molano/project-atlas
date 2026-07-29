@@ -1,8 +1,10 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildGraphEdges } from "@component-atlas/core";
-import { scanVueProject } from "./index.js";
+import { scanVueProject, scanVueProjectDetailed } from "./index.js";
 
 const fixture = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -104,5 +106,60 @@ describe("VueAdapter", () => {
           edge.target === confirmNode?.id,
       ),
     ).toBe(true);
+  });
+
+  it("reports SFC syntax failures instead of silently dropping template facts", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-vue-error-"));
+    try {
+      await mkdir(path.join(root, "src"), { recursive: true });
+      await writeFile(
+        path.join(root, "src", "Broken.vue"),
+        "<script setup>const value = ;</script><template><div></template>",
+        "utf8",
+      );
+      const result = await scanVueProjectDetailed({ rootPath: root });
+      expect(result.coverage).toMatchObject({
+        candidateFiles: 1,
+        parsedFiles: 0,
+        errorFiles: 1,
+        complete: false,
+      });
+      expect(result.coverage.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: "src/Broken.vue" }),
+        ]),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("marks unsupported SFC block languages as skipped coverage", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-vue-pug-"));
+    try {
+      await mkdir(path.join(root, "src"), { recursive: true });
+      await writeFile(
+        path.join(root, "src", "PugCard.vue"),
+        '<script>export default { props: ["title"] }</script><template lang="pug">article {{ title }}</template>',
+        "utf8",
+      );
+      const result = await scanVueProjectDetailed({ rootPath: root });
+      expect(result.coverage).toMatchObject({
+        candidateFiles: 1,
+        parsedFiles: 0,
+        skippedFiles: 1,
+        errorFiles: 0,
+        complete: false,
+      });
+      expect(result.components[0]?.props.map((prop) => prop.name)).toEqual([
+        "title",
+      ]);
+      expect(result.coverage.diagnostics[0]).toMatchObject({
+        code: "vue-unsupported-sfc-block",
+        path: "src/PugCard.vue",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

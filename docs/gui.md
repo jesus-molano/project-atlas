@@ -96,6 +96,13 @@ fit the selection, or fit the graph. At laptop and tablet widths the inspector
 becomes a drawer with a sticky close control; `Escape` closes it and restores
 focus.
 
+A collapsed strip above the catalog reports the detected frontend profile and
+parser coverage. It distinguishes candidate, parsed, and failed files and shows
+only the first actionable diagnostics; it is not a framework dashboard.
+Routes, layouts, and special convention files remain inspectable but are not
+presented as reusable-component matches. See
+[Frontend framework support](frontend-framework-support.md).
+
 **Design** orients from cached file/page hierarchy to sparse frames, families,
 states, responsive variants, tokens, and code links. Ready for Dev shows
 `observed`, `user-confirmed`, `source-unavailable`, or `absent` provenance.

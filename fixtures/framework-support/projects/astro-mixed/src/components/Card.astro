@@ -1,0 +1,18 @@
+---
+interface Props {
+  title: string;
+  compact?: boolean;
+}
+
+const { title, compact = false } = Astro.props;
+---
+
+<article class:list={["card", { compact }]}>
+  <h2>{title}</h2>
+  <slot />
+  <slot name="actions" />
+</article>
+
+<style>
+  .card { display: grid; }
+</style>

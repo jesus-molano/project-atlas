@@ -26,6 +26,42 @@ function intersection(left: Iterable<string>, right: Iterable<string>): string[]
   return [...new Set(left)].filter((value) => b.has(value)).sort();
 }
 
+function routingScope(component: ComponentNode): string {
+  const normalized = component.relativePath.replaceAll("\\", "/").toLowerCase();
+  const markers = [
+    "src/app/",
+    "app/",
+    "src/pages/",
+    "pages/",
+    "src/layouts/",
+    "layouts/",
+  ];
+  const matches = markers
+    .flatMap((marker) => {
+      const atRoot = normalized.startsWith(marker) ? 0 : -1;
+      const nested = normalized.indexOf(`/${marker}`);
+      const index = atRoot >= 0 ? atRoot : nested >= 0 ? nested + 1 : -1;
+      return index >= 0 ? [{ index, marker }] : [];
+    })
+    .sort((left, right) => left.index - right.index);
+  const match = matches[0];
+  if (!match) return normalized.split("/").slice(0, -1).join("/");
+  const packageScope = normalized.slice(0, match.index);
+  if (component.framework !== "react") return packageScope;
+  return `${packageScope}#${
+    match.marker === "src/app/" || match.marker === "app/" ? "app" : "pages"
+  }`;
+}
+
+function routeContains(parentPath: string, childPath: string): boolean {
+  const normalizedParent = parentPath.replace(/\/$/u, "") || "/";
+  return (
+    normalizedParent === "/" ||
+    childPath === normalizedParent ||
+    childPath.startsWith(`${normalizedParent}/`)
+  );
+}
+
 export function compareComponents(
   left: ComponentNode,
   right: ComponentNode,
@@ -87,26 +123,157 @@ export function buildGraphEdges(
 ): GraphEdge[] {
   const edges: GraphEdge[] = [];
   const byName = new Map<string, ComponentNode[]>();
+  const bySourcePath = new Map<string, ComponentNode[]>();
   for (const component of components) {
-    for (const alias of [component.name, component.effectiveName]) {
+    for (const alias of new Set([component.name, component.effectiveName])) {
       const existing = byName.get(alias) ?? [];
       existing.push(component);
       byName.set(alias, existing);
     }
+    const sourceKey = component.sourcePath.replaceAll("\\", "/").toLowerCase();
+    const sourceNodes = bySourcePath.get(sourceKey) ?? [];
+    sourceNodes.push(component);
+    bySourcePath.set(sourceKey, sourceNodes);
   }
 
   for (const component of components) {
     for (const renderedName of new Set(component.renderedNames)) {
-      const targets = byName.get(renderedName) ?? [];
+      const sameFileTargets = (bySourcePath.get(
+        component.sourcePath.replaceAll("\\", "/").toLowerCase(),
+      ) ?? []).filter(
+        (target) =>
+          target.id !== component.id &&
+          [target.name, target.effectiveName].includes(renderedName),
+      );
+      const binding = component.importBindings?.find(
+        (candidate) => candidate.local === renderedName,
+      );
+      const importedTargets = binding?.resolvedPath
+        ? (bySourcePath.get(
+            binding.resolvedPath.replaceAll("\\", "/").toLowerCase(),
+          ) ?? []).filter(
+            (target) =>
+              (binding.imported === "default" && target.exportName === "default") ||
+              [target.name, target.effectiveName].includes(binding.imported),
+          )
+        : [];
+      const exactTargets = [...sameFileTargets, ...importedTargets].filter(
+        (target, index, collection) =>
+          collection.findIndex((candidate) => candidate.id === target.id) === index,
+      );
+      const conventionalTargets = byName.get(renderedName) ?? [];
+      const targets =
+        exactTargets.length > 0
+          ? exactTargets
+          : conventionalTargets.length === 1
+            ? conventionalTargets
+            : [];
       for (const target of targets) {
         if (target.id === component.id) continue;
+        const resolution =
+          exactTargets.length > 0 ? ("exact" as const) : ("framework-convention" as const);
         edges.push({
           id: edgeId("renders", component.id, target.id),
           kind: "renders",
           source: component.id,
           target: target.id,
+          resolution,
+          provenance: {
+            sourcePath: component.relativePath,
+            symbol: renderedName,
+          },
         });
+        if (component.kind === "route" && target.kind === "layout") {
+          edges.push({
+            id: edgeId("uses_layout", component.id, target.id),
+            kind: "uses_layout",
+            source: component.id,
+            target: target.id,
+            resolution,
+            provenance: {
+              sourcePath: component.relativePath,
+              symbol: renderedName,
+            },
+          });
+        }
+        const directive = component.renderReferences?.find(
+          (reference) => reference.name === renderedName,
+        )?.directive;
+        if (directive?.startsWith("client:") || directive === "server:defer") {
+          const kind = directive === "server:defer" ? "defers" : "hydrates";
+          edges.push({
+            id: edgeId(kind, component.id, target.id),
+            kind,
+            source: component.id,
+            target: target.id,
+            resolution,
+            provenance: {
+              sourcePath: component.relativePath,
+              symbol: directive,
+            },
+          });
+        }
       }
+    }
+  }
+
+  const layouts = components.filter(
+    (component) => component.kind === "layout" && component.routePath !== undefined,
+  );
+  const routes = components.filter(
+    (component) => component.kind === "route" && component.routePath !== undefined,
+  );
+  for (const route of routes) {
+    const routePath = route.routePath ?? "/";
+    const scope = routingScope(route);
+    const layout = layouts
+      .filter(
+        (candidate) =>
+          candidate.framework === route.framework &&
+          routingScope(candidate) === scope &&
+          routeContains(candidate.routePath ?? "/", routePath),
+      )
+      .sort(
+        (left, right) =>
+          (right.routePath?.length ?? 0) - (left.routePath?.length ?? 0),
+      )[0];
+    if (layout) {
+      edges.push({
+        id: edgeId("uses_layout", route.id, layout.id),
+        kind: "uses_layout",
+        source: route.id,
+        target: layout.id,
+        resolution: "framework-convention",
+        provenance: { sourcePath: route.relativePath },
+      });
+    }
+    const parent = routes
+      .filter(
+        (candidate) =>
+          candidate.id !== route.id &&
+          candidate.framework === route.framework &&
+          routingScope(candidate) === scope &&
+          candidate.routePath !== undefined &&
+          candidate.routePath !== routePath &&
+          routePath.startsWith(
+            candidate.routePath === "/"
+              ? "/"
+              : `${candidate.routePath.replace(/\/$/u, "")}/`,
+          ),
+      )
+      .sort(
+        (left, right) =>
+          (right.routePath?.length ?? 0) - (left.routePath?.length ?? 0),
+      )[0];
+    if (parent) {
+      edges.push({
+        id: edgeId("route_parent", route.id, parent.id),
+        kind: "route_parent",
+        source: route.id,
+        target: parent.id,
+        resolution: "framework-convention",
+        provenance: { sourcePath: route.relativePath },
+      });
     }
   }
 
@@ -150,11 +317,14 @@ function boundedSimilarityEdges(
   components: ComponentNode[],
   similarityThreshold: number,
 ): GraphEdge[] {
+  const reusableComponents = components.filter(
+    (component) => (component.kind ?? "component") === "component",
+  );
   const byId = new Map(
-    components.map((component) => [component.id, component]),
+    reusableComponents.map((component) => [component.id, component]),
   );
   const buckets = new Map<string, string[]>();
-  for (const component of components) {
+  for (const component of reusableComponents) {
     for (const signal of similaritySignals(component)) {
       const bucket = buckets.get(signal) ?? [];
       bucket.push(component.id);
@@ -192,7 +362,7 @@ function boundedSimilarityEdges(
     }
   >();
   const selectedPairIds = new Set<string>();
-  for (const component of components) {
+  for (const component of reusableComponents) {
     const ranked = [...(candidates.get(component.id) ?? [])]
       .map((candidateId) => {
         const candidate = byId.get(candidateId);

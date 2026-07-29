@@ -210,6 +210,7 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 - [Desktop workspace contract and Agent Adapter](docs/desktop-workspace.md)
 - [Task intake and persistence scopes](docs/task-intake-and-scopes.md)
 - [Architecture](docs/architecture.md)
+- [Frontend framework support and acceptance matrix](docs/frontend-framework-support.md)
 - [Figma Design Index](docs/design-index.md)
 - [Project Memory and write policy](docs/project-memory.md)
 - [Token budgets](docs/token-budgets.md)

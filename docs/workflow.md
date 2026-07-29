@@ -25,7 +25,9 @@ The skill performs this sequence:
    or decision that can materially change implementation.
 3. **Code index.** Call `scan_repository` for the current checkout. Code Atlas
    derives components, routes, layouts, imports, composition, consumers,
-   similarity, tests, and impact.
+   similarity, tests, and impact. The compact result also reports the detected
+   package/framework profile and parser coverage. Incomplete coverage is a
+   diagnostic signal, not an empty-inventory claim.
 4. **Memory index.** `get_task_context` indexes allowed Markdown when no memory
    index exists. An explicit refresh is used when approved memory files changed.
 5. **Design index.** When a Figma source is confirmed, preparation first reads
