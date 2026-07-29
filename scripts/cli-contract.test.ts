@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { projectId } from "../packages/core/src/naming.js";
 import { databasePath } from "../packages/store/src/index.js";
+import { normalizeProjectAtlasArguments } from "./project-atlas-arguments.mjs";
 
 const cliEntry = fileURLToPath(
   new URL("../packages/cli/dist/index.js", import.meta.url),
@@ -40,6 +41,17 @@ describe.sequential("CLI compact contracts", () => {
         recursive: true,
         force: true,
       }),
+    ]);
+  });
+
+  it("routes storage diagnostics as a CLI command instead of a project path", () => {
+    expect(normalizeProjectAtlasArguments(["storage", "--json"])).toEqual([
+      "storage",
+      "--json",
+    ]);
+    expect(normalizeProjectAtlasArguments(["C:\\work\\checkout"])).toEqual([
+      "open",
+      "C:\\work\\checkout",
     ]);
   });
 
