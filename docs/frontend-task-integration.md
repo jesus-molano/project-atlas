@@ -50,14 +50,17 @@ No manual scan, memory, context, or Figma command is required first.
    for a concrete node. A concrete node skips candidate ranking; a file/page
    continues with `find_design_candidates`. Refresh the task/design snapshot so
    persisted nodes are visible before code work or task completion. Use the
-   Figma Desktop MCP—the local MCP server exposed by the Figma desktop
-   application—first for reads and writes. Codex/Figma skills provide
-   instructions or mandatory prerequisites for the corresponding desktop MCP
-   operation, not a replacement route. Use another connector, manual selection,
-   or alternative evidence only when Figma Desktop MCP is not connected, not
-   authorized, or does not cover the operation. Never probe it before source
-   confirmation, and surface loading, available, confirmed-unsynchronized, or
-   access/sync-error state instead of an unexplained empty design view.
+   Figma Desktop MCP at `http://127.0.0.1:3845/mcp` first for every context
+   read and operation it exposes. Do not choose a global MCP registration or
+   remote connector first while the local server is connected, responsive,
+   authorized, and supports the operation. Codex/Figma skills provide
+   instructions or mandatory prerequisites, not a replacement route. Use
+   another connector, manual selection, or alternative evidence only when the
+   local MCP is not connected, rejects/times out, does not respond, is
+   unauthorized, or lacks the operation, and briefly state the fallback
+   reason. Never probe it before source confirmation, and surface loading,
+   available, confirmed-unsynchronized, or access/sync-error state instead of
+   an unexplained empty design view.
 11. Treat Ready for dev as a ranking boost, never a filter or prerequisite.
    Treat `source-unavailable` as a connector limitation, not a missing state.
 12. Stop for `decision-required`, surface `warning` with its recommendation, and
@@ -65,9 +68,19 @@ No manual scan, memory, context, or Figma command is required first.
     Medium-risk work also stops when sources conflict, persistence/cancel
     semantics are unclear, states are missing, the target is uncertain, or a
     shared API changes. Group one question by default and no more than three.
-13. After node confirmation, narrow a large frame to the smallest relevant
-   subtree before deep context. Retrieve screenshot and exact variables for the
-   same target; ask for a manual selection if it cannot be isolated.
+13. After node confirmation, preinspect `get_metadata` or the available sparse
+   hierarchy before full design context. Read a small bounded node directly
+   with the standard timeout. For a large page/frame, segment from the outset
+   by relevant sections, frames, or children and retrieve incrementally.
+   Following a timeout, narrow the scope instead of repeating the same request
+   with a larger timeout. If a full-page read still exceeds limits, fails, or
+   times out, preserve the original page link, obtain an available lightweight
+   screenshot/summary plus economical hierarchy/IDs, and retrieve related
+   groups in small adaptive batches. Record covered and remaining scopes so
+   successful batches are not repeated. Retrieve screenshots and exact
+   variables only for useful bounded targets. If no metadata or overview is
+   available, document the limitation and ask for a narrower link, manual
+   selection, screenshot, or export.
 14. Run `check_before_change`, record the component decision, implement,
     validate, and rescan.
 15. Always return a compact `Memory candidates` closeout: `none`,

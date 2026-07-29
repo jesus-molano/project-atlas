@@ -21,6 +21,9 @@ describe("frontend-task capability routing fixtures", () => {
       "repository-and-conversation",
       "jira-without-confluence-or-figma",
       "direct-figma-node",
+      "large-figma-frame-segmented-context",
+      "very-large-figma-page-adaptive-degradation",
+      "figma-local-fallback",
       "all-explicit-sources",
       "required-figma-capability-unavailable",
       "atlas-unavailable",
@@ -60,12 +63,53 @@ describe("frontend-task capability routing fixtures", () => {
     });
     expect(byId.get("direct-figma-node")?.expected).toMatchObject({
       figmaRoute: "figma-desktop-mcp-first",
+      localEndpoint: "http://127.0.0.1:3845/mcp",
+      preinspection: "get_metadata",
+      deepContext: "direct-standard-timeout",
+      doNotUseFirst: ["global-figma-mcp", "remote-figma-connector"],
       codexFigmaSkillRole: "instructions-or-operation-prerequisite",
       fallbackOnlyWhen: [
         "desktop-mcp-not-connected",
+        "desktop-mcp-request-failed",
+        "desktop-mcp-timeout-or-no-response",
         "desktop-mcp-unauthorized",
         "operation-unsupported",
       ],
+    });
+    expect(
+      byId.get("large-figma-frame-segmented-context")?.expected,
+    ).toMatchObject({
+      figmaRoute: "figma-desktop-mcp-first",
+      localEndpoint: "http://127.0.0.1:3845/mcp",
+      preinspection: "sparse-metadata-hierarchy",
+      deepContext: "segment-from-start-by-relevant-subtree",
+      incrementalProgress: true,
+      timeoutRecovery: "reduce-scope-and-segment",
+      unchangedRetryWithHigherTimeout: false,
+    });
+    expect(
+      byId.get("very-large-figma-page-adaptive-degradation")?.expected,
+    ).toMatchObject({
+      originalPageReference: "preserved",
+      overview: [
+        "screenshot-or-summary-when-available",
+        "economical-hierarchy-and-ids",
+      ],
+      atlasSupplement: "cached-sparse-scope-only",
+      selection: "relevant-components-and-related-groups",
+      batching: "small-adaptive-related-subtrees",
+      singleNodeOnly: false,
+      oversizedBatchRecovery: "shrink-next-batch",
+      successfulChunks: "preserved-not-repeated",
+      missingOverviewOrMetadata: "document-and-request-narrower-evidence",
+      inventHierarchy: false,
+    });
+    expect(byId.get("figma-local-fallback")?.expected).toMatchObject({
+      localEndpointAttemptedFirst: "http://127.0.0.1:3845/mcp",
+      localCondition: "timeout-or-no-response",
+      fallback: "remote-figma-connector",
+      fallbackExplanation: "brief-and-required",
+      unchangedRetryWithHigherTimeout: false,
     });
     expect(
       byId.get("plan-mode-native-selector")?.expected,
@@ -238,12 +282,43 @@ describe("frontend-task capability routing fixtures", () => {
     expect(brief).toMatch(/jira \| confluence \| figma \| github \| openapi/i);
     expect(brief).toMatch(/openapi: required \| recommended \| optional/i);
     expect(routing).toMatch(/Swagger\/OpenAPI contract/i);
-    expect(skill).toMatch(/Figma Desktop MCP.*local MCP server exposed by the Figma desktop/i);
-    expect(routing).toMatch(
-      /Codex\/Figma skill supplies\s+instructions or a mandatory operation prerequisite/i,
+    expect(skill).toMatch(/Figma Desktop\s+MCP.*first route for every context read/is);
+    expect(skill).toMatch(/http:\/\/127\.0\.0\.1:3845\/mcp/i);
+    expect(skill).toMatch(
+      /before any full `get_design_context` retrieval[\s\S]*`get_metadata`/i,
+    );
+    expect(skill).toMatch(
+      /never repeat the same request unchanged with a larger\s+timeout/i,
+    );
+    expect(skill).toMatch(
+      /full-page read still exceeds limits, fails, or times out[\s\S]*preserve the\s+original page link and identity/i,
+    );
+    expect(skill).toMatch(
+      /small adaptive batches[\s\S]*covered and remaining scope IDs/i,
     );
     expect(routing).toMatch(
-      /Figma Desktop MCP is not connected, not authorized, or does not cover the\s+operation/i,
+      /Codex\/Figma skill supplies[\s\S]*mandatory operation\s+prerequisite/i,
+    );
+    expect(routing).toMatch(
+      /before any global MCP registration or remote\s+Figma connector/i,
+    );
+    expect(routing).toMatch(
+      /rejects or times out on the request, does not\s+respond, is unauthorized, or does not expose the operation/i,
+    );
+    expect(routing).toMatch(
+      /Add one concise\s+explanation naming that condition and the fallback route used/i,
+    );
+    expect(routing).toMatch(
+      /segment from the outset[\s\S]*On timeout, do not retry an unchanged request with a higher timeout/i,
+    );
+    expect(routing).toMatch(
+      /lightweight global\s+view with `get_screenshot`[\s\S]*economical\s+`get_metadata` hierarchy\/IDs/i,
+    );
+    expect(routing).toMatch(
+      /Batching need not degrade immediately to one\s+node per request/i,
+    );
+    expect(routing).toMatch(
+      /names the original page, covered scope\s+IDs, omitted unrelated scopes, and any remaining gaps/i,
     );
     expect(skill).toMatch(/Finish every completed task with the compact \*\*Memory candidates\*\*/i);
     expect(memoryCloseout).toMatch(/`none`[\s\S]*No novel durable knowledge/i);

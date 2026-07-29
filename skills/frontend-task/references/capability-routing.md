@@ -25,8 +25,8 @@ sources reduce evidence; they do not invalidate the workflow.
 | Similarity or usages | `find_similar_components`, `list_component_usages` | `component-atlas similar` or `impact` |
 | Shared API impact | `analyze_prop_change_impact` | `component-atlas impact` plus source/test inspection |
 | Record reuse decision | `record_component_decision` | `component-atlas decision` |
-| Direct Figma node | Read sparse metadata through Figma Desktop MCP, persist it with `map_figma_file`, then inspect the confirmed node; load any required Codex/Figma skill only as instructions or an operation prerequisite | Use another connector, manual selection, or supplied screenshot/spec only when Figma Desktop MCP is not connected, not authorized, or lacks the operation; do not infer missing values |
-| Map Figma file/page | Read sparse metadata through Figma Desktop MCP, loading any required Codex/Figma skill for that desktop MCP operation, then `map_figma_file` | Use another connector or `component-atlas figma map` with saved XML/JSON metadata only when Figma Desktop MCP is not connected, not authorized, or lacks the operation |
+| Direct Figma node | Use Figma Desktop MCP at `http://127.0.0.1:3845/mcp`; read `get_metadata`, persist it with `map_figma_file`, then inspect/retrieve the confirmed node; load any required Codex/Figma skill only as instructions or an operation prerequisite | Use another connector, manual selection, or supplied screenshot/spec only when the local MCP is not connected, rejects/times out, does not respond, is unauthorized, or lacks the operation; briefly state the fallback reason and do not infer missing values |
+| Map Figma file/page | Use Figma Desktop MCP at `http://127.0.0.1:3845/mcp`; discover pages and read relevant sparse `get_metadata`, then call `map_figma_file` | Use another connector or `component-atlas figma map` with saved XML/JSON metadata only for a stated local connection, response, authorization, or operation failure |
 | Rank design candidates | `find_design_candidates` | `component-atlas figma find` |
 | Inspect cached node | `inspect_design_node` | `component-atlas figma inspect` |
 | Exact node variables | Figma Desktop MCP `get_variable_defs` after confirmation, with the applicable Codex/Figma skill used only as instructions/prerequisite | Repository tokens and screenshot evidence only when Figma Desktop MCP is not connected, not authorized, or lacks the operation |
@@ -34,14 +34,20 @@ sources reduce evidence; they do not invalidate the workflow.
 
 ## Figma routing rules
 
-- Prefer Figma Desktop MCP—the local MCP server exposed by the Figma desktop
-  application—for every supported read or write after source confirmation.
-  Connect and use it when available and authorized. A Codex/Figma skill supplies
-  instructions or a mandatory operation prerequisite; it is not an alternative
-  transport and must not displace, bypass, or get ahead of the desktop MCP.
+- Prefer Figma Desktop MCP at `http://127.0.0.1:3845/mcp` for every context
+  read and operation it advertises after source confirmation. Resolve and use
+  this exact local connection before any global MCP registration or remote
+  Figma connector. Never select the global/remote route first while the local
+  server is connected, responsive, authorized, and exposes the needed tool.
+  A Codex/Figma skill supplies instructions or a mandatory operation
+  prerequisite; it is not an alternative transport.
+- Do not invent a Figma health API. Determine usability from the active MCP
+  connection's exposed tools and the lightweight operation required by the
+  workflow.
 - Use another connector, manual selection, or alternative evidence only when
-  Figma Desktop MCP is not connected, not authorized, or does not cover the
-  operation, and state which condition applies.
+  the local MCP is not connected, rejects or times out on the request, does not
+  respond, is unauthorized, or does not expose the operation. Add one concise
+  explanation naming that condition and the fallback route used.
 - As preparation starts, ingest every confirmed Figma reference with sparse
   Figma Desktop MCP metadata and `map_figma_file`, then refresh the Atlas
   task/design snapshot. This persists Design Atlas before code work or task
@@ -50,9 +56,36 @@ sources reduce evidence; they do not invalidate the workflow.
   sparse persistence step.
 - Expose loading, available, confirmed-but-unsynchronized, and concrete
   access/sync-error states instead of leaving an unexplained empty design view.
-- For a large confirmed frame, use sparse child metadata to locate the smallest
-  relevant subtree before requesting deep context. If that cannot be isolated,
-  request a manual selection; never hide target truncation.
+- Before every deep-context request, preinspect with `get_metadata` or the
+  available sparse hierarchy mechanism. For a file/page, first discover pages,
+  then inspect only relevant page metadata. Estimate complexity from node
+  types, dimensions, child structure, sections/frames, and repeated state or
+  viewport families; do not assume an exact size estimator exists.
+- Treat a shallow bounded component/frame as small and request
+  `get_design_context` directly with the standard client timeout. Treat broad
+  pages, large screens, deep trees, and many sibling sections/frames as large:
+  segment from the outset by task-relevant section, frame, or child and keep
+  each successful result before proceeding.
+- On timeout, do not retry an unchanged request with a higher timeout. Reduce
+  scope from the sparse hierarchy, split into smaller children, and continue
+  incrementally. If no meaningful subtree can be isolated, request a manual
+  selection; never hide target truncation.
+- If a full-page read exceeds limits, fails, or times out, keep the confirmed
+  page URL/file/node identity as the parent scope. Obtain a lightweight global
+  view with `get_screenshot` when the active local MCP exposes it, or use a
+  supplied screenshot/cached Atlas summary. Pair it with economical
+  `get_metadata` hierarchy/IDs; use cached `inspect_design_node` only when
+  Design Atlas already contains the scope.
+- Group relevant components, frames, related siblings, or flow/viewport
+  families into small batches. Adapt batch size to returned complexity:
+  preserve successful batches, shrink after an oversized result, and never
+  resend already covered context. Batching need not degrade immediately to one
+  node per request.
+- Assemble an incremental result that names the original page, covered scope
+  IDs, omitted unrelated scopes, and any remaining gaps. If metadata or a
+  screenshot is unavailable, document which evidence is missing and request a
+  narrower link, manual selection, screenshot, or export instead of fabricating
+  hierarchy or dropping the page reference.
 - A file/page without a confirmed target uses sparse metadata first; never
   request deep context for every node.
 - Ready for dev adds evidence but is not an eligibility condition.

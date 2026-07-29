@@ -14,31 +14,61 @@ Direct route:
 
 1. The user provides or selects one concrete frame or component.
 2. At the start of preparation, read sparse metadata for the confirmed scope
-   through Figma Desktop MCP and pass it to `map_figma_file`. A direct link
-   skips candidate ranking, not Design Atlas persistence.
+   through Figma Desktop MCP at `http://127.0.0.1:3845/mcp` and pass it to
+   `map_figma_file`. A direct link skips candidate ranking, not Design Atlas
+   persistence. Resolve this local connection before any global MCP
+   registration or remote connector.
 3. If the node is cached, call `inspect_design_node`; otherwise use the
    just-mapped node identity.
-4. If it is a large screen/frame, use its sparse child metadata to identify the
-   smallest task-relevant subtree. The outer frame is orientation, not the
-   default deep-context target.
-5. Retrieve `get_design_context` and `get_screenshot` only for that subtree.
+4. Always use `get_metadata` or the available sparse hierarchy to estimate
+   complexity before full context. A shallow bounded component/frame is small;
+   a broad page, large screen, deep tree, or many sibling sections/frames is
+   large. No exact size-estimation API is assumed.
+5. For a small target, retrieve `get_design_context` with the standard client
+   timeout. For a large target, use sparse child metadata to segment from the
+   outset by task-relevant sections, frames, or children, then retrieve one
+   bounded subtree at a time. The outer frame is orientation, not the default
+   deep-context target.
+6. On timeout, keep successful chunks and narrow the remaining scope. Never
+   repeat the identical request with a larger timeout.
+7. If a full-page read exceeds limits, fails, or times out, preserve the page
+   URL/file/node identity and obtain a lightweight overview:
+   `get_screenshot` for the page/frame when available, or a supplied
+   screenshot/cached Atlas summary. Pair it with economical `get_metadata`
+   hierarchy/IDs. Cached `inspect_design_node` can supplement this only when
+   the scope already exists in Design Atlas.
+8. Group relevant components, related siblings, or flow/viewport families in
+   small adaptive batches. Keep successful batches, shrink the next batch
+   after an oversized response, and track covered/remaining scope IDs. The
+   workflow need not fall back immediately to one request per node.
+9. Retrieve detailed screenshots only for useful bounded targets.
    Use expanded file-global Variables when available. `get_variable_defs` is
    only a node/selection fallback when the audited state is `selection-only`.
-6. Reserve the response budget for the target. Shell, navigation, repeated
+10. Reserve the response budget for the target. Shell, navigation, repeated
    assets, and peripheral siblings are omitted first. If the target cannot be
    isolated, ask for a manual selection instead of silently accepting a
    truncated response.
-7. Combine the result with Atlas component context before implementation.
+11. If neither sparse metadata nor an overview is available, retain the page
+    reference, document the missing evidence, and ask for a narrower link,
+    manual selection, screenshot, or export. Do not invent hierarchy.
+12. Combine the result with Atlas component context before implementation.
 
 General route:
 
 1. The user provides a Figma file or page.
-2. Call Figma `get_metadata` without a node ID to discover pages.
+2. Use the local Desktop MCP first. Call Figma `get_metadata` without a node ID
+   to discover pages.
 3. Retrieve sparse XML only for relevant pages and pass each snapshot to
    `map_figma_file`. Repeated snapshots merge by page/scope.
 4. Call `find_design_candidates` with the task. It returns a few candidates,
    evidence, confidence, findings, and a decision gate.
 5. Confirm one node before following the direct route.
+
+If the local Desktop MCP is not connected, rejects/times out, does not respond,
+is unauthorized, or lacks the required operation, another connector or
+supplied evidence may be used. The agent records one brief explanation naming
+the local failure and fallback. A healthy local server is never bypassed in
+favor of a global MCP registration or remote connector.
 
 The REST alternative is a file response limited with `depth=2`; it includes
 pages and their top-level objects plus file `version` and `lastModified`.

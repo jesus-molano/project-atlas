@@ -156,17 +156,23 @@ exact MCP/CLI routes or fallbacks are needed.
 
 ## Use Figma proportionally
 
-When the task needs Figma and its source is confirmed, connect to and use
-**Figma Desktop MCP**—the local MCP server exposed by the Figma desktop
-application—as the first route for both reads and writes whenever it is
-connected and authorized for the operation. Load and follow the applicable
-Codex/Figma skill when it provides instructions or is a mandatory prerequisite
-for the intended Figma Desktop MCP operation; the skill guides that operation
-and never replaces, bypasses, or gets ahead of the desktop MCP. Use another
-connector, manual selection, cached Atlas evidence, screenshots, supplied
-exports, or other alternatives only when Figma Desktop MCP is not connected,
-not authorized, or does not cover the required operation. Record which
-condition caused the fallback.
+When the task needs Figma and its source is confirmed, use **Figma Desktop
+MCP** at `http://127.0.0.1:3845/mcp` as the first route for every context read
+and other operation it actually exposes. Resolve this local connection before
+any globally configured Figma MCP server or remote connector; never choose
+those first while the local server is connected, responsive, authorized, and
+supports the operation. Load and follow the applicable Codex/Figma skill when
+it provides instructions or is a mandatory prerequisite for the intended
+operation; the skill guides that operation and never replaces or gets ahead of
+the local MCP. Do not assume a tool or health endpoint exists: use the
+capabilities exposed by the active MCP connection.
+
+Use another connector, manual selection, cached Atlas evidence, screenshots,
+supplied exports, or other alternatives only when the local Desktop MCP is not
+connected, rejects or times out on the request, does not respond, is not
+authorized, or does not expose the required operation. When falling back,
+include one brief explanation naming the local failure condition and the
+alternative used.
 
 At the start of preparation, before investigating code, ingest every confirmed
 Figma source through that route: retrieve sparse metadata from Figma Desktop
@@ -177,6 +183,35 @@ is still running. Refresh the task/design snapshot after mapping. Never probe
 Figma Desktop MCP before the source is confirmed. If ingestion cannot run,
 surface `confirmed-unsynced` or the concrete access/sync error instead of
 presenting an unexplained empty Design Atlas.
+
+Before any full `get_design_context` retrieval, preinspect the confirmed scope
+with the available lightweight hierarchy mechanism: normally `get_metadata`
+for a confirmed node, or page discovery followed by `get_metadata` for the
+relevant page. Use the returned node types, dimensions, children, sections,
+frames, and repeated state or viewport groups to estimate complexity; do not
+invent an exact size API or threshold.
+
+- For a small bounded component or frame with a shallow sparse tree, call
+  `get_design_context` directly with the client's standard timeout.
+- For a broad page, large screen, or complex/deep tree, segment from the start
+  by task-relevant section, frame, or child. Retrieve one bounded subtree at a
+  time and retain successful chunks before continuing.
+- After a timeout, never repeat the same request unchanged with a larger
+  timeout. Reduce the node scope using the preinspected hierarchy, split it
+  into smaller children, and continue incrementally. If no meaningful subtree
+  can be isolated, ask for a manual selection.
+- If a full-page read still exceeds limits, fails, or times out, preserve the
+  original page link and identity. Obtain a lightweight overview first:
+  `get_screenshot` for the page/frame when available, or an available supplied
+  screenshot/cached Atlas summary, plus an economical `get_metadata` hierarchy
+  of IDs. Identify relevant components and related sibling groups, then fetch
+  small adaptive batches of bounded subtrees; batches may contain several
+  related nodes and should shrink after an oversized response. Assemble the
+  result incrementally with covered and remaining scope IDs, without
+  re-requesting successful chunks or loading unrelated siblings.
+- If neither sparse metadata nor an overview is available, state that
+  limitation and ask for a narrower link, manual selection, screenshot, or
+  export. Do not abandon the confirmed page link or invent its hierarchy.
 
 Use either route; neither depends on Ready for dev:
 
