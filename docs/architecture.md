@@ -312,6 +312,18 @@ The local audit stores only run state, source/selection kinds, budgets, counts,
 and status. It excludes task text, source URLs, code, documents, and raw model
 output.
 
+Optional retrieval delegation is governed by the compact contract in
+[delegation.md](delegation.md). It is disabled without explicit permission and
+measured coordinator-context savings. No delegate can confirm a source, change
+authority/scope, authorize fallback, or implement.
+
+Development authentication mocks use a separate fail-closed guard. A
+`dev-mock-no-session` policy is valid only for a development/test,
+challenge-only adapter that leaves the Profile flow untouched, accepts no real
+credentials or existing session, creates no session, token, or auth cookie, and
+cannot be enabled in production. Mock output validation rejects token/session/
+cookie/credential fields and JWT-like values.
+
 ## Compatibility
 
 Existing component graphs, component decision records, Design Index rows, and

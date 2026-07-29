@@ -177,6 +177,18 @@ retrieval budget permits one computation unless a graph, scope, or source
 ledger change is named. This keeps a secondary Backoffice example useful
 without expanding that feature into the primary login challenge scope.
 
+Delegation remains optional and is evaluated against both total work and
+coordinator-context savings; see [delegation.md](delegation.md). The agent
+adapter accepts only validated compact delegated evidence and explicitly keeps
+source confirmation, authority, scope, fallback, and implementation in the
+coordinator.
+
+For a development-only login challenge, the checkpoint must carry
+`dev-mock-no-session` and the complete auth guard. The adapter is
+challenge-only, Profile remains out of scope, production activation and real
+credentials/sessions are rejected, and neither request handling nor mock
+responses may create or carry authentication tokens, sessions, or cookies.
+
 The Figma handoff is also portable. The agent owns its approved Figma
 connection; Atlas accepts sparse metadata and serves cached queries. Missing
 Figma, Ready for dev, global Variables access, Code Connect, Jira, or Confluence

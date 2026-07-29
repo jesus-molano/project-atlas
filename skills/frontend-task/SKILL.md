@@ -170,6 +170,27 @@ If Atlas is unavailable, perform the equivalent repository search manually and
 still make the five-way decision. Load `references/capability-routing.md` when
 exact MCP/CLI routes or fallbacks are needed.
 
+### Delegate retrieval only under measured context pressure
+
+Do not use subagents by default. Consider the agent delegation contract only
+when the user/host explicitly allows delegation, at least two independent
+confirmed retrieval domains (or one exceptionally large domain) exceed the
+coordinator-context threshold, and compact outputs save at least 8,000
+coordinator characters. Compare total work cost as well: delegation adds raw
+delegate reads, compact output, and coordination overhead even when it saves
+the coordinator context.
+
+Run at most two retrieval delegates concurrently. Give each only its confirmed
+source-decision IDs, ledger primary adapter, immutable scope, and output budget.
+The coordinator alone confirms sources, resolves authority/contradictions,
+changes scope, authorizes provider fallback, and performs the single
+implementation. A blocked delegate returns a compact blocker; it never changes
+provider. Accept only the typed Figma, Atlassian, OpenAPI, or Code/ChangeSurface
+result contract. Reject raw bodies, SVG/XML/HTML, code dumps, local asset URLs,
+oversized strings, or results without receipt IDs. If delegation is unavailable
+or not cost-effective, the coordinator runs the same confirmed route within
+the existing retrieval budget.
+
 ## Use Figma proportionally
 
 When the task needs Figma and its source is confirmed, use **Figma Desktop
@@ -371,14 +392,21 @@ review guard without option generation.
 ## Implement and verify
 
 1. State the selected target, reuse decision, and any non-blocking assumptions.
-2. Implement the smallest cohesive change consistent with the repository.
-3. Verify relevant tests, type checking, linting, build, responsive states, and
+2. If login-challenge development mocks are approved, record
+   `dev-mock-no-session` plus the full auth-mock guard before editing. The
+   adapter must be development/test-only and challenge-only, leave the Profile
+   flow untouched, reject real credentials and existing sessions, issue no
+   token, create no session, write no auth cookie, and be impossible to enable
+   in a production build. Reject mock responses containing token/session/
+   cookie/credential fields.
+3. Implement the smallest cohesive change consistent with the repository.
+4. Verify relevant tests, type checking, linting, build, responsive states, and
    accessibility in proportion to risk. For material visual work, capture only
    the relevant viewports/states after this single implementation, compare them
    with the locked DesignContract (and exact Figma target in `fidelity`), then
    fix and recapture the same implementation rather than reviving variants.
-4. Rescan Atlas after component changes and confirm the graph reflects them.
-5. At closeout, load `references/memory-closeout.md` only if its manifest
+5. Rescan Atlas after component changes and confirm the graph reflects them.
+6. At closeout, load `references/memory-closeout.md` only if its manifest
    digest was not already loaded for this phase. Finish every completed task with the compact **Memory candidates** closeout, even when there is no
    candidate. This is
    the shared structured `memoryCloseout` result: produce it once, present it in
@@ -402,10 +430,10 @@ review guard without option generation.
    changes, and episodic validation remain checkout-scoped. Only confirmed
    durable semantics, product/architecture decisions, design metadata, and
    approved memory may be promoted to the logical project; preserve provenance.
-6. Report outcome, evidence, validation, warnings, remaining external checks,
+7. Report outcome, evidence, validation, warnings, remaining external checks,
    and visual artifact cleanup. Do not claim that missing corporate data was
    validated or that cleanup succeeded while it is `cleanup-pending`.
-7. Only when the user or local project policy explicitly opts in to evaluation,
+8. Only when the user or local project policy explicitly opts in to evaluation,
    call `record_task_evaluation`. Store counts, timings, budget, and correctness
    flags; Atlas hashes the task and never persists its text.
 

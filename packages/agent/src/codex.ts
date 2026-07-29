@@ -15,6 +15,10 @@ import {
   assertAgentSourceReceiptMatchesDecision,
   parseAgentSourceReceipt,
 } from "./source-receipts.js";
+import {
+  assertAgentDelegationBundle,
+  compactDelegatedEvidence,
+} from "./delegation.js";
 import type {
   AgentAdapter,
   AgentAdapterStatus,
@@ -353,12 +357,15 @@ function clampText(value: string, limit = MAX_EVENT_TEXT_CHARS): string {
 }
 
 function assertRequest(request: AgentRunRequest): void {
+  const delegatedChars = request.delegation
+    ? compactDelegatedEvidence(request.delegation).length
+    : 0;
   if (!request.task.trim() || request.task.length > MAX_TASK_CHARS) {
     throw new Error(`Task must contain 1-${MAX_TASK_CHARS} characters.`);
   }
-  if (request.compactContext.length > MAX_CONTEXT_CHARS) {
+  if (request.compactContext.length + delegatedChars > MAX_CONTEXT_CHARS) {
     throw new Error(
-      `Compact context exceeds the ${MAX_CONTEXT_CHARS}-character adapter cap.`,
+      `Combined compact and delegated context exceeds the ${MAX_CONTEXT_CHARS}-character adapter cap.`,
     );
   }
   if (request.sources.length > MAX_SOURCES) {
@@ -394,9 +401,13 @@ function assertRequest(request: AgentRunRequest): void {
       "A write-capable turn must resume a reviewed Project Atlas thread.",
     );
   }
-  if (request.contextMetrics.usedChars > request.contextMetrics.budgetChars) {
+  if (
+    request.contextMetrics.usedChars + delegatedChars >
+    request.contextMetrics.budgetChars
+  ) {
     throw new Error("Context metrics exceed the reviewed hard cap.");
   }
+  if (request.delegation) assertAgentDelegationBundle(request.delegation);
 }
 
 function buildPrompt(request: AgentRunRequest): string {
@@ -453,6 +464,15 @@ function buildPrompt(request: AgentRunRequest): string {
   const answer = request.answer
     ? `\nMaterial answer supplied by the user:\n${request.answer}\n`
     : "";
+  const delegatedEvidence = request.delegation?.results.length
+    ? [
+        "Delegated compact evidence:",
+        compactDelegatedEvidence(request.delegation),
+        "- This evidence is already bounded and receipt-linked. Never request or reproduce the omitted raw bodies.",
+        "- Delegates do not confirm sources, resolve authority, change scope, authorize provider fallback, or implement. Those decisions remain with this coordinator and the task ledger.",
+        "",
+      ]
+    : [];
   if (figmaSourceSync) {
     return [
       "$frontend-task Synchronize the exact confirmed Figma target for Project Atlas.",
@@ -499,6 +519,7 @@ function buildPrompt(request: AgentRunRequest): string {
     "Reviewed compact Project Atlas context:",
     request.compactContext || '{"status":"no-local-context"}',
     "",
+    ...delegatedEvidence,
     ...figmaIngestion,
     "Execution rules:",
     `- Work only in ${request.rootPath}.`,
@@ -519,6 +540,8 @@ function buildPrompt(request: AgentRunRequest): string {
     "- Ask only when a material decision or contradiction remains. Include evidence and a recommendation.",
     "- Keep task intake, exact references, hypotheses, and run state task-scoped. Propose durable project memory separately; never promote it implicitly.",
     "- Reuse the task capsule's execution-manifest hashes and retrieval handles after continuation or compaction. Do not reread unchanged skill/reference/script bodies, run stable scripts with --help, or recompute reuse context without a named invalidation.",
+    "- Delegation is optional and never default. Use only a pre-approved delegation plan whose compact results pass the domain contract; keep source confirmation, authority, scope, provider fallback, and the single implementation in this coordinator.",
+    "- When active policy is `dev-mock-no-session`, implement only a development/test login-challenge adapter with the recorded guard: no real credentials or existing sessions, no token/session/cookie creation, no production activation, and no Profile flow changes.",
     ...MEMORY_CLOSEOUT_PROMPT_RULES,
     "- Return the requested compact structured result. Do not include raw source documents, code dumps, or transient localhost asset URLs.",
   ]

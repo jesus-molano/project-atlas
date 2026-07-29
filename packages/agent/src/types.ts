@@ -1,4 +1,8 @@
 import type { MemoryCloseout } from "./memory-closeout.js";
+import type {
+  AgentDelegationPlan,
+  AgentDelegationResult,
+} from "./delegation.js";
 
 export type AgentSourceReceiptProvider =
   | "figma"
@@ -180,6 +184,10 @@ export interface AgentRunRequest {
   threadId?: string;
   answer?: string;
   timeoutMs?: number;
+  delegation?: {
+    plan: AgentDelegationPlan;
+    results: AgentDelegationResult[];
+  };
 }
 
 export interface AgentCompactResult {

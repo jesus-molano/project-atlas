@@ -1639,6 +1639,22 @@ export function createMcpServer(): McpServer {
           ]).optional(),
           excluded_surfaces: z.array(z.string().max(80)).max(6).optional(),
           auth_mode: z.enum(["real", "dev-mock-no-session"]).optional(),
+          auth_mock_guard: z
+            .object({
+              schema_version: z.literal(1),
+              mode: z.literal("dev-mock-no-session"),
+              adapter_id: z.string().regex(/^[A-Za-z0-9._-]{1,120}$/u),
+              environment: z.enum(["development", "test"]),
+              challenge_only: z.literal(true),
+              profile_flow_untouched: z.literal(true),
+              accepts_real_credentials: z.literal(false),
+              reads_existing_session: z.literal(false),
+              creates_session: z.literal(false),
+              issues_tokens: z.literal(false),
+              writes_auth_cookies: z.literal(false),
+              production_enabled: z.literal(false),
+            })
+            .optional(),
         })
         .optional(),
       covered: z.array(z.string().max(240)).max(8).optional(),
@@ -1704,6 +1720,39 @@ export function createMcpServer(): McpServer {
                   : {}),
                 ...(active_policy.auth_mode
                   ? { authMode: active_policy.auth_mode }
+                  : {}),
+                ...(active_policy.auth_mock_guard
+                  ? {
+                      authMockGuard: {
+                        schemaVersion:
+                          active_policy.auth_mock_guard.schema_version,
+                        mode: active_policy.auth_mock_guard.mode,
+                        adapterId: active_policy.auth_mock_guard.adapter_id,
+                        environment:
+                          active_policy.auth_mock_guard.environment,
+                        challengeOnly:
+                          active_policy.auth_mock_guard.challenge_only,
+                        profileFlowUntouched:
+                          active_policy.auth_mock_guard
+                            .profile_flow_untouched,
+                        acceptsRealCredentials:
+                          active_policy.auth_mock_guard
+                            .accepts_real_credentials,
+                        readsExistingSession:
+                          active_policy.auth_mock_guard
+                            .reads_existing_session,
+                        createsSession:
+                          active_policy.auth_mock_guard.creates_session,
+                        issuesTokens:
+                          active_policy.auth_mock_guard.issues_tokens,
+                        writesAuthCookies:
+                          active_policy.auth_mock_guard
+                            .writes_auth_cookies,
+                        productionEnabled:
+                          active_policy.auth_mock_guard
+                            .production_enabled,
+                      },
+                    }
                   : {}),
               },
             }

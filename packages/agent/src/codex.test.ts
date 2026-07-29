@@ -6,6 +6,7 @@ import {
   CodexAgentAdapter,
   type CodexClient,
 } from "./codex.js";
+import { planAgentDelegation } from "./delegation.js";
 import type {
   AgentRunEvent,
   AgentRunRequest,
@@ -247,6 +248,86 @@ describe("Codex Agent Adapter", () => {
       ]),
     );
     expect(JSON.stringify(events)).not.toContain("command");
+  });
+
+  it("injects only validated compact delegated evidence into the coordinator", async () => {
+    const observed: { prompt?: string; signal?: AbortSignal } = {};
+    const client = fakeClient(
+      [
+        { type: "thread.started", thread_id: "thread-delegated" },
+        {
+          type: "item.completed",
+          item: {
+            id: "message-delegated",
+            type: "agent_message",
+            text: completedResult(),
+          },
+        },
+        {
+          type: "turn.completed",
+          usage: {
+            input_tokens: 40,
+            cached_input_tokens: 20,
+            cache_write_input_tokens: 0,
+            output_tokens: 20,
+            reasoning_output_tokens: 0,
+          },
+        },
+      ],
+      observed,
+    );
+    const reviewed = request(await root());
+    const plan = planAgentDelegation({
+      taskId: "task-delegated",
+      explicitlyAllowed: true,
+      coordinatorContextRemainingChars: 8_000,
+      workItems: [
+        {
+          domain: "code",
+          sourceDecisionIds: [],
+          confirmed: true,
+          authorityConfirmed: true,
+          primaryAdapter: "project-atlas",
+          fallbackPolicy: "deny",
+          estimatedRawChars: 30_000,
+          compactBudgetChars: 4_000,
+        },
+      ],
+    });
+    const draft = {
+      schemaVersion: 1 as const,
+      jobId: plan.jobs[0]!.id,
+      taskId: plan.taskId,
+      domain: "code" as const,
+      status: "blocked" as const,
+      sourceDecisionIds: [],
+      receiptIds: [],
+      warnings: [],
+      blocker: "ChangeSurface needs one explicit primary component.",
+      metrics: { outputChars: 0, rawBodiesIncluded: false as const },
+    };
+    reviewed.delegation = {
+      plan,
+      results: [
+        {
+          ...draft,
+          metrics: {
+            ...draft.metrics,
+            outputChars: JSON.stringify(draft).length,
+          },
+        },
+      ],
+    };
+
+    await collect(new CodexAgentAdapter(client).run(reviewed).events);
+    expect(observed.prompt).toContain("Delegated compact evidence");
+    expect(observed.prompt).toContain(
+      "ChangeSurface needs one explicit primary component.",
+    );
+    expect(observed.prompt).toContain(
+      "Delegates do not confirm sources",
+    );
+    expect(observed.prompt).not.toMatch(/<svg|localhost:3845|metadataXml/iu);
   });
 
   it("ingests a confirmed Figma source through Figma Desktop MCP before repository investigation", async () => {

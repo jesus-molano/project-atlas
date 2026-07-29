@@ -25,6 +25,10 @@ import { fitBudgetedResponse } from "@component-atlas/memory";
 import { projectStorageDirectory } from "@component-atlas/store";
 import { decode, encode } from "@toon-format/toon";
 import { resolveProjectIdentity } from "./identity.js";
+import {
+  assertDevelopmentAuthMockGuard,
+  type DevelopmentAuthMockGuard,
+} from "./auth-mocks.js";
 
 const execFileAsync = promisify(execFile);
 const CAPSULE_SCHEMA_VERSION = 2 as const;
@@ -92,6 +96,7 @@ export interface TaskResumeCapsule {
     inventionBudget?: 0 | 1 | 2 | 3;
     excludedSurfaces?: string[];
     authMode?: "real" | "dev-mock-no-session";
+    authMockGuard?: DevelopmentAuthMockGuard;
   };
   nextSafeAction: string;
 }
@@ -211,6 +216,9 @@ function validateCapsule(value: unknown): TaskResumeCapsule {
   }
   if (Buffer.byteLength(JSON.stringify(capsule), "utf8") > MAX_CAPSULE_BYTES) {
     throw new Error("Task resume capsule exceeds its 4 KB storage budget.");
+  }
+  if (capsule.activePolicy?.authMockGuard) {
+    assertDevelopmentAuthMockGuard(capsule.activePolicy.authMockGuard);
   }
   return capsule;
 }
@@ -390,6 +398,20 @@ export async function writeTaskCheckpoint(
   const executionManifest =
     input.executionManifest ?? existingCapsule?.executionManifest;
   const activePolicy = input.activePolicy ?? existingCapsule?.activePolicy;
+  if (input.activePolicy?.authMode === "dev-mock-no-session") {
+    if (!input.activePolicy.authMockGuard) {
+      throw new Error(
+        "A new development auth mock policy requires an explicit sessionless production guard.",
+      );
+    }
+    assertDevelopmentAuthMockGuard(input.activePolicy.authMockGuard);
+  }
+  if (
+    input.activePolicy?.authMode === "real" &&
+    input.activePolicy.authMockGuard
+  ) {
+    throw new Error("Real authentication cannot carry a development mock guard.");
+  }
   const existingLedger = await loadTaskSourceLedger(
     rootPath,
     input.taskId,

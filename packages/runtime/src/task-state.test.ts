@@ -97,6 +97,20 @@ describe("task checkpoint and resume", () => {
         inventionBudget: 0,
         excludedSurfaces: ["ProfileFingerprintModal"],
         authMode: "dev-mock-no-session",
+        authMockGuard: {
+          schemaVersion: 1,
+          mode: "dev-mock-no-session",
+          adapterId: "login-challenge-dev",
+          environment: "development",
+          challengeOnly: true,
+          profileFlowUntouched: true,
+          acceptsRealCredentials: false,
+          readsExistingSession: false,
+          createsSession: false,
+          issuesTokens: false,
+          writesAuthCookies: false,
+          productionEnabled: false,
+        },
       },
       head: "abc123",
       at: "2026-07-29T12:00:00.000Z",
@@ -114,6 +128,12 @@ describe("task checkpoint and resume", () => {
       visualMode: "fidelity",
       inventionBudget: 0,
       authMode: "dev-mock-no-session",
+      authMockGuard: expect.objectContaining({
+        adapterId: "login-challenge-dev",
+        profileFlowUntouched: true,
+        createsSession: false,
+        productionEnabled: false,
+      }),
     });
     expect(expand).not.toHaveBeenCalled();
     const transport = await loadTaskResumeTransport(root, "task-42");
@@ -184,6 +204,30 @@ describe("task checkpoint and resume", () => {
         fallback: "deny",
       },
     });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("requires the full production-disabled guard for a new auth mock policy", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-auth-guard-"));
+    await expect(
+      writeTaskCheckpoint(root, {
+        taskId: "task-auth-guard",
+        milestone: "risk-boundary",
+        objective: "Mock only the login OTP challenge",
+        objectiveApproved: true,
+        decisions: [],
+        sourceReceiptIds: [],
+        handles: [],
+        covered: ["scope"],
+        remaining: ["implementation"],
+        budgetChars: 2_400,
+        nextSafeAction: "Create a dev-only sessionless adapter.",
+        activePolicy: {
+          authMode: "dev-mock-no-session",
+          excludedSurfaces: ["ProfileFingerprintModal"],
+        },
+      }),
+    ).rejects.toThrow(/sessionless production guard/i);
     await rm(root, { recursive: true, force: true });
   });
 

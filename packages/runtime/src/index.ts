@@ -90,6 +90,13 @@ export {
   type OpenApiSourceResolver,
 } from "./openapi.js";
 export {
+  assertDevelopmentAuthMockGuard,
+  assertDevelopmentAuthMockRuntime,
+  assertSessionlessAuthMockResult,
+  type DevelopmentAuthMockGuard,
+  type DevelopmentAuthMockRuntimeEvidence,
+} from "./auth-mocks.js";
+export {
   assertFigmaDesktopAssetUrl,
   captureFigmaAsset,
   loadFigmaAssetMetadata,

@@ -22,6 +22,9 @@ response has a measured character hard cap.
   explicit graph, scope, or source-ledger invalidation is recorded;
 - Figma asset retrieval is capped at eight selected handles per task budget;
   only metadata enters context and SVG/binary bodies never do;
+- optional delegation admits at most two concurrent read-only jobs, each with
+  an 800–4,000 character result; combined coordinator injection is capped at
+  8,000 characters and recursively rejects raw bodies;
 - explicit `raw` remains a diagnostic action for older Code Atlas queries.
 
 Every compact response reports:
