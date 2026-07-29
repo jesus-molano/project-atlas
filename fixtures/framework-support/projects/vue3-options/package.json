@@ -1,0 +1,7 @@
+{
+  "name": "fixture-vue3-options",
+  "private": true,
+  "dependencies": {
+    "vue": "^3.5.0"
+  }
+}

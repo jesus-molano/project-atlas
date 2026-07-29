@@ -399,9 +399,11 @@ export class AtlasStore {
         ];
       }),
     );
-    for (const component of graph.components) {
+    for (const component of graph.components.filter(
+      (item) => (item.kind ?? "component") === "component",
+    )) {
       const semanticKey =
-        `${component.framework}:${component.relativePath}`.toLowerCase();
+        `${component.framework}:${component.relativePath}#${component.exportName ?? component.name}`.toLowerCase();
       const existing = entries.get(semanticKey);
       const sightings = [
         ...(existing?.sightings ?? []),

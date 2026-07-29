@@ -1,0 +1,7 @@
+{
+  "name": "framework-support-fixtures",
+  "private": true,
+  "workspaces": [
+    "projects/*"
+  ]
+}

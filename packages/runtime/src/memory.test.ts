@@ -127,7 +127,10 @@ describe.sequential("Project Atlas runtime", () => {
       budgetChars: 1_600,
     });
     expect(orientation.codeAtlas).toMatchObject({
-      components: first.components.length,
+      nodes: first.components.length,
+      components: first.components.filter(
+        (component) => (component.kind ?? "component") === "component",
+      ).length,
       relations: first.edges.length,
     });
   });
@@ -292,6 +295,14 @@ describe.sequential("Project Atlas runtime", () => {
     expect(selected.code[0]?.id).toBe(selectedComponent.id);
     expect(selected.memory[0]?.id).toBe("decision-search-url-v2");
     expect(selected.design.candidates[0]?.id).toBe(selectedDesignNodeId);
+    expect(selected.metrics.expandableIds).toContain(selectedComponent.id);
+    expect(selected.project.profile).toMatchObject({
+      frameworks: expect.any(Array),
+      coverage: expect.objectContaining({
+        candidateFiles: expect.any(Number),
+        parsedFiles: expect.any(Number),
+      }),
+    });
     expect(JSON.stringify(selected).length).toBeLessThanOrEqual(3_200);
 
     const withoutDesign = await getTaskContext(
@@ -573,7 +584,7 @@ paths:
     const map = await orientProject(rootPath, { budgetChars: 1_600 });
     expect(JSON.stringify(map).length).toBeLessThanOrEqual(1_600);
     expect(map).toMatchObject({
-      codeAtlas: { components: 6 },
+      codeAtlas: { nodes: 6, components: 5 },
       projectMemory: { counts: { total: 5 } },
     });
   });

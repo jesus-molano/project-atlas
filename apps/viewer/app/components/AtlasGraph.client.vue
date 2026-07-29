@@ -54,6 +54,7 @@ function graphElements(): ElementDefinition[] {
         source: edge.source,
         target: edge.target,
         kind: edge.kind,
+        resolution: edge.resolution ?? "inferred",
         score: edge.evidence?.score ?? 0,
       },
     }));
@@ -150,6 +151,13 @@ function renderGraph(): void {
           "line-color": graphColors.similarEdge,
           "target-arrow-shape": "none",
           opacity: 0.35,
+        },
+      },
+      {
+        selector: 'edge[resolution = "framework-convention"]',
+        style: {
+          "line-style": "dashed",
+          opacity: 0.32,
         },
       },
       {

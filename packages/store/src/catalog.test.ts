@@ -105,7 +105,7 @@ describe.sequential("logical project component catalog", () => {
       store.replaceGraph(graph("two", "hash-b"));
       const [entry] = store.listComponentCatalog("logical-project");
       expect(entry).toMatchObject({
-        semanticKey: "vue:components/atlasbutton.vue",
+        semanticKey: "vue:components/atlasbutton.vue#atlasbutton",
         divergent: true,
         provenance: {
           scope: "project",
@@ -129,6 +129,69 @@ describe.sequential("logical project component catalog", () => {
         store.listComponentCatalog("logical-project")[0]?.sightings[0]
           ?.checkoutId,
       ).toBe("two");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("keeps multiple exported symbols from one source file distinct", () => {
+    const store = new AtlasStore("logical-project");
+    try {
+      const primary = component("hash-primary");
+      const secondary: ComponentNode = {
+        ...primary,
+        id: "button-secondary",
+        name: "AtlasButtonIcon",
+        effectiveName: "AtlasButtonIcon",
+        exportName: "AtlasButtonIcon",
+        sourceHash: "hash-secondary",
+      };
+      store.replaceGraph({
+        ...graph("one", "hash-primary"),
+        components: [
+          { ...primary, exportName: "default" },
+          secondary,
+        ],
+      });
+
+      expect(
+        store
+          .listComponentCatalog("logical-project")
+          .map((entry) => entry.semanticKey)
+          .sort(),
+      ).toEqual([
+        "vue:components/atlasbutton.vue#atlasbuttonicon",
+        "vue:components/atlasbutton.vue#default",
+      ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("keeps routes and layouts out of the reusable project catalog", () => {
+    const store = new AtlasStore("logical-project");
+    try {
+      const reusable = component("hash-component");
+      const route: ComponentNode = {
+        ...reusable,
+        id: "route-home",
+        name: "HomePage",
+        effectiveName: "HomePage",
+        relativePath: "pages/index.vue",
+        sourcePath: "/checkout/pages/index.vue",
+        kind: "route",
+        routePath: "/",
+        exported: false,
+      };
+      store.replaceGraph({
+        ...graph("one", "hash-component"),
+        components: [reusable, route],
+      });
+
+      expect(store.listComponentCatalog("logical-project")).toHaveLength(1);
+      expect(store.listComponentCatalog("logical-project")[0]?.name).toBe(
+        "AtlasButton",
+      );
     } finally {
       store.close();
     }

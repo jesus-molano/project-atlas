@@ -22,6 +22,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@component-atlas/adapter-astro": "workspace:*",
     "@component-atlas/adapter-react": "workspace:*",
     "@component-atlas/adapter-vue": "workspace:*",
     "@component-atlas/core": "workspace:*",

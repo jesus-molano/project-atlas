@@ -173,6 +173,12 @@ const { formatDate, locale, runtimeMessage, statusLabel, t } = useAtlasI18n();
 
 const overview = computed(() => workspace.value?.overview);
 const graph = computed(() => workspace.value?.graph);
+const componentNodeCount = computed(
+  () =>
+    graph.value?.components.filter(
+      (component) => (component.kind ?? "component") === "component",
+    ).length ?? 0,
+);
 const activeRoot = computed(() => overview.value?.data.project.rootPath ?? "");
 const otherRecentProjects = computed(
   () =>
@@ -422,7 +428,7 @@ const attentionQueue = computed(() => {
 const sourceProblems = computed(
   () =>
     overview.value?.data.sources.filter((source) =>
-      ["stale", "error", "permission-required"].includes(source.status),
+      ["stale", "degraded", "error", "permission-required"].includes(source.status),
     ) ?? [],
 );
 
@@ -1646,7 +1652,7 @@ onBeforeUnmount(() => {
                 <span class="eyebrow">{{ t("Current checkout") }}</span>
                 <h2>{{ workspace.git.dirty ? t(workspace.git.changedFiles === 1 ? "{count} changed file" : "{count} changed files", { count: workspace.git.changedFiles }) : t("Ready for the next task") }}</h2>
                 <p v-if="workspace.git.dirty">{{ t("{staged} staged · {untracked} untracked. Continue or correct without restarting the brief.", { staged: workspace.git.stagedFiles, untracked: workspace.git.untrackedFiles }) }}</p>
-                <p v-else>{{ t("{mode} scan · {components} components · {relations} relations.", { mode: graph.project.scan?.mode ?? "full", components: graph.components.length, relations: graph.edges.length }) }}</p>
+                <p v-else>{{ t("{mode} scan · {components} components · {nodes} code nodes · {relations} relations.", { mode: graph.project.scan?.mode ?? "full", components: componentNodeCount, nodes: graph.components.length, relations: graph.edges.length }) }}</p>
               </div>
             </div>
             <button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('repository')">

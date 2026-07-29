@@ -52,6 +52,7 @@ const allowed = {
   "@component-atlas/memory": [],
   "@component-atlas/agent": [],
   "@component-atlas/design": ["@component-atlas/core"],
+  "@component-atlas/adapter-astro": ["@component-atlas/core"],
   "@component-atlas/adapter-react": ["@component-atlas/core"],
   "@component-atlas/adapter-vue": ["@component-atlas/core"],
   "@component-atlas/store": [
@@ -60,6 +61,7 @@ const allowed = {
     "@component-atlas/memory",
   ],
   "@component-atlas/runtime": [
+    "@component-atlas/adapter-astro",
     "@component-atlas/adapter-react",
     "@component-atlas/adapter-vue",
     "@component-atlas/core",

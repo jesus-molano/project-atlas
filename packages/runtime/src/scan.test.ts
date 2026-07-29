@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 describe("incremental repository scans", () => {
-  it("indexes every existing Vue src component and route before task deltas", async () => {
+  it("indexes every existing Vue src node without assuming a router from folder names", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-vue-src-"));
     const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
     temporary.push(root, dataHome);
@@ -42,7 +42,7 @@ describe("incremental repository scans", () => {
       ]),
     );
     expect(initial.components.filter((component) => component.kind === "route"))
-      .toHaveLength(2);
+      .toHaveLength(0);
 
     await writeFile(
       path.join(root, "src", "components", "account", "TaskCreatedBadge.vue"),
@@ -53,7 +53,7 @@ describe("incremental repository scans", () => {
     expect(incremental.components).toHaveLength(7);
     expect(
       incremental.components.filter((component) => component.kind === "route"),
-    ).toHaveLength(2);
+    ).toHaveLength(0);
     expect(
       incremental.components.some(
         (component) => component.relativePath === "src/pages/HomePage.vue",

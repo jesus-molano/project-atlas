@@ -329,8 +329,36 @@ export async function orientProject(
         scannedAt: graph.project.scannedAt,
       },
       codeAtlas: {
-        components: graph.components.length,
+        nodes: graph.components.length,
+        components: graph.components.filter(
+          (component) => (component.kind ?? "component") === "component",
+        ).length,
         relations: graph.edges.length,
+        profile: graph.project.profile
+          ? {
+              frameworks: graph.project.profile.frameworks,
+              packages: graph.project.profile.packages.length,
+              metaFrameworks: [
+                ...new Set(
+                  graph.project.profile.packages.flatMap((packageProfile) =>
+                    packageProfile.metaFramework
+                      ? [packageProfile.metaFramework]
+                      : [],
+                  ),
+                ),
+              ],
+              confidence: graph.project.profile.confidence,
+            }
+          : undefined,
+        coverage: graph.project.scan?.coverage
+          ? {
+              candidateFiles: graph.project.scan.coverage.candidateFiles,
+              parsedFiles: graph.project.scan.coverage.parsedFiles,
+              skippedFiles: graph.project.scan.coverage.skippedFiles,
+              errorFiles: graph.project.scan.coverage.errorFiles,
+              complete: graph.project.scan.coverage.complete,
+            }
+          : undefined,
         modules: [...modules.entries()]
           .sort((left, right) => right[1] - left[1])
           .slice(0, 8)
@@ -888,6 +916,10 @@ export async function getTaskContext(
         name: item.component.name,
         path: item.component.path,
         scope: item.component.scope,
+        kind: item.component.kind,
+        role: item.component.role,
+        runtime: item.component.runtime,
+        routePath: item.component.routePath,
         reasons: ["Selected in Project Atlas"],
         directConsumers: item.impact.directConsumers,
         transitiveConsumers: item.impact.transitiveConsumers,
@@ -899,6 +931,10 @@ export async function getTaskContext(
         name: candidate.component.name,
         path: candidate.component.path,
         scope: candidate.component.scope,
+        kind: candidate.component.kind,
+        role: candidate.component.role,
+        runtime: candidate.component.runtime,
+        routePath: candidate.component.routePath,
         reasons: candidate.match.reasons.slice(0, 2),
         directConsumers: candidate.impact.directConsumers,
         transitiveConsumers: candidate.impact.transitiveConsumers,
@@ -983,6 +1019,36 @@ export async function getTaskContext(
         name: graph.project.name,
         framework: graph.project.framework,
         scannedAt: graph.project.scannedAt,
+        ...(graph.project.profile
+          ? {
+              profile: {
+                frameworks: graph.project.profile.frameworks,
+                metaFrameworks: [
+                  ...new Set(
+                    graph.project.profile.packages.flatMap((packageProfile) =>
+                      packageProfile.metaFramework
+                        ? [packageProfile.metaFramework]
+                        : [],
+                    ),
+                  ),
+                ],
+                confidence: graph.project.profile.confidence,
+                ...(graph.project.scan?.coverage
+                  ? {
+                      coverage: {
+                        candidateFiles:
+                          graph.project.scan.coverage.candidateFiles,
+                        parsedFiles: graph.project.scan.coverage.parsedFiles,
+                        skippedFiles:
+                          graph.project.scan.coverage.skippedFiles,
+                        errorFiles: graph.project.scan.coverage.errorFiles,
+                        complete: graph.project.scan.coverage.complete,
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       },
       memory: rankedMemory.slice(0, topK).map(({ item, score, reasons }) => ({
         id: item.id,
@@ -1057,6 +1123,7 @@ export async function getTaskContext(
         (design?.candidates.length ?? 0) +
         (api?.operations.length ?? 0),
       expandableIds: [
+        ...selectedCodeIds,
         ...rankedMemory.map(({ item }) => item.id),
         ...reuse.candidates.map((candidate) => candidate.component.id),
         ...(design?.candidates.map((candidate) => candidate.node.id) ?? []),

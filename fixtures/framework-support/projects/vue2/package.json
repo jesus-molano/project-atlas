@@ -1,0 +1,8 @@
+{
+  "name": "fixture-vue2",
+  "private": true,
+  "dependencies": {
+    "vue": "^2.7.16",
+    "vue-router": "^3.6.5"
+  }
+}

@@ -12,8 +12,10 @@ import fg from "fast-glob";
 import {
   GRAPH_SCHEMA_VERSION,
   buildGraphEdges,
+  componentId,
   searchComponentContext,
   slash,
+  type AdapterScanResult,
   type ComponentDecision,
   type ComponentGraph,
   type ComponentNode,
@@ -21,7 +23,9 @@ import {
   type DesignTokenKind,
   type DecisionKind,
   type Framework,
+  type ProjectProfile,
   type ProjectScanState,
+  type ScanCoverage,
 } from "@component-atlas/core";
 import {
   buildFigmaDesignIndex,
@@ -51,6 +55,9 @@ import {
 } from "@component-atlas/store";
 import { resolveProjectIdentity } from "./identity.js";
 import { filesystemPathsEquivalent } from "./path-identity.js";
+import { detectProjectProfile } from "./profile.js";
+
+export { detectProjectProfile } from "./profile.js";
 
 export {
   canonicalFilesystemPath,
@@ -231,37 +238,22 @@ async function scanDesignTokens(rootPath: string): Promise<DesignToken[]> {
 }
 
 export async function detectFramework(rootPath: string): Promise<Framework> {
-  const manifest = await packageJson(rootPath);
-  const dependencies = {
-    ...manifest.devDependencies,
-    ...manifest.dependencies,
-  };
-  if (dependencies.nuxt || dependencies.vue || (await exists(path.join(rootPath, "nuxt.config.ts")))) {
-    return "vue";
-  }
-  if (
-    dependencies.next ||
-    dependencies.react ||
-    (await exists(path.join(rootPath, "next.config.ts"))) ||
-    (await exists(path.join(rootPath, "next.config.js")))
-  ) {
-    return "react";
-  }
-  throw new Error(
-    `Could not detect Vue/Nuxt or React/Next in ${path.resolve(rootPath)}.`,
-  );
+  return (await detectProjectProfile(rootPath)).primaryFramework;
 }
 
 function catalogMarkdown(graph: ComponentGraph): string {
+  const componentNodes = graph.components.filter(
+    (item) => (item.kind ?? "component") === "component",
+  );
   const counts = {
-    public: graph.components.filter((item) => item.visibility === "public").length,
-    feature: graph.components.filter((item) => item.visibility === "feature").length,
-    private: graph.components.filter((item) => item.visibility === "private").length,
+    public: componentNodes.filter((item) => item.visibility === "public").length,
+    feature: componentNodes.filter((item) => item.visibility === "feature").length,
+    private: componentNodes.filter((item) => item.visibility === "private").length,
   };
   const rows = graph.components
     .map((component) => {
       const props = component.props.map((prop) => prop.name).join(", ") || "—";
-      return `| ${component.effectiveName} | ${component.visibility} | \`${component.relativePath}\` | ${props} |`;
+      return `| ${component.effectiveName} | ${component.kind ?? "component"} | ${component.visibility} | \`${component.relativePath}\` | ${props} |`;
     })
     .join("\n");
   return `# Project Atlas code catalog
@@ -269,14 +261,15 @@ function catalogMarkdown(graph: ComponentGraph): string {
 Generated ${graph.project.scannedAt}. Re-run \`component-atlas scan\` to refresh.
 
 - Framework: ${graph.project.framework}
-- Components: ${graph.components.length}
+- Code nodes: ${graph.components.length}
+- Reusable components: ${componentNodes.length}
 - Public: ${counts.public}
 - Feature: ${counts.feature}
 - Private/local: ${counts.private}
 - Relationships: ${graph.edges.length}
 
-| Component | Scope | Source | Props |
-| --- | --- | --- | --- |
+| Node | Kind | Scope | Source | Props |
+| --- | --- | --- | --- | --- |
 ${rows}
 `;
 }
@@ -304,20 +297,21 @@ async function writeProjectArtifacts(graph: ComponentGraph): Promise<void> {
 
 const SCAN_PATTERNS = [
   "package.json",
-  "tsconfig*.json",
-  "nuxt.config.*",
-  "vite.config.*",
-  "next.config.*",
-  "app/**/*.{vue,ts,tsx,js,jsx,css,scss,sass}",
-  "src/**/*.{vue,ts,tsx,js,jsx,css,scss,sass}",
-  "components/**/*.{vue,ts,tsx,js,jsx,css,scss,sass}",
-  "pages/**/*.{vue,ts,tsx,js,jsx}",
-  "layouts/**/*.{vue,ts,tsx,js,jsx}",
-  "assets/**/*.{css,scss,sass}",
-  "styles/**/*.{css,scss,sass}",
-  "test/**/*.{ts,tsx,js,jsx}",
-  "tests/**/*.{ts,tsx,js,jsx}",
+  "pnpm-workspace.yaml",
+  "**/package.json",
+  "**/tsconfig*.json",
+  "**/{nuxt,vite,next,astro}.config.*",
+  "**/app/**/*.{vue,astro,ts,tsx,js,jsx,css,scss,sass}",
+  "**/src/**/*.{vue,astro,md,mdx,html,ts,tsx,js,jsx,css,scss,sass}",
+  "**/components/**/*.{vue,astro,ts,tsx,js,jsx,css,scss,sass}",
+  "**/pages/**/*.{vue,astro,md,mdx,html,ts,tsx,js,jsx}",
+  "**/layouts/**/*.{vue,astro,ts,tsx,js,jsx}",
+  "**/assets/**/*.{css,scss,sass}",
+  "**/styles/**/*.{css,scss,sass}",
+  "**/test/**/*.{ts,tsx,js,jsx}",
+  "**/tests/**/*.{ts,tsx,js,jsx}",
   "**/__tests__/**/*.{ts,tsx,js,jsx}",
+  "*.vue",
 ];
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -439,7 +433,7 @@ function configurationFingerprint(files: Record<string, string>): string {
     .update(
       Object.entries(files)
         .filter(([file]) =>
-          /(^|\/)(?:package\.json|tsconfig[^/]*\.json|(?:nuxt|vite|next)\.config\.)/i.test(
+          /(^|\/)(?:package\.json|pnpm-workspace\.yaml|tsconfig[^/]*\.json|(?:nuxt|vite|next|astro)\.config\.)/i.test(
             file,
           ),
         )
@@ -461,18 +455,24 @@ function changedFilePaths(
 }
 
 function isComponentSource(file: string, framework: Framework): boolean {
+  if (framework === "astro") {
+    return (
+      /\.astro$/iu.test(file) ||
+      /(^|\/)src\/pages\/.*\.(?:md|mdx|html)$/iu.test(file)
+    );
+  }
   if (framework === "vue") {
     return (
       /\.vue$/i.test(file) &&
       (
-        /(^|\/)(?:app\/)?(?:components|pages|layouts)\//i.test(file) ||
-        /^(?:src\/)?app\.vue$/i.test(file)
+        /(^|\/)(?:app|src|components|pages|layouts)\//i.test(file) ||
+        /(^|\/)(?:app|error)\.vue$/i.test(file)
       )
     );
   }
   return (
-    /\.(?:tsx|jsx)$/i.test(file) &&
-    /(^|\/)(?:src|app|components)\//i.test(file) &&
+    /\.(?:tsx|jsx|js)$/i.test(file) &&
+    /(^|\/)(?:src|app|components|pages)\//i.test(file) &&
     !/\.(?:test|spec|stories)\./i.test(file)
   );
 }
@@ -491,15 +491,161 @@ function canScanIncrementally(
 async function scanComponents(
   framework: Framework,
   rootPath: string,
+  packageProfile?: ProjectProfile["packages"][number],
   include?: string[],
-): Promise<ComponentNode[]> {
-  return framework === "vue"
-    ? import("@component-atlas/adapter-vue").then(({ scanVueProject }) =>
-        scanVueProject({ rootPath, ...(include ? { include } : {}) }),
-      )
-    : import("@component-atlas/adapter-react").then(({ scanReactProject }) =>
-        scanReactProject({ rootPath, ...(include ? { include } : {}) }),
+): Promise<AdapterScanResult> {
+  const options = {
+    rootPath,
+    ...(packageProfile ? { packageProfile } : {}),
+    ...(include ? { include } : {}),
+  };
+  if (framework === "vue") {
+    return import("@component-atlas/adapter-vue").then(
+      ({ scanVueProjectDetailed }) => scanVueProjectDetailed(options),
+    );
+  }
+  if (framework === "astro") {
+    return import("@component-atlas/adapter-astro").then(
+      ({ scanAstroProjectDetailed }) => scanAstroProjectDetailed(options),
+    );
+  }
+  return import("@component-atlas/adapter-react").then(
+    ({ scanReactProjectDetailed }) => scanReactProjectDetailed(options),
+  );
+}
+
+function mergeCoverage(results: ScanCoverage[]): ScanCoverage {
+  const byFramework: ScanCoverage["byFramework"] = {};
+  for (const result of results) {
+    for (const [framework, counts] of Object.entries(result.byFramework)) {
+      if (!counts) continue;
+      const key = framework as Framework;
+      const existing = byFramework[key] ?? {
+        candidateFiles: 0,
+        parsedFiles: 0,
+        skippedFiles: 0,
+        errorFiles: 0,
+      };
+      byFramework[key] = {
+        candidateFiles: existing.candidateFiles + counts.candidateFiles,
+        parsedFiles: existing.parsedFiles + counts.parsedFiles,
+        skippedFiles: existing.skippedFiles + counts.skippedFiles,
+        errorFiles: existing.errorFiles + counts.errorFiles,
+      };
+    }
+  }
+  const candidateFiles = results.reduce(
+    (total, result) => total + result.candidateFiles,
+    0,
+  );
+  const parsedFiles = results.reduce(
+    (total, result) => total + result.parsedFiles,
+    0,
+  );
+  const skippedFiles = results.reduce(
+    (total, result) => total + result.skippedFiles,
+    0,
+  );
+  const errorFiles = results.reduce(
+    (total, result) => total + result.errorFiles,
+    0,
+  );
+  return {
+    candidateFiles,
+    parsedFiles,
+    skippedFiles,
+    errorFiles,
+    diagnostics: results.flatMap((result) => result.diagnostics).slice(0, 50),
+    byFramework,
+    complete:
+      results.every((result) => result.complete) &&
+      candidateFiles === parsedFiles + skippedFiles + errorFiles,
+  };
+}
+
+function packageInclude(
+  packageRelativeRoot: string,
+  include: string[] | undefined,
+): string[] | undefined {
+  if (!include) return undefined;
+  const prefix = packageRelativeRoot ? `${slash(packageRelativeRoot)}/` : "";
+  return include.flatMap((file) => {
+    const normalized = slash(file);
+    if (!prefix) return [normalized];
+    return normalized.startsWith(prefix) ? [normalized.slice(prefix.length)] : [];
+  });
+}
+
+async function scanProfileComponents(
+  profile: ProjectProfile,
+  rootPath: string,
+  include?: string[],
+): Promise<AdapterScanResult> {
+  const results: Array<{
+    result: AdapterScanResult;
+    packageProfile: ProjectProfile["packages"][number];
+  }> = [];
+  for (const packageProfile of profile.packages) {
+    const scopedInclude = packageInclude(packageProfile.relativeRoot, include);
+    if (include && scopedInclude?.length === 0) continue;
+    for (const framework of packageProfile.frameworks) {
+      const result = await scanComponents(
+        framework,
+        packageProfile.rootPath,
+        packageProfile,
+        scopedInclude,
       );
+      results.push({ result, packageProfile });
+    }
+  }
+  const components = results
+    .flatMap(({ result, packageProfile }) =>
+      result.components.map((component) => {
+        if (!packageProfile.relativeRoot) return component;
+        const relativePath = slash(
+          path.join(packageProfile.relativeRoot, component.relativePath),
+        );
+        return {
+          ...component,
+          id: componentId(component.framework, relativePath, component.name),
+          relativePath,
+          testPaths: component.testPaths.map((testPath) =>
+            slash(path.join(packageProfile.relativeRoot, testPath)),
+          ),
+        };
+      }),
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+  let coverage = mergeCoverage(
+    results.map(({ result, packageProfile }) => ({
+      ...result.coverage,
+      diagnostics: result.coverage.diagnostics.map((diagnostic) => ({
+        ...diagnostic,
+        ...(diagnostic.path && packageProfile.relativeRoot
+          ? {
+              path: slash(
+                path.join(packageProfile.relativeRoot, diagnostic.path),
+              ),
+            }
+          : {}),
+      })),
+    })),
+  );
+  if (coverage.candidateFiles === 0) {
+    coverage = {
+      ...coverage,
+      complete: false,
+      diagnostics: [
+        {
+          severity: "warning",
+          code: "no-frontend-candidates",
+          message:
+            "Frontend dependencies were detected, but no supported source files were discovered.",
+        },
+      ],
+    };
+  }
+  return { components, coverage };
 }
 
 async function migrateLegacyProject(
@@ -594,7 +740,60 @@ export async function scanProject(
   await migrateLegacyProject(rootPath, identity);
   throwIfAborted(options.signal);
   const manifest = await packageJson(rootPath);
-  const framework = options.framework ?? (await detectFramework(rootPath));
+  let profile: ProjectProfile;
+  try {
+    profile = await detectProjectProfile(rootPath);
+  } catch (error) {
+    if (!options.framework) throw error;
+    profile = {
+      primaryFramework: options.framework,
+      frameworks: [options.framework],
+      packages: [
+        {
+          rootPath,
+          relativeRoot: "",
+          name: manifest.name ?? path.basename(rootPath),
+          frameworks: [options.framework],
+          primaryFramework: options.framework,
+          versions: {},
+          confidence: "low",
+          evidence: ["manual-framework-override"],
+        },
+      ],
+      confidence: "low",
+      diagnostics: ["Framework was selected manually; package evidence was unavailable."],
+    };
+  }
+  if (options.framework) {
+    const packages = profile.packages
+      .filter((packageProfile) => packageProfile.frameworks.includes(options.framework!))
+      .map((packageProfile) => ({
+        ...packageProfile,
+        frameworks: [options.framework!],
+        primaryFramework: options.framework!,
+      }));
+    profile = {
+      ...profile,
+      primaryFramework: options.framework,
+      frameworks: [options.framework],
+      packages:
+        packages.length > 0
+          ? packages
+          : [
+              {
+                rootPath,
+                relativeRoot: "",
+                name: manifest.name ?? path.basename(rootPath),
+                frameworks: [options.framework],
+                primaryFramework: options.framework,
+                versions: {},
+                confidence: "low",
+                evidence: ["manual-framework-override"],
+              },
+            ],
+    };
+  }
+  const framework = profile.primaryFramework;
   const store = new AtlasStore(identity.logicalId);
   let previousGraph: ComponentGraph | undefined;
   let previousState: ProjectScanState | undefined;
@@ -623,14 +822,33 @@ export async function scanProject(
     previousState &&
     previousState.framework === framework &&
     previousState.configurationFingerprint === configHash &&
+    profile.packages.length === 1 &&
+    profile.packages[0]?.relativeRoot === "" &&
+    profile.frameworks.length === 1 &&
     canScanIncrementally(changedFiles, framework);
   let mode: "full" | "incremental" | "unchanged";
   let components: ComponentNode[];
   let tokens: DesignToken[];
+  let coverage: ScanCoverage;
   if (incremental && previousGraph && changedFiles.length === 0) {
     mode = "unchanged";
     components = previousGraph.components;
     tokens = previousGraph.tokens;
+    coverage =
+      previousGraph.project.scan?.coverage ??
+      {
+        candidateFiles: previousGraph.project.sourceFiles,
+        parsedFiles: previousGraph.project.sourceFiles,
+        skippedFiles: 0,
+        errorFiles: 0,
+        diagnostics: [{
+          severity: "warning",
+          code: "legacy-coverage",
+          message: "This snapshot predates explicit scan coverage and should be fully rescanned.",
+        }],
+        byFramework: {},
+        complete: false,
+      };
   } else if (incremental && previousGraph) {
     mode = "incremental";
     const sourceChanges = changedFiles.filter((file) =>
@@ -638,21 +856,59 @@ export async function scanProject(
     );
     const existingSources = sourceChanges.filter((file) => files[file]);
     const rescanned = existingSources.length
-      ? await scanComponents(framework, rootPath, existingSources)
-      : [];
+      ? await scanProfileComponents(profile, rootPath, existingSources)
+      : {
+          components: [],
+          coverage: mergeCoverage([]),
+        };
     const changedSet = new Set(sourceChanges.map((file) => slash(file)));
     components = [
       ...previousGraph.components.filter(
         (component) => !changedSet.has(component.relativePath),
       ),
-      ...rescanned,
+      ...rescanned.components,
     ].sort((left, right) => left.id.localeCompare(right.id));
     tokens = changedFiles.some((file) => /\.(?:css|scss|sass)$/i.test(file))
       ? await scanDesignTokens(rootPath)
       : previousGraph.tokens;
+    const previousCoverage = previousGraph.project.scan?.coverage;
+    coverage = previousCoverage
+      ? {
+          ...previousCoverage,
+          diagnostics: [
+            ...previousCoverage.diagnostics.filter(
+              (diagnostic) =>
+                !diagnostic.path ||
+                !sourceChanges.includes(diagnostic.path),
+            ),
+            ...rescanned.coverage.diagnostics,
+            {
+              severity: "info" as const,
+              code: "incremental-coverage",
+              message:
+                "Coverage counts were retained from the last full discovery; changed files were reparsed.",
+            },
+          ].slice(0, 50),
+          complete:
+            previousCoverage.complete && rescanned.coverage.errorFiles === 0,
+        }
+      : {
+          ...rescanned.coverage,
+          complete: false,
+          diagnostics: [
+            ...rescanned.coverage.diagnostics,
+            {
+              severity: "warning" as const,
+              code: "legacy-coverage",
+              message: "Run a full scan to establish repository-wide coverage.",
+            },
+          ],
+        };
   } else {
     mode = "full";
-    components = await scanComponents(framework, rootPath);
+    const scanned = await scanProfileComponents(profile, rootPath);
+    components = scanned.components;
+    coverage = scanned.coverage;
     tokens = await scanDesignTokens(rootPath);
   }
   throwIfAborted(options.signal);
@@ -670,6 +926,7 @@ export async function scanProject(
     ...(manifest.packageManager ? { packageManager: manifest.packageManager } : {}),
     scannedAt: checkedAt,
     sourceFiles: new Set(components.map((component) => component.relativePath)).size,
+    profile,
     identity: identityMetadata,
     scan: {
       mode,
@@ -677,6 +934,7 @@ export async function scanProject(
       checkedAt,
       changedFiles: changedFiles.length,
       durationMs: Date.now() - startedAt,
+      coverage,
     },
   };
   const graph: ComponentGraph = {
@@ -836,8 +1094,19 @@ ${input.rationale}
 }
 
 export function graphSummary(graph: ComponentGraph): Record<string, unknown> {
+  const componentNodes = graph.components.filter(
+    (item) => (item.kind ?? "component") === "component",
+  );
   const edgeCounts = Object.fromEntries(
-    ["renders", "similar_to", "tested_by"].map((kind) => [
+    [
+      "renders",
+      "similar_to",
+      "tested_by",
+      "uses_layout",
+      "route_parent",
+      "hydrates",
+      "defers",
+    ].map((kind) => [
       kind,
       graph.edges.filter((edge) => edge.kind === kind).length,
     ]),
@@ -846,6 +1115,21 @@ export function graphSummary(graph: ComponentGraph): Record<string, unknown> {
     projectId: graph.project.id,
     project: graph.project.name,
     framework: graph.project.framework,
+    profile: graph.project.profile
+      ? {
+          frameworks: graph.project.profile.frameworks,
+          packages: graph.project.profile.packages.map((packageProfile) => ({
+            name: packageProfile.name,
+            relativeRoot: packageProfile.relativeRoot,
+            frameworks: packageProfile.frameworks,
+            metaFramework: packageProfile.metaFramework,
+            router: packageProfile.router,
+            versions: packageProfile.versions,
+            confidence: packageProfile.confidence,
+          })),
+          confidence: graph.project.profile.confidence,
+        }
+      : undefined,
     identity: graph.project.identity
       ? {
           source: graph.project.identity.source,
@@ -854,10 +1138,11 @@ export function graphSummary(graph: ComponentGraph): Record<string, unknown> {
           branch: graph.project.identity.branch,
         }
       : undefined,
-    components: graph.components.length,
-    public: graph.components.filter((item) => item.visibility === "public").length,
-    feature: graph.components.filter((item) => item.visibility === "feature").length,
-    private: graph.components.filter((item) => item.visibility === "private").length,
+    nodes: graph.components.length,
+    components: componentNodes.length,
+    public: componentNodes.filter((item) => item.visibility === "public").length,
+    feature: componentNodes.filter((item) => item.visibility === "feature").length,
+    private: componentNodes.filter((item) => item.visibility === "private").length,
     edges: edgeCounts,
     tokens: graph.tokens.length,
     scannedAt: graph.project.scannedAt,

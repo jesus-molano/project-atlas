@@ -25,6 +25,10 @@ export function componentContextReference(
     name: component.effectiveName,
     path: component.relativePath,
     scope: component.visibility,
+    kind: component.kind ?? "component",
+    ...(component.role ? { role: component.role } : {}),
+    ...(component.runtime ? { runtime: component.runtime } : {}),
+    ...(component.routePath ? { routePath: component.routePath } : {}),
     ...(component.feature ? { owner: component.feature } : {}),
   };
 }
@@ -36,6 +40,33 @@ export function componentContextLink(
     id: component.id,
     name: component.effectiveName,
     scope: component.visibility,
+    kind: component.kind ?? "component",
+  };
+}
+
+function compactProjectProfile(graph: ComponentGraph) {
+  if (!graph.project.profile && !graph.project.scan?.coverage) return undefined;
+  return {
+    frameworks: graph.project.profile?.frameworks ?? [graph.project.framework],
+    metaFrameworks: [
+      ...new Set(
+        graph.project.profile?.packages.flatMap((packageProfile) =>
+          packageProfile.metaFramework ? [packageProfile.metaFramework] : [],
+        ) ?? [],
+      ),
+    ],
+    confidence: graph.project.profile?.confidence ?? "low",
+    ...(graph.project.scan?.coverage
+      ? {
+          coverage: {
+            candidateFiles: graph.project.scan.coverage.candidateFiles,
+            parsedFiles: graph.project.scan.coverage.parsedFiles,
+            skippedFiles: graph.project.scan.coverage.skippedFiles,
+            errorFiles: graph.project.scan.coverage.errorFiles,
+            complete: graph.project.scan.coverage.complete,
+          },
+        }
+      : {}),
   };
 }
 
@@ -142,12 +173,14 @@ export function buildComponentContext(
       ? ["Analyze change impact before modifying its public API."]
       : []),
   ];
+  const projectProfile = compactProjectProfile(graph);
   return {
     schemaVersion: 1,
     project: {
       name: graph.project.name,
       framework: graph.project.framework,
       scannedAt: graph.project.scannedAt,
+      ...(projectProfile ? { profile: projectProfile } : {}),
     },
     component: candidate.component,
     api: candidate.api,
@@ -231,7 +264,11 @@ export function buildReuseContext(
     : [
           "No indexed candidate matched. Broaden the intent with a visual pattern, likely prop, or design-system primitive.",
           "Do not create a component until repository search has also ruled out a differently named implementation.",
-        ];
+    ];
+  const projectProfile = compactProjectProfile(graph);
+  const reusableComponents = graph.components.filter(
+    (component) => (component.kind ?? "component") === "component",
+  );
 
   return {
     schemaVersion: 1,
@@ -240,12 +277,13 @@ export function buildReuseContext(
       name: graph.project.name,
       framework: graph.project.framework,
       scannedAt: graph.project.scannedAt,
+      ...(projectProfile ? { profile: projectProfile } : {}),
     },
     index: {
-      components: graph.components.length,
-      shared: graph.components.filter((item) => item.visibility === "public").length,
-      feature: graph.components.filter((item) => item.visibility === "feature").length,
-      internal: graph.components.filter((item) => item.visibility === "private").length,
+      components: reusableComponents.length,
+      shared: reusableComponents.filter((item) => item.visibility === "public").length,
+      feature: reusableComponents.filter((item) => item.visibility === "feature").length,
+      internal: reusableComponents.filter((item) => item.visibility === "private").length,
     },
     scopeLegend: {
       public: "Shared, reusable component",

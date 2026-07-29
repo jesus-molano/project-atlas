@@ -1,0 +1,112 @@
+{
+  "react": {
+    "frameworks": ["react"],
+    "metaFramework": null,
+    "candidateFiles": 3,
+    "components": ["App", "Button"]
+  },
+  "vue2": {
+    "frameworks": ["vue"],
+    "metaFramework": null,
+    "router": "vue-router",
+    "candidateFiles": 3,
+    "components": ["App", "LegacyCard"],
+    "routes": [{ "name": "HomeView", "path": "/" }]
+  },
+  "vue3-options": {
+    "frameworks": ["vue"],
+    "metaFramework": null,
+    "candidateFiles": 3,
+    "components": ["App", "ChildBadge", "OptionsPanel"]
+  },
+  "vue3-setup": {
+    "frameworks": ["vue"],
+    "metaFramework": null,
+    "candidateFiles": 3,
+    "components": ["App", "SetupPanel", "SetupPanelPreview"]
+  },
+  "nuxt2": {
+    "frameworks": ["vue"],
+    "metaFramework": "nuxt",
+    "candidateFiles": 3,
+    "components": ["LegacyBanner"],
+    "routes": [{ "path": "/" }],
+    "layouts": ["/"]
+  },
+  "nuxt3": {
+    "frameworks": ["vue"],
+    "metaFramework": "nuxt",
+    "candidateFiles": 3,
+    "components": ["AppBanner"],
+    "routes": [{ "path": "/" }],
+    "layouts": ["/"]
+  },
+  "next-pages": {
+    "frameworks": ["react"],
+    "metaFramework": "next",
+    "router": "pages",
+    "candidateFiles": 5,
+    "components": ["Button"],
+    "routes": [
+      { "path": "/" },
+      { "path": "/account/[id]" }
+    ],
+    "special": ["app-shell"]
+  },
+  "next-pages-src": {
+    "frameworks": ["react"],
+    "metaFramework": "next",
+    "router": "pages",
+    "candidateFiles": 2,
+    "components": ["Button"],
+    "routes": [
+      { "path": "/" }
+    ]
+  },
+  "next-app": {
+    "frameworks": ["react"],
+    "metaFramework": "next",
+    "router": "hybrid",
+    "candidateFiles": 15,
+    "components": ["Chart", "Counter", "ServerCard"],
+    "routes": [
+      { "path": "/" },
+      { "path": "/products/[id]" },
+      { "path": "/legacy" }
+    ],
+    "layouts": ["/"],
+    "special": [
+      "template",
+      "loading",
+      "error",
+      "not-found",
+      "parallel-default",
+      "intercepting-route",
+      "intercepting-route"
+    ]
+  },
+  "next-app-root": {
+    "frameworks": ["react"],
+    "metaFramework": "next",
+    "router": "app",
+    "candidateFiles": 3,
+    "components": ["Button"],
+    "routes": [
+      { "path": "/" }
+    ],
+    "layouts": ["/"]
+  },
+  "astro-mixed": {
+    "frameworks": ["astro", "react", "vue"],
+    "metaFramework": "astro",
+    "router": "astro",
+    "candidateFiles": 6,
+    "skippedFiles": 1,
+    "components": ["Card", "Counter", "Status"],
+    "routes": [
+      { "path": "/" },
+      { "path": "/about" }
+    ],
+    "layouts": ["Base"]
+  }
+}

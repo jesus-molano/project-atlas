@@ -59,7 +59,7 @@ import {
   searchProjectMemory,
   type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import open from "open";
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -802,7 +802,18 @@ export function createProgram(): Command {
   program
     .command("scan")
     .argument("[path]", "repository root", ".")
-    .option("--framework <framework>", "vue or react")
+    .option(
+      "--framework <framework>",
+      "astro, vue, or react",
+      (value): Framework => {
+        if (value === "astro" || value === "vue" || value === "react") {
+          return value;
+        }
+        throw new InvalidArgumentError(
+          'Framework must be one of "astro", "vue", or "react".',
+        );
+      },
+    )
     .option("--json", "print the full graph")
     .option("--full", "disable the incremental scan path")
     .option("--project-key <key>", "explicit stable logical project key")

@@ -1,8 +1,25 @@
-export const GRAPH_SCHEMA_VERSION = 3 as const;
+export const GRAPH_SCHEMA_VERSION = 4 as const;
 
-export type Framework = "vue" | "react";
+export type Framework = "vue" | "react" | "astro";
+export type MetaFramework = "next" | "nuxt" | "astro";
+export type RouterMode = "pages" | "app" | "hybrid" | "vue-router" | "astro";
 export type ComponentVisibility = "public" | "feature" | "private";
-export type EdgeKind = "renders" | "tested_by" | "similar_to";
+export type ComponentKind = "component" | "route" | "layout" | "special";
+export type ComponentRuntime =
+  | "universal"
+  | "server"
+  | "client"
+  | "static"
+  | "island-client"
+  | "island-server";
+export type EdgeKind =
+  | "renders"
+  | "tested_by"
+  | "similar_to"
+  | "uses_layout"
+  | "route_parent"
+  | "hydrates"
+  | "defers";
 export type DecisionKind =
   | "reuse"
   | "extend"
@@ -34,10 +51,32 @@ export interface ComponentEvent {
   payload?: string;
 }
 
+export interface ComponentImportBinding {
+  local: string;
+  imported: string;
+  specifier: string;
+  resolvedPath?: string;
+  dynamic?: boolean;
+}
+
+export interface ComponentRenderReference {
+  name: string;
+  importedLocal?: string;
+  directive?: string;
+}
+
+export interface ComponentSlotContract {
+  name: string;
+  props: string[];
+}
+
 export interface ComponentNode {
   id: string;
   framework: Framework;
-  kind?: "component" | "route" | "layout";
+  kind?: ComponentKind;
+  role?: string;
+  runtime?: ComponentRuntime;
+  routePath?: string;
   name: string;
   effectiveName: string;
   sourcePath: string;
@@ -45,13 +84,18 @@ export interface ComponentNode {
   visibility: ComponentVisibility;
   feature?: string;
   exported: boolean;
+  exportName?: string;
   location: SourceLocation;
   props: ComponentProp[];
   events: ComponentEvent[];
   slots: string[];
   models: string[];
   renderedNames: string[];
+  renderReferences?: ComponentRenderReference[];
   imports: string[];
+  importBindings?: ComponentImportBinding[];
+  logicDependencies?: string[];
+  slotContracts?: ComponentSlotContract[];
   testPaths: string[];
   classTokens: string[];
   sourceHash: string;
@@ -78,6 +122,60 @@ export interface GraphEdge {
   source: string;
   target: string;
   evidence?: SimilarityEvidence;
+  resolution?: "exact" | "framework-convention" | "inferred";
+  provenance?: {
+    sourcePath: string;
+    symbol?: string;
+  };
+}
+
+export interface ProjectPackageProfile {
+  rootPath: string;
+  relativeRoot: string;
+  name: string;
+  frameworks: Framework[];
+  primaryFramework: Framework;
+  metaFramework?: MetaFramework;
+  router?: RouterMode;
+  versions: Partial<Record<Framework | MetaFramework, string>>;
+  confidence: "high" | "medium" | "low";
+  evidence: string[];
+}
+
+export interface ProjectProfile {
+  primaryFramework: Framework;
+  frameworks: Framework[];
+  packages: ProjectPackageProfile[];
+  confidence: "high" | "medium" | "low";
+  diagnostics: string[];
+}
+
+export interface ScanDiagnostic {
+  severity: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  path?: string;
+  framework?: Framework;
+}
+
+export interface ScanCoverage {
+  candidateFiles: number;
+  parsedFiles: number;
+  skippedFiles: number;
+  errorFiles: number;
+  diagnostics: ScanDiagnostic[];
+  byFramework: Partial<
+    Record<
+      Framework,
+      {
+        candidateFiles: number;
+        parsedFiles: number;
+        skippedFiles: number;
+        errorFiles: number;
+      }
+    >
+  >;
+  complete: boolean;
 }
 
 export interface ProjectMetadata {
@@ -88,6 +186,7 @@ export interface ProjectMetadata {
   packageManager?: string;
   scannedAt: string;
   sourceFiles: number;
+  profile?: ProjectProfile;
   identity?: ProjectIdentityMetadata;
   scan?: ProjectScanSummary;
 }
@@ -114,6 +213,7 @@ export interface ProjectScanSummary {
   checkedAt: string;
   changedFiles: number;
   durationMs: number;
+  coverage?: ScanCoverage;
 }
 
 export interface ProjectScanState {
@@ -231,12 +331,30 @@ export interface ComponentContextReference {
   path: string;
   scope: ComponentVisibility;
   owner?: string;
+  kind?: ComponentKind;
+  role?: string;
+  runtime?: ComponentRuntime;
+  routePath?: string;
 }
 
 export interface ComponentContextLink {
   id: string;
   name: string;
   scope: ComponentVisibility;
+  kind?: ComponentKind;
+}
+
+export interface CompactProjectProfile {
+  frameworks: Framework[];
+  metaFrameworks: MetaFramework[];
+  confidence: "high" | "medium" | "low";
+  coverage?: {
+    candidateFiles: number;
+    parsedFiles: number;
+    skippedFiles: number;
+    errorFiles: number;
+    complete: boolean;
+  };
 }
 
 export interface CompactComponentSearchResult {
@@ -283,6 +401,7 @@ export interface ReuseContextBundle {
     name: string;
     framework: Framework;
     scannedAt: string;
+    profile?: CompactProjectProfile;
   };
   index: {
     components: number;
@@ -301,6 +420,7 @@ export interface ComponentContextBundle {
     name: string;
     framework: Framework;
     scannedAt: string;
+    profile?: CompactProjectProfile;
   };
   component: ComponentContextReference;
   api: ReuseContextCandidate["api"];
@@ -369,10 +489,17 @@ export interface ScanOptions {
   rootPath: string;
   include?: string[];
   exclude?: string[];
+  packageProfile?: ProjectPackageProfile;
+}
+
+export interface AdapterScanResult {
+  components: ComponentNode[];
+  coverage: ScanCoverage;
 }
 
 export interface FrameworkAdapter {
   framework: Framework;
   scan(options: ScanOptions): Promise<ComponentNode[]>;
+  scanDetailed?(options: ScanOptions): Promise<AdapterScanResult>;
 }
 import type { AtlasProvenance } from "./task-intake.js";

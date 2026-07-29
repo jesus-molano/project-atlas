@@ -279,6 +279,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "{staged} preparados · {untracked} sin seguimiento. Continúa o corrige sin reiniciar el encargo.",
   "{mode} scan · {components} components · {relations} relations.":
     "Análisis {mode} · {components} componentes · {relations} relaciones.",
+  "{mode} scan · {components} components · {nodes} code nodes · {relations} relations.":
+    "Análisis {mode} · {components} componentes · {nodes} nodos de código · {relations} relaciones.",
   "Rescan code": "Volver a analizar código",
   "Scanning…": "Analizando…",
   "Needs your attention": "Requiere tu atención",
@@ -734,6 +736,22 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   route: "ruta",
   layout: "layout",
   component: "componente",
+  special: "especial",
+  server: "servidor",
+  client: "cliente",
+  universal: "universal",
+  static: "estático",
+  "island-client": "isla de cliente",
+  "island-server": "isla de servidor",
+  page: "página",
+  "app-shell": "contenedor de aplicación",
+  document: "documento",
+  template: "plantilla",
+  loading: "carga",
+  "global-error": "error global",
+  "not-found": "no encontrado",
+  "parallel-default": "vista paralela predeterminada",
+  "intercepting-route": "ruta interceptada",
   "{count} prop": "{count} prop",
   "{count} props": "{count} props",
   "Assess the impact of changing {name}.":
@@ -759,6 +777,13 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Previous component page": "Página anterior de componentes",
   "Next component page": "Página siguiente de componentes",
   "Dependency field": "Campo de dependencias",
+  parsed: "analizados",
+  skipped: "omitidos",
+  errors: "errores",
+  "All discovered frontend files were parsed.":
+    "Se analizaron todos los archivos frontend descubiertos.",
+  "Explore resolved and inferred relationships, then inspect evidence for the selected node.":
+    "Explora las relaciones resueltas e inferidas y después inspecciona la evidencia del nodo seleccionado.",
   "Explore exact relationships in the graph, then inspect evidence for the selected component.":
     "Explora las relaciones exactas del grafo y después inspecciona la evidencia del componente seleccionado.",
   composition: "composición",
@@ -791,12 +816,16 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "{count} models": "{count} modelos",
   "{count} consumers": "{count} consumidores",
   direct: "directo",
+  "No consumer was found within the successfully parsed files.":
+    "No se encontró ningún consumidor entre los archivos analizados correctamente.",
   "No indexed code node consumes it.":
     "Ningún nodo de código indexado lo consume.",
   "Reuse candidates": "Candidatos de reutilización",
   explainable: "explicables",
   "No strong structural match yet.":
     "Aún no hay una coincidencia estructural sólida.",
+  "Framework structure is inspectable for impact, but excluded from reusable-component matches.":
+    "La estructura del framework se puede inspeccionar para evaluar impacto, pero se excluye de las coincidencias de componentes reutilizables.",
   "Test evidence": "Evidencia de pruebas",
   "{count} linked": "{count} vinculados",
   "copy path": "copiar ruta",
