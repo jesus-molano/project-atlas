@@ -26,13 +26,20 @@ describe("task checkpoint and resume", () => {
   it("derives only compact, unique and explicitly expandable context handles", () => {
     expect(
       taskContextResumeHandles({
-        selections: ["design:FileKey::12:34", "invalid"],
+        selections: [
+          "design:FileKey::12:34",
+          "visual:vd-task-42:0123456789abcdef",
+          "visual:vd-task-42:0123456789abcdef",
+          "visual:not-expandable",
+          "invalid",
+        ],
         code: [{ id: "checkout-form" }, { id: "checkout-form" }],
         memory: [{ id: "contract-rule" }],
         design: { candidates: [{ id: "12:34" }] },
       }),
     ).toEqual([
       "design:FileKey::12:34",
+      "visual:vd-task-42:0123456789abcdef",
       "code:checkout-form",
       "memory:contract-rule",
       "design:12:34",
@@ -48,7 +55,12 @@ describe("task checkpoint and resume", () => {
       objectiveApproved: true,
       decisions: sources,
       sourceReceiptIds: [],
-      handles: ["code:checkout-form", "memory:contract-rule"],
+      handles: [
+        "code:checkout-form",
+        "visual:vd-task-42:0123456789abcdef",
+        "memory:contract-rule",
+        "visual:not-expandable",
+      ],
       covered: ["intake"],
       remaining: ["implementation", "validation"],
       budgetChars: 2_400,
@@ -60,6 +72,7 @@ describe("task checkpoint and resume", () => {
     const capsule = await loadTaskResumeCapsule(root, "task-42");
     expect(capsule?.handles).toEqual([
       "code:checkout-form",
+      "visual:vd-task-42:0123456789abcdef",
       "memory:contract-rule",
     ]);
     expect(expand).not.toHaveBeenCalled();

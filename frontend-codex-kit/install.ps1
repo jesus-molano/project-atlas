@@ -235,6 +235,7 @@ $AtlasRoot = [System.IO.Path]::GetFullPath($AtlasRoot)
 $packageJson = Join-Path $AtlasRoot "package.json"
 $frontendTask = Join-Path $AtlasRoot "skills\frontend-task"
 $reuseFirst = Join-Path $AtlasRoot "skills\reuse-first"
+$visualDirection = Join-Path $AtlasRoot "skills\visual-direction"
 $mcpEntry = Join-Path $AtlasRoot "packages\mcp\dist\index.js"
 $cliEntry = Join-Path $AtlasRoot "packages\cli\dist\index.js"
 $agentsInstaller = Join-Path $AtlasRoot "frontend-codex-kit\install-agents-instructions.ps1"
@@ -245,6 +246,7 @@ foreach ($requiredPath in @(
   $packageJson,
   $frontendTask,
   $reuseFirst,
+  $visualDirection,
   $codexMcpHelper
 )) {
   if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -294,6 +296,7 @@ Invoke-Native $node @($cliEntry, "setup") "globally ignore .component-atlas arti
 if ($Agent -in @("codex", "both")) {
   Install-Skill $frontendTask $CodexSkillsRoot
   Install-Skill $reuseFirst $CodexSkillsRoot
+  Install-Skill $visualDirection $CodexSkillsRoot
   if ($InstallAgentsInstructions) {
     & $agentsInstaller `
       -TargetPath $CodexAgentsPath `
@@ -304,6 +307,7 @@ if ($Agent -in @("codex", "both")) {
 if ($Agent -in @("claude", "both")) {
   Install-Skill $frontendTask $ClaudeSkillsRoot
   Install-Skill $reuseFirst $ClaudeSkillsRoot
+  Install-Skill $visualDirection $ClaudeSkillsRoot
 }
 
 if (-not $SkipMcp) {

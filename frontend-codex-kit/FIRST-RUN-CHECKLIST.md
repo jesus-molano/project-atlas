@@ -31,6 +31,15 @@
       conclusion that the node has no Ready for dev state.
 - [ ] A large screen is narrowed to the relevant child subtree before deep
       context, and target truncation is reported rather than hidden.
+- [ ] Exact Figma enters `fidelity` with zero alternatives and preserves the
+      original file/node identity.
+- [ ] An unresolved existing component/section compares no more than two small
+      directions; greenfield or explicit redesign compares three.
+- [ ] One selected DesignContract produces one implementation worktree and one
+      production solution.
+- [ ] Preview, sandbox, contact-sheet, and review-capture paths stay outside the
+      repository and are purged on selection/close; cleanup failures remain
+      visible and retryable.
 - [ ] The final implementation records a reuse decision and runs repository
       validation.
 - [ ] Task context reports its hard budget and does not dump every source.

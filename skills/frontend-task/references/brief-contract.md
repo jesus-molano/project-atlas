@@ -74,6 +74,32 @@ design:
   target: Confirmed node or pending
   candidates:
     - Node, confidence, and reason when discovery was needed
+visual_direction:
+  activation: inactive | explicit
+  mode: fidelity | inherit | explore | redesign | not-applicable
+  authority:
+    visual: Exact Figma identity, incumbent system, or selected direction
+    implementation: Repository system or bounded defaults
+  invention_budget: 0 | 1 | 2 | 3
+  incumbent:
+    - Existing components, tokens, density, tone, navigation, motion, and constraints
+  direction_cards:
+    - Zero, two, or three compact direction IDs and premises
+  selected:
+    base: Direction ID or exact Figma node
+    borrowed_traits:
+      - At most two compatible traits
+  contract_hash: Compact DesignContract hash or pending
+  state_matrix:
+    - Relevant viewports/states and evidence
+  artifacts:
+    lifecycle: ephemeral-only
+    contract_handle: Opaque temporary visual handle or none
+    contract_hash: Direction hash or none
+    selected_artifact_handle: Temporary chosen-preview handle or none
+    selected_artifact_hash: Content hash or none
+    expires_at: ISO timestamp or none
+    cleanup: open | selected | clean | cleanup-pending
 risk: low | medium | high
 unknowns:
   blocking:
@@ -86,6 +112,8 @@ validation:
   - Commands and manual checks required
 resume_capsule:
   task_id: Stable task ID
+  handles:
+    - Opaque Atlas IDs and optional selected visual contract handle
   covered: [Bounded scope IDs]
   remaining: [Bounded scope IDs]
   worktree_head: Exact HEAD
@@ -118,8 +146,10 @@ Before code, report no more than:
 
 1. objective and acceptance summary;
 2. sources used and unavailable optional sources;
-3. design target or up to three candidates;
-4. reuse decision or strongest candidates;
+3. design target, or two/three visual direction cards only when exploration is
+   active;
+4. selected DesignContract/state matrix and reuse decision, or strongest
+   candidates while selection is pending;
 5. one evidence-backed blocking question, if one truly exists;
 6. warnings, risk, and intended validation;
 7. the compact **Memory candidates** closeout from `memory-closeout.md`.

@@ -32,8 +32,8 @@ The installer:
 
 - installs workspace dependencies and builds the CLI, MCP, and local GUI product;
 - globally ignores `.component-atlas/` artifacts;
-- links or copies `frontend-task` and `reuse-first` into the selected agent's
-  skill folder;
+- links or copies `frontend-task`, explicit-only `visual-direction`, and
+  `reuse-first` into the selected agent's skill folder;
 - optionally maintains one marked routing block in `~/.codex/AGENTS.md`;
 - registers the local stdio server in Codex or Claude;
 - never installs connectors or stores credentials.

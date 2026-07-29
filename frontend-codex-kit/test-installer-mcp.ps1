@@ -29,6 +29,9 @@ try {
   if ($output.Contains("codex mcp")) {
     throw "Windows auto mode attempted to use the Codex CLI."
   }
+  if (-not $output.Contains("visual-direction")) {
+    throw "Dry run did not include the explicit visual-direction skill."
+  }
   if (Test-Path -LiteralPath $codexHome) {
     throw "Dry run wrote to the alternate CODEX_HOME."
   }

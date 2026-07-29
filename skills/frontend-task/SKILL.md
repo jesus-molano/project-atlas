@@ -295,12 +295,50 @@ global Variables, and library data improve evidence but are optional.
   expired or a material decision is absent, ask the user again instead of
   inferring it from chat fragments.
 
+## Resolve visual direction before UI code
+
+For every material visual page, section, or component, explicitly invoke and
+follow `$visual-direction` after the exact Figma target and repository reuse
+evidence are known, but before production editing. If nested skill invocation
+is not exposed, load the installed sibling
+`../visual-direction/SKILL.md`; do not recreate or weaken its rules.
+
+- With an exact confirmed Figma node, use `fidelity`: preserve its file/node
+  identity, create no alternatives, and keep Atlas as context/provenance only.
+- Without exact Figma, use `inherit` for an existing project. The implemented
+  system is the highest visual reference; external references may contribute
+  compatible facets but never replace its components, tokens, density, tone,
+  navigation, motion, or constraints.
+- Use `explore` only when there is genuinely no exact design and no incumbent
+  system. Use `redesign` only after an explicit redesign request.
+- When a material direction remains open, compare at most two small options for
+  an existing section/component or three for greenfield/redesign. Select or
+  coherently combine them into one compact DesignContract and state matrix.
+  Never implement production variants.
+- Keep all direction cards' rendered previews, mockups, contact sheets,
+  sandboxes, selected consolidations, and later review captures in the
+  visual-direction owned operating-system temp session. They never enter the
+  repository. Purge unselected artifacts on selection and the whole session on
+  close/cancel; surface and retry `cleanup-pending` failures.
+- Create no preview worktrees. After the DesignContract is locked, use one
+  implementation branch/worktree for one solution.
+- Never write to Figma unless the user explicitly approves that separate
+  output action.
+
+Keep `$visual-direction` inactive for non-visual work, copy/data/type-only
+changes, an unambiguous established local pattern, or a direction already
+selected. Exact-Figma work still uses its fidelity and post-implementation
+review guard without option generation.
+
 ## Implement and verify
 
 1. State the selected target, reuse decision, and any non-blocking assumptions.
 2. Implement the smallest cohesive change consistent with the repository.
 3. Verify relevant tests, type checking, linting, build, responsive states, and
-   accessibility in proportion to risk.
+   accessibility in proportion to risk. For material visual work, capture only
+   the relevant viewports/states after this single implementation, compare them
+   with the locked DesignContract (and exact Figma target in `fidelity`), then
+   fix and recapture the same implementation rather than reviving variants.
 4. Rescan Atlas after component changes and confirm the graph reflects them.
 5. Finish every completed task with the compact **Memory candidates** closeout
    in `references/memory-closeout.md`, even when there is no candidate. This is
@@ -325,8 +363,9 @@ global Variables, and library data improve evidence but are optional.
    changes, and episodic validation remain checkout-scoped. Only confirmed
    durable semantics, product/architecture decisions, design metadata, and
    approved memory may be promoted to the logical project; preserve provenance.
-6. Report outcome, evidence, validation, warnings, and remaining external
-   checks. Do not claim that missing corporate data was validated.
+6. Report outcome, evidence, validation, warnings, remaining external checks,
+   and visual artifact cleanup. Do not claim that missing corporate data was
+   validated or that cleanup succeeded while it is `cleanup-pending`.
 7. Only when the user or local project policy explicitly opts in to evaluation,
    call `record_task_evaluation`. Store counts, timings, budget, and correctness
    flags; Atlas hashes the task and never persists its text.

@@ -45,6 +45,13 @@ Consulta memoria, código y diseño solo si aportan evidencia; expande únicamen
 IDs confirmados y ejecuta el gate antes de editar.
 ```
 
+Explore visual direction without production variants:
+
+```text
+$visual-direction Resuelve la autoridad visual de esta sección, compara solo
+las opciones temporales permitidas y bloquea un DesignContract antes de código.
+```
+
 Close and propose a learning:
 
 ```text

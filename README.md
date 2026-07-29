@@ -157,7 +157,7 @@ block the task.
 | `<product-repo>/.component-atlas/task-state/` | Bounded task capsules, semantic milestone journal, and SourceReceipts; no transcript |
 | Windows LocalAppData | SQLite keyed by logical repository, with checkout-specific code/local memory and shared confirmed design/canonical memory |
 | `<product-repo>/project-memory/` | Optional team/canonical Markdown, only when policy allows and a user approves it |
-| `~/.agents/skills/` | Global `frontend-task` and `reuse-first` skill links/copies |
+| `~/.agents/skills/` | Global `frontend-task`, explicit `visual-direction`, and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |
 | `~/.codex/AGENTS.md` | Optional short routing block installed with `-InstallAgentsInstructions` |
 
@@ -191,6 +191,10 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
   `pnpm atlas`; normal use selects a free port automatically.
 - **The browser did not open:** copy the printed loopback URL, or add
   `--no-browser` when opening the product intentionally without it.
+- **Visual work has no settled design:** `$frontend-task` explicitly loads
+  `$visual-direction` to resolve authority, compare only bounded temporary
+  options, lock one DesignContract, and purge exploration artifacts. It is
+  intentionally not activated implicitly.
 - **The Atlas clone has local changes:** inspect `git status`; do not use
   `git pull` until those changes are committed, moved, or intentionally removed.
 - **Installation must continue without MCP:** use `-SkipMcp` as an escape hatch,
