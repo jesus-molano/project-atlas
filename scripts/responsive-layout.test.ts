@@ -269,6 +269,36 @@ describe("evidence workspace responsive layout", () => {
     );
   });
 
+  it("makes unavailable recent projects explicitly removable without implying navigation", () => {
+    expect(viewerPage).toContain('class="recent-project-unlink"');
+    expect(viewerPage).toContain(
+      `t('Remove {name} from recent projects', {`,
+    );
+    expect(viewerPage).toContain(
+      '? "Remove {count} unavailable project"',
+    );
+    expect(viewerPage).toContain(
+      ': "Remove {count} unavailable projects"',
+    );
+    expect(viewerPage).toContain(
+      '"This only removes unavailable links from recent-projects.json. Repositories and Project Atlas data are not deleted."',
+    );
+    expect(viewerPage).toContain(
+      '"Removing this link keeps the repository and Project Atlas data untouched."',
+    );
+    const unavailableRow = viewerPage.match(
+      /<template v-else>([\s\S]*?)<\/template>/,
+    )?.[1];
+    expect(unavailableRow).toContain('class="recent-project-unlink"');
+    expect(unavailableRow).not.toContain('name="arrow-right"');
+    expect(css).toMatch(
+      /@media \(max-width: 560px\)[\s\S]*?\.recent-project-row\.is-unavailable\s*\{[^}]*grid-template-columns:\s*22px minmax\(0,\s*1fr\) auto/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 560px\)[\s\S]*?\.recent-cleanup-confirmation button\s*\{[^}]*width:\s*100%/,
+    );
+  });
+
   it("uses one localized icon primitive for every justified scroll owner", () => {
     expect(scrollToTop).toContain("ResizeObserver");
     expect(scrollToTop).toContain("observedTarget.scrollHeight");

@@ -7,8 +7,6 @@ import {
   listAgentRunAudits,
   listTaskEvaluations,
 } from "@component-atlas/runtime";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { agentAdapterStatus } from "../utils/agent-runs";
 import {
   buildActionCenterSnapshot,
@@ -129,48 +127,6 @@ function projectRisks(snapshot: ProjectAtlasSnapshot) {
   ];
 }
 
-function localArtifactHealth(rootPath: string) {
-  if (!existsSync(path.join(rootPath, ".component-atlas"))) return [];
-  const packageFile = path.join(rootPath, "package.json");
-  const packageText = existsSync(packageFile)
-    ? readFileSync(packageFile, "utf8")
-    : "";
-  const configuredTools = ["prettier", "eslint"].filter((tool) =>
-    packageText.toLowerCase().includes(tool),
-  );
-  if (configuredTools.length === 0) return [];
-  const mentionsAtlas = (relativePath: string) => {
-    const filePath = path.join(rootPath, relativePath);
-    return (
-      existsSync(filePath) &&
-      readFileSync(filePath, "utf8").includes(".component-atlas")
-    );
-  };
-  const unprotected = configuredTools.filter((tool) =>
-    tool === "prettier"
-      ? !mentionsAtlas(".prettierignore")
-      : ![
-          ".eslintignore",
-          "eslint.config.js",
-          "eslint.config.mjs",
-          "eslint.config.cjs",
-          "eslint.config.ts",
-        ].some(mentionsAtlas),
-  );
-  return unprotected.length === 0
-    ? []
-    : [
-        {
-          id: "local-artifacts-formatter-scope",
-          level: "warning" as const,
-          title: "Local Atlas artifacts may enter formatter or lint scans",
-          detail: `Detected legacy repository-local Atlas data and ${unprotected.join(" and ")} without a matching ignore entry.`,
-          recommendation:
-            "Keep the legacy directory read-only or add `.component-atlas/` to the relevant formatter or lint ignore file. New Atlas data is stored outside the checkout.",
-        },
-      ];
-}
-
 export default defineEventHandler(async () => {
   const snapshot = loadProjectAtlasSnapshot();
   const [capabilities, evaluations, agentRuns, agent] = await Promise.all([
@@ -232,7 +188,6 @@ export default defineEventHandler(async () => {
     actionResolutions: actionResolutions.slice(0, 12),
     actionCenterCounts: actionCenter.counts,
     git: projectGitState(),
-    localHealth: localArtifactHealth(snapshot.graph.project.rootPath),
     risks: projectRisks(snapshot),
   };
 });

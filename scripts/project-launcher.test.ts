@@ -19,6 +19,8 @@ import {
   projectGitStateForRoot,
   rememberRecentProject,
   setActiveProjectRoot,
+  unlinkRecentProject,
+  unlinkUnavailableRecentProjects,
   validateProjectRoot,
 } from "../apps/viewer/server/utils/project";
 
@@ -103,6 +105,57 @@ describe("local project launcher", () => {
     await expect(validateProjectRoot("relative/project")).rejects.toMatchObject({
       statusCode: 400,
     });
+  });
+
+  it("unlinks one or all unavailable recent paths without deleting Atlas project data", async () => {
+    const storageHome = process.env.PROJECT_ATLAS_HOME!;
+    const missingOne = path.join(storageHome, "fixture-missing-one");
+    const missingTwo = path.join(storageHome, "fixture-missing-two");
+    const retainedStorage = path.join(
+      storageHome,
+      "projects",
+      "fixture-project",
+    );
+    await mkdir(retainedStorage, { recursive: true });
+    await writeFile(path.join(retainedStorage, "keep.txt"), "keep", "utf8");
+    await writeFile(
+      path.join(storageHome, "recent-projects.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          projects: [
+            {
+              id: "fixture-project",
+              name: "Missing one",
+              rootPath: missingOne,
+              lastOpenedAt: "2026-07-29T12:00:00.000Z",
+            },
+            {
+              id: "fixture-project-two",
+              name: "Missing two",
+              rootPath: missingTwo,
+              lastOpenedAt: "2026-07-29T12:01:00.000Z",
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    expect(await unlinkRecentProject(missingOne)).toBe(true);
+    expect((await listRecentProjects()).projects).toContainEqual(
+      expect.objectContaining({ rootPath: missingTwo, available: false }),
+    );
+    await expect(
+      readFile(path.join(retainedStorage, "keep.txt"), "utf8"),
+    ).resolves.toBe("keep");
+    expect(await unlinkUnavailableRecentProjects()).toBe(1);
+    expect((await listRecentProjects()).projects).toEqual([]);
+    await expect(
+      readFile(path.join(retainedStorage, "keep.txt"), "utf8"),
+    ).resolves.toBe("keep");
   });
 
   it("does not reuse launch identity after switching to another project", async () => {

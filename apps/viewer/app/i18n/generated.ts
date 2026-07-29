@@ -30,12 +30,6 @@ export interface LocalizedSourceHealthCopy {
   detail: string;
 }
 
-export interface LocalizedHealthFindingCopy {
-  title: string;
-  detail: string;
-  recommendation: string;
-}
-
 export function localizeSourceHealth(
   source: SourceHealthViewModel,
   locale: AtlasLocale,
@@ -85,30 +79,6 @@ export function localizeSourceHealth(
     return { label, detail: "Inicio en frío · aún no hay memoria declarada" };
   }
   return { label, detail: original.detail };
-}
-
-export function localizeHealthFinding(
-  finding: {
-    id: string;
-    title: string;
-    detail: string;
-    recommendation: string;
-  },
-  locale: AtlasLocale,
-): LocalizedHealthFindingCopy {
-  if (locale === "en" || finding.id !== "local-artifacts-formatter-scope") {
-    return finding;
-  }
-  const tools =
-    finding.detail.match(/^Detected (.+) without an Atlas-specific ignore entry\.$/u)?.[1] ??
-    "las herramientas detectadas";
-  return {
-    title:
-      "Los artefactos locales de Atlas pueden entrar en análisis de formato o lint",
-    detail: `Se detectó ${tools} sin una entrada de exclusión específica para Atlas.`,
-    recommendation:
-      "Si estas herramientas recorren directorios ignorados, añade `.component-atlas/` al archivo de exclusión de formato o lint correspondiente. Atlas no lo editará automáticamente.",
-  };
 }
 
 function primaryRule(item: ActionCenterItem): string {

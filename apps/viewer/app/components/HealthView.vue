@@ -6,23 +6,13 @@ import {
   capabilityDisplayState,
   isSimulatedCapability,
 } from "~/utils/capabilities";
-import {
-  localizeHealthFinding,
-  localizeSourceHealth,
-} from "~/i18n/generated";
+import { localizeSourceHealth } from "~/i18n/generated";
 
 defineProps<{
   sources: SourceHealthViewModel[];
   capabilities: ProjectCapabilityReport;
   agent: AgentAdapterStatus;
   rootPath: string;
-  localHealth: Array<{
-    id: string;
-    level: "warning";
-    title: string;
-    detail: string;
-    recommendation: string;
-  }>;
 }>();
 const emit = defineEmits<{ refreshed: [] }>();
 const pending = ref("");
@@ -31,12 +21,6 @@ const error = ref("");
 const { formatDate, locale, runtimeMessage, statusLabel, t } = useAtlasI18n();
 const sourceCopy = (source: SourceHealthViewModel) =>
   localizeSourceHealth(source, locale.value);
-const healthFindingCopy = (finding: {
-  id: string;
-  title: string;
-  detail: string;
-  recommendation: string;
-}) => localizeHealthFinding(finding, locale.value);
 const labels: Record<string, string> = {
   figma: "Figma",
   "atlassian-rovo": "Atlassian Rovo",
@@ -141,19 +125,6 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
       </article>
       <p v-if="message" class="inline-success">{{ t(message) }}</p>
       <p v-if="error" class="inline-error">{{ runtimeMessage(error) }}</p>
-      <article
-        v-for="finding in localHealth"
-        :key="finding.id"
-        class="health-record optional"
-      >
-        <span class="health-orb stale" />
-        <div>
-          <strong>{{ healthFindingCopy(finding).title }}</strong>
-          <p>{{ healthFindingCopy(finding).detail }}</p>
-          <code>{{ healthFindingCopy(finding).recommendation }}</code>
-        </div>
-        <span class="status-chip">{{ t("setup") }}</span>
-      </article>
     </section>
     <section>
       <header class="workspace-toolbar">
