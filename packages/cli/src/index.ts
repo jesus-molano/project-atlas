@@ -38,6 +38,8 @@ import {
   indexProjectMemory,
   inspectFigmaDesignNode,
   inspectProjectAtlasStorage,
+  migrateLegacyProjectStorage,
+  removeMigratedLegacyProjectStorage,
   listFigmaDesignIndexes,
   loadProjectGraph,
   mapFigmaDesign,
@@ -769,7 +771,7 @@ export function createProgram(): Command {
       );
     });
 
-  program
+  const storageCommand = program
     .command("storage")
     .description(
       "Show centralized storage paths, category sizes, legacy roots, and ephemeral data.",
@@ -797,6 +799,133 @@ export function createProgram(): Command {
         );
       }
     });
+
+  storageCommand
+    .command("migrate")
+    .argument("[path]", "repository containing legacy .component-atlas", ".")
+    .description(
+      "Inspect or explicitly import repository-local legacy Atlas data, with optional verified source removal.",
+    )
+    .option("--dry-run", "show exactly what would be imported")
+    .option("--status", "show current legacy and prior migration status")
+    .option("--apply", "execute the migration into centralized storage")
+    .option(
+      "--remove-source",
+      "after a verified apply, remove the repository-local .component-atlas",
+    )
+    .option("--json", "print a machine-readable migration report")
+    .action(
+      async (
+        inputPath: string,
+        options: {
+          dryRun?: boolean;
+          status?: boolean;
+          apply?: boolean;
+          removeSource?: boolean;
+          json?: boolean;
+        },
+        command: Command,
+      ) => {
+        const selectedModes = [
+          options.dryRun,
+          options.status,
+          options.apply,
+        ].filter(Boolean).length;
+        if (selectedModes > 1) {
+          throw new InvalidArgumentError(
+            "Choose only one of --dry-run, --status, or --apply.",
+          );
+        }
+        if (options.removeSource && !options.apply) {
+          throw new InvalidArgumentError(
+            "--remove-source is valid only together with --apply.",
+          );
+        }
+        const mode = options.apply
+          ? "apply"
+          : options.status
+            ? "status"
+            : "dry-run";
+        const report = await migrateLegacyProjectStorage(inputPath, { mode });
+        const cleanup = options.removeSource
+          ? await removeMigratedLegacyProjectStorage(inputPath, {
+              confirmed: true,
+            })
+          : undefined;
+        const json = options.json || command.parent?.opts().json;
+        if (json) {
+          printJson(cleanup ? { migration: report, cleanup } : report);
+          return;
+        }
+        process.stdout.write(
+          `Legacy migration ${report.state}: ${report.project.rootPath}\n`,
+        );
+        process.stdout.write(
+          `Source (${cleanup ? "removed after verification" : "kept unchanged"}): ${report.source.rootPath}\n`,
+        );
+        process.stdout.write(`Target: ${report.project.storagePath}\n`);
+        for (const category of report.categories) {
+          process.stdout.write(
+            `- ${category.category}: detected ${category.detected}, ` +
+              `ready ${category.importable}, already imported ${category.alreadyImported}, ` +
+              `conflicts preserved ${category.conflictsPreserved}, invalid ${category.invalid}, ` +
+              `imported now ${category.imported}\n`,
+          );
+          if (category.note) process.stdout.write(`  ${category.note}\n`);
+        }
+        for (const warning of report.warnings) {
+          process.stdout.write(`- warning: ${warning}\n`);
+        }
+        if (cleanup) {
+          process.stdout.write(
+            `Removed verified legacy directory: ${cleanup.removedPath}\n`,
+          );
+        }
+        if (mode !== "apply" && report.state === "ready") {
+          process.stdout.write(
+            `Run "pnpm atlas storage migrate ${JSON.stringify(
+              report.project.rootPath,
+            )} --apply --remove-source" to migrate and remove the verified legacy directory.\n`,
+          );
+        }
+      },
+    );
+
+  storageCommand
+    .command("cleanup-legacy")
+    .argument("[path]", "repository with a completed legacy migration", ".")
+    .description(
+      "Remove only a verified repository-local .component-atlas after migration.",
+    )
+    .requiredOption(
+      "--confirm",
+      "confirm removal of the migrated .component-atlas directory",
+    )
+    .option("--json", "print a machine-readable cleanup report")
+    .action(
+      async (
+        inputPath: string,
+        options: { confirm: boolean; json?: boolean },
+        command: Command,
+      ) => {
+        const report = await removeMigratedLegacyProjectStorage(inputPath, {
+          confirmed: options.confirm,
+        });
+        if (options.json || command.parent?.opts().json) {
+          printJson(report);
+          return;
+        }
+        process.stdout.write(
+          `Removed verified legacy directory: ${report.removedPath}\n`,
+        );
+        process.stdout.write(
+          `Kept Project Atlas storage: ${report.projectStoragePath}\n`,
+        );
+        process.stdout.write(
+          "No repository files outside .component-atlas were deleted.\n",
+        );
+      },
+    );
 
   program
     .command("scan")

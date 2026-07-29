@@ -15,9 +15,9 @@ pnpm atlas -- "C:\path\to\product-repository"
 ```
 
 The launcher checks whether the production build is current, builds it when
-needed, ensures `.component-atlas/` is globally ignored by Git, selects a free
-loopback port and verifies the exact launched session, starts the viewer, and
-opens the default browser. It binds only
+needed, selects a free loopback port, verifies the exact launched session,
+starts the viewer, and opens the default browser. Current Atlas data is never
+written into the selected repository. It binds only
 to `127.0.0.1` and does not use a fixed port, so it can run beside the selected
 project's development server. Keep the launcher terminal open and press Ctrl+C
 there to stop Atlas and clean up its viewer process. Use `--port <port>` only

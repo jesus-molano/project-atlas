@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 4,
+  "project": {
+    "id": "0123456789abcdef0123",
+    "name": "legacy-atlas-react",
+    "rootPath": "C:\\legacy-fixtures\\legacy-atlas-react",
+    "framework": "react",
+    "scannedAt": "2026-07-28T10:00:00.000Z",
+    "sourceFiles": 1,
+    "identity": {
+      "logicalId": "0123456789abcdef0123",
+      "repositoryFingerprint": "0123456789abcdef",
+      "source": "path",
+      "checkoutId": "abcdef0123456789abcd",
+      "worktreePath": "C:\\legacy-fixtures\\legacy-atlas-react"
+    }
+  },
+  "database": "Stored outside the repository in local application data."
+}

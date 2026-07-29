@@ -100,9 +100,9 @@ production build are already present; use the same `pnpm atlas` commands.
 
 `pnpm atlas` builds the production product only when its build is missing or
 older than its sources, selects a free loopback port, starts only the local
-viewer, ensures `.component-atlas/` stays in the global Git ignore, opens the
-browser, and prints the URL. Keep that terminal open and press Ctrl+C there to
-close Atlas and its viewer process.
+viewer, opens the browser, and prints the URL. Current Atlas data stays outside
+the checkout under the centralized Project Atlas storage root. Keep that
+terminal open and press Ctrl+C there to close Atlas and its viewer process.
 
 The desktop-shaped local workspace lets you:
 
@@ -161,8 +161,16 @@ block the task.
 | `~/.codex/AGENTS.md` | Optional short routing block installed with `-InstallAgentsInstructions` |
 
 `component-atlas` remains the internal MCP/package identifier for compatibility.
-The product name and single storage root are Project Atlas. Atlas reads legacy
-repository-local data compatibly but never creates or rewrites it.
+The product name and single storage root are Project Atlas. Import and remove a
+legacy repository-local directory explicitly after reviewing the dry-run:
+
+```powershell
+pnpm atlas storage migrate "C:\path\to\repository" --dry-run
+pnpm atlas storage migrate "C:\path\to\repository" --apply --remove-source
+```
+
+The second command verifies the imported hashes before deleting only
+`<repo>\.component-atlas`; it keeps the repository and centralized Atlas data.
 
 ## Update an existing installation
 

@@ -29,14 +29,16 @@ ProjectAtlas/
 │       ├── memory/
 │       │   ├── canonical/
 │       │   └── local/
-│       └── task-state/
-│           ├── capsules/
-│           ├── ledgers/
-│           ├── journals/
-│           ├── manifests/
-│           ├── receipts/
-│           ├── retrieval/
-│           └── retrieval-results/
+│       ├── task-state/
+│       │   ├── capsules/
+│       │   ├── ledgers/
+│       │   ├── journals/
+│       │   ├── manifests/
+│       │   ├── receipts/
+│       │   ├── retrieval/
+│       │   └── retrieval-results/
+│       └── migrations/
+│           └── repository-local-v1/
 └── temp/
     ├── visual-direction/
     └── assets/
@@ -70,11 +72,44 @@ pnpm atlas storage --json
 ```
 
 The command prints the effective root, category sizes, which categories are
-ephemeral, and any legacy roots detected for read-only compatibility.
+ephemeral, and any older application-data roots detected.
 
-Legacy `.component-atlas/`, `project-memory/`, and older
-`%LOCALAPPDATA%\ComponentAtlas\` data are never deleted or rewritten
-automatically. Repository-local Markdown can still be indexed as legacy
-read-only evidence. New writes always go to the centralized `ProjectAtlas`
-root. Migration of an old application-data root must be an explicit,
-user-reviewed operation.
+## Migrate repository-local legacy data
+
+`scan`, project preparation, synchronization, and resume never import or delete
+repository-local legacy data implicitly. Inspect one project first:
+
+```powershell
+pnpm atlas storage migrate "C:\path\to\product-repository" --status
+pnpm atlas storage migrate "C:\path\to\product-repository" --dry-run
+```
+
+The report inventories `project.json`, `catalog.md`, decisions, memory,
+task-state, and a matching old `ComponentAtlas` SQLite database. It distinguishes
+importable, already imported, conflict-preserved, and invalid content. Dry-run
+does not create the destination directory.
+
+To import and then remove the verified repository-local directory in one
+explicit operation:
+
+```powershell
+pnpm atlas storage migrate "C:\path\to\product-repository" --apply --remove-source
+```
+
+Atlas imports into
+`%LOCALAPPDATA%\ProjectAtlas\projects\<logical-project-id>\`, rechecks every
+source hash, and removes only `<repo>\.component-atlas` after all recognized
+repository-local files are present in centralized storage. It refuses cleanup
+after a partial import, an invalid file, a source change, or an unrecognized
+file. It never removes the repository, the centralized project directory, or
+the older `%LOCALAPPDATA%\ComponentAtlas\` database.
+
+If migration was already applied without cleanup, the equivalent explicit
+recovery command is:
+
+```powershell
+pnpm atlas storage cleanup-legacy "C:\path\to\product-repository" --confirm
+```
+
+Plain `--apply` keeps `.component-atlas` for review. No legacy content is
+deleted automatically.

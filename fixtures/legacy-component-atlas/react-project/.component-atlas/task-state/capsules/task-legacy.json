@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "taskId": "task-legacy",
+  "status": "active",
+  "createdAt": "2026-07-28T10:30:00.000Z",
+  "updatedAt": "2026-07-28T10:31:00.000Z",
+  "objective": {
+    "text": "Continue the legacy button task",
+    "approved": true
+  },
+  "decisions": [],
+  "sourceReceiptIds": [],
+  "handles": [
+    "code:legacy-button"
+  ],
+  "scope": {
+    "covered": [
+      "intake"
+    ],
+    "remaining": [
+      "implementation"
+    ]
+  },
+  "workspace": {
+    "rootPath": "C:\\legacy-fixtures\\legacy-atlas-react",
+    "head": "unknown"
+  },
+  "budget": {
+    "contextChars": 2400,
+    "estimatedTokens": 600
+  },
+  "nextSafeAction": "Inspect code:legacy-button."
+}

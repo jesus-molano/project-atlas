@@ -1,9 +1,11 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   inspectProjectAtlasStorage,
+  forgetRecentProject,
+  forgetRecentProjects,
   projectAtlasStorageRoot,
   projectStorageDirectory,
   readRecentProjects,
@@ -73,5 +75,48 @@ describe("Project Atlas storage", () => {
         await readFile(path.join(root, "recent-projects.json"), "utf8"),
       ),
     ).toMatchObject({ schemaVersion: 1 });
+  });
+
+  it("unlinks recent records without deleting repositories or project storage", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "project-atlas-unlink-"));
+    const options = {
+      env: { PROJECT_ATLAS_HOME: root },
+      platform: process.platform,
+      homeDirectory: os.homedir(),
+    };
+    const firstRoot = path.join(root, "missing-one");
+    const secondRoot = path.join(root, "missing-two");
+    await rememberRecentProject(
+      {
+        id: "project-one",
+        rootPath: firstRoot,
+        lastOpenedAt: "2026-07-29T12:00:00.000Z",
+      },
+      options,
+    );
+    await rememberRecentProject(
+      {
+        id: "project-two",
+        rootPath: secondRoot,
+        lastOpenedAt: "2026-07-29T12:01:00.000Z",
+      },
+      options,
+    );
+    const projectStorage = projectStorageDirectory("project-one", options);
+    await mkdir(projectStorage, { recursive: true });
+    await writeFile(path.join(projectStorage, "keep.txt"), "keep", "utf8");
+
+    expect(await forgetRecentProject(firstRoot, options)).toBe(true);
+    expect(await readRecentProjects(options)).toEqual([
+      expect.objectContaining({ id: "project-two" }),
+    ]);
+    await expect(
+      access(path.join(projectStorage, "keep.txt")),
+    ).resolves.toBeUndefined();
+    expect(await forgetRecentProjects([secondRoot], options)).toBe(1);
+    expect(await readRecentProjects(options)).toEqual([]);
+    await expect(
+      access(path.join(projectStorage, "keep.txt")),
+    ).resolves.toBeUndefined();
   });
 });

@@ -22,6 +22,7 @@ export interface ResolveProjectIdentityOptions {
   projectKey?: string;
   gitExecutable?: string;
   fresh?: boolean;
+  ignoreLegacyArtifact?: boolean;
 }
 
 export interface ResolvedProjectIdentity extends ProjectIdentityMetadata {
@@ -86,7 +87,9 @@ export async function resolveProjectIdentity(
   const rootPath = canonicalFilesystemPath(inputPath);
   const git = options.gitExecutable ?? "git";
   const override = options.projectKey ?? process.env.PROJECT_ATLAS_PROJECT_KEY;
-  const cacheKey = `${filesystemPathKey(rootPath)}\0${git}\0${override ?? ""}`;
+  const cacheKey = `${filesystemPathKey(rootPath)}\0${git}\0${override ?? ""}\0${
+    options.ignoreLegacyArtifact ? "ignore-legacy" : "allow-legacy"
+  }`;
   const cached = identityCache.get(cacheKey);
   if (!options.fresh && cached && Date.now() - cached.resolvedAt < 5_000) {
     return cached.value;
@@ -99,7 +102,7 @@ export async function resolveProjectIdentity(
         checkoutId?: string;
       }
     | undefined;
-  if (!override) {
+  if (!override && !options.ignoreLegacyArtifact) {
     try {
       const artifact = JSON.parse(
         await readFile(
