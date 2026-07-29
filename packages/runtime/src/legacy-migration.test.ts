@@ -16,6 +16,10 @@ import {
   type ComponentDecision,
   type ComponentGraph,
 } from "@component-atlas/core";
+import {
+  MEMORY_SCHEMA_VERSION,
+  type MemoryItem,
+} from "@component-atlas/memory";
 import { AtlasStore, projectStorageDirectory } from "@component-atlas/store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -284,7 +288,7 @@ describe("repository-local legacy migration", () => {
     ).toBe(applied.project.id);
   });
 
-  it("opens the old ComponentAtlas database read-only and imports its graph and decisions", async () => {
+  it("normalizes old SQLite records once and permits verified cleanup", async () => {
     const rootPath = await legacyProjectFixture();
     const projectId = "0123456789abcdef0123";
     const oldCheckoutId = "abcdef0123456789abcd";
@@ -351,9 +355,34 @@ describe("repository-local legacy migration", () => {
       scope: "checkout",
       checkoutId: oldCheckoutId,
     };
+    const memory: MemoryItem = {
+      schemaVersion: MEMORY_SCHEMA_VERSION,
+      id: "legacy-db-memory",
+      projectId,
+      namespace: "legacy",
+      type: "decision",
+      title: "Keep the legacy button",
+      summary: "The old database retained a checkout-scoped memory.",
+      body: "Reuse LegacyButton for this checkout.",
+      status: "active",
+      confidence: 0.9,
+      authority: "decided",
+      scope: "local",
+      checkoutId: oldCheckoutId,
+      createdAt: "2026-07-28T10:10:00.000Z",
+      updatedAt: "2026-07-28T10:10:00.000Z",
+      tags: ["legacy", "button"],
+      provenance: {
+        kind: "legacy-decision",
+        evidence: ["legacy-db-decision"],
+      },
+      supersedes: [],
+      relations: [],
+    };
     try {
       legacyStore.replaceGraph(graph);
       legacyStore.saveDecision(decision);
+      legacyStore.saveMemoryItem(projectId, memory);
     } finally {
       legacyStore.close();
     }
@@ -366,7 +395,7 @@ describe("repository-local legacy migration", () => {
     expect(dryRun.source.legacyDatabasePath).toBe(legacyDatabasePath);
     expect(
       dryRun.categories.find((category) => category.category === "database"),
-    ).toMatchObject({ detected: 1, importable: 2 });
+    ).toMatchObject({ detected: 1, importable: 3 });
     expect(await snapshotDirectory(legacyDataHome)).toEqual(
       legacyStorageBefore,
     );
@@ -394,9 +423,41 @@ describe("repository-local legacy migration", () => {
           checkoutId: applied.project.checkoutId,
         }),
       ]);
+      expect(
+        target.loadMemoryItem(
+          applied.project.id,
+          "legacy-db-memory",
+          applied.project.checkoutId,
+        ),
+      ).toMatchObject({
+        id: "legacy-db-memory",
+        projectId: applied.project.id,
+        checkoutId: applied.project.checkoutId,
+      });
     } finally {
       target.close();
     }
+    const status = await migrateLegacyProjectStorage(rootPath, {
+      mode: "status",
+    });
+    expect(
+      status.categories.find((category) => category.category === "database"),
+    ).toMatchObject({
+      detected: 1,
+      importable: 0,
+      alreadyImported: 3,
+      conflictsPreserved: 0,
+    });
+    const repeatedApply = await migrateLegacyProjectStorage(rootPath, {
+      mode: "apply",
+    });
+    expect(repeatedApply.totals.imported).toBe(0);
+    await expect(
+      removeMigratedLegacyProjectStorage(rootPath, { confirmed: true }),
+    ).resolves.toMatchObject({ removedFiles: 6 });
+    await expect(
+      access(path.join(rootPath, ".component-atlas")),
+    ).rejects.toThrow();
     expect(await readFile(legacyDatabasePath)).toEqual(sourceBefore);
     expect(await snapshotDirectory(legacyDataHome)).toEqual(
       legacyStorageBefore,
