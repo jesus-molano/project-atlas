@@ -93,8 +93,11 @@ function buildProduct() {
 }
 
 function normalizeArguments(args) {
-  if (args[0] === "open") return args;
-  if (args.length === 0 || args[0]?.startsWith("-")) return ["open", ...args];
+  const normalized = args[0] === "--" ? args.slice(1) : args;
+  if (normalized[0] === "open") return normalized;
+  if (normalized.length === 0 || normalized[0]?.startsWith("-")) {
+    return ["open", ...normalized];
+  }
   const cliCommands = new Set([
     "setup",
     "scan",
@@ -110,7 +113,9 @@ function normalizeArguments(args) {
     "figma",
     "mcp",
   ]);
-  return cliCommands.has(args[0]) ? args : ["open", ...args];
+  return cliCommands.has(normalized[0])
+    ? normalized
+    : ["open", ...normalized];
 }
 
 try {
