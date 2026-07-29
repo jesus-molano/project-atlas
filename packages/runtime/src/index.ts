@@ -1033,6 +1033,7 @@ export async function scanProject(
     id: graph.project.id,
     name: graph.project.name,
     rootPath: graph.project.rootPath,
+    ...(identity.checkoutId ? { checkoutId: identity.checkoutId } : {}),
     lastOpenedAt: checkedAt,
   });
   if (options.writeArtifacts !== false) await writeProjectArtifacts(graph);

@@ -48,6 +48,7 @@ export interface RecentProject {
   id?: string;
   rootPath: string;
   name: string;
+  checkoutId?: string;
   lastOpenedAt: string;
   available: boolean;
   git?: ProjectGitState;
@@ -196,6 +197,7 @@ export async function rememberRecentProject(rootPath: string): Promise<void> {
       id: identity.logicalId,
       rootPath,
       name: projectName(rootPath),
+      checkoutId: identity.checkoutId,
       lastOpenedAt: new Date().toISOString(),
     },
     ...current.projects.filter(
@@ -372,7 +374,8 @@ export function loadProjectAtlasSnapshot(): ProjectAtlasSnapshot {
       .slice(0, 20);
   const checkoutId =
     (launchIdentityMatches ? process.env.ATLAS_CHECKOUT_ID : undefined) ??
-    (artifactMatches ? artifact?.project?.identity?.checkoutId : undefined);
+    (artifactMatches ? artifact?.project?.identity?.checkoutId : undefined) ??
+    recentProject?.checkoutId;
   const store = new AtlasStore(id);
   try {
     const stored = store.readProjectSnapshot(id, checkoutId);

@@ -1444,6 +1444,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "La memoria del proyecto requiere una identidad de checkout resuelta.",
   "Refusing to write memory outside the project root.":
     "Se rechazó escribir memoria fuera de la raíz del proyecto.",
+  "Refusing to write memory outside Project Atlas storage.":
+    "Se rechazó escribir memoria fuera del almacenamiento de Project Atlas.",
   "A task outcome requires a task, a summary, and a valid result.":
     "El resultado de una tarea requiere una tarea, un resumen y un resultado válido.",
   "{count} cached design files; live session state is not assumed.":

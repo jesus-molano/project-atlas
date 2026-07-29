@@ -24,6 +24,7 @@ export interface RecentProjectRecord {
   id: string;
   name?: string;
   rootPath: string;
+  checkoutId?: string;
   lastOpenedAt: string;
 }
 
