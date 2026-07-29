@@ -52,8 +52,12 @@ projects and **Open another folder**:
   changing the branch of the checkout that was active;
 - **New branch + worktree** combines a conventional commit-style prefix
   (`feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, and related
-  types) with a human name, previews the normalized branch and sibling folder,
-  then creates both from the active `HEAD` after confirmation;
+  types) with a human name and an explicit local base branch. The current
+  eligible branch is selected initially but remains editable; the preview shows
+  the normalized branch, selected base and exact base `HEAD`, and sibling
+  folder before confirmation;
+- if the selected base disappears or moves after review, creation stops and
+  requires a fresh preview; no existing checkout changes branches;
 - branch movement, a newly occupied destination, a duplicate worktree, or a
   branch without `package.json` stops creation and asks for a fresh review;
 - changing projects is disabled while a Codex run owns the current checkout.

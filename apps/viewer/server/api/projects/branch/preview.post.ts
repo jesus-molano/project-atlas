@@ -14,5 +14,6 @@ export default defineEventHandler(async (event) => {
     projectRootPath(),
     input.branchType,
     input.branchNameInput,
+    input.baseBranch,
   );
 });

@@ -118,23 +118,31 @@ describe("Git branch and worktree inventory", () => {
   }, 15_000);
 
   it("creates a convention-prefixed branch in a separate worktree", async () => {
-    const { rootPath } = await fixtureRepository();
+    const { rootPath, releasePath } = await fixtureRepository();
+    run(releasePath, ["add", "README.md"]);
+    run(releasePath, ["commit", "-m", "release base"]);
+    const releaseHead = run(releasePath, ["rev-parse", "HEAD"]);
+    const mainHead = run(rootPath, ["rev-parse", "HEAD"]);
     const preview = previewNewProjectBranchWorktree(
       rootPath,
       "fix",
       "Selector focus state",
+      "release",
     );
 
     expect(preview).toMatchObject({
       creationMode: "new-branch",
       branch: "fix/selector-focus-state",
-      baseBranch: "main",
+      baseBranch: "release",
+      baseHead: releaseHead,
       branchType: "fix",
     });
+    expect(preview.baseHead).not.toBe(mainHead);
 
     const created = createNewProjectBranchWorktree(rootPath, {
       branchType: "fix",
       branchNameInput: "Selector focus state",
+      baseBranch: "release",
       expectedBaseHead: preview.baseHead!,
       sourceWorktreePath: preview.sourceWorktreePath,
       worktreePath: preview.worktreePath,
@@ -149,6 +157,32 @@ describe("Git branch and worktree inventory", () => {
     expect(run(preview.worktreePath, ["branch", "--show-current"])).toBe(
       "fix/selector-focus-state",
     );
+    expect(run(preview.worktreePath, ["rev-parse", "HEAD"])).toBe(releaseHead);
+  }, 15_000);
+
+  it("rejects confirmation after the selected base branch moves", async () => {
+    const { rootPath, releasePath } = await fixtureRepository();
+    const preview = previewNewProjectBranchWorktree(
+      rootPath,
+      "feat",
+      "Explicit stale base",
+      "release",
+    );
+    run(releasePath, ["add", "README.md"]);
+    run(releasePath, ["commit", "-m", "move release base"]);
+
+    expect(() =>
+      createNewProjectBranchWorktree(rootPath, {
+        branchType: "feat",
+        branchNameInput: "Explicit stale base",
+        baseBranch: "release",
+        expectedBaseHead: preview.baseHead!,
+        sourceWorktreePath: preview.sourceWorktreePath,
+        worktreePath: preview.worktreePath,
+      }),
+    ).toThrow("base branch moved after the preview");
+    expect(run(rootPath, ["branch", "--list", preview.branch])).toBe("");
+    expect(run(rootPath, ["branch", "--show-current"])).toBe("main");
   }, 15_000);
 
   it("rejects stale confirmations before creating anything", async () => {

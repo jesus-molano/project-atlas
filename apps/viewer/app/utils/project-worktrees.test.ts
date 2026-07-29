@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   branchAction,
+  defaultNewBranchBase,
   detachedRepositoryWorktrees,
   type ProjectRepositoryState,
   type RepositoryBranch,
@@ -74,5 +75,41 @@ describe("project worktree selector UI state", () => {
     };
 
     expect(detachedRepositoryWorktrees(repository)).toEqual([detached]);
+  });
+
+  it("prefers an eligible current base and falls back to the primary branch", () => {
+    const primary = {
+      path: "/repo",
+      name: "repo",
+      branch: "main",
+      head: "a".repeat(40),
+      isCurrent: false,
+      isPrimary: true,
+      available: true,
+      locked: false,
+      prunable: false,
+    };
+    const repository: ProjectRepositoryState = {
+      logicalProjectPath: "/repo",
+      logicalProjectName: "repo",
+      activeRoot: "/repo-linked",
+      branches: [
+        branch({
+          name: "docs/no-manifest",
+          isCurrent: true,
+          hasProjectManifest: false,
+        }),
+        branch({ name: "main", worktree: primary }),
+        branch({ name: "release/a-very-long-base-branch-name" }),
+      ],
+      worktrees: [primary],
+      checkedAt: new Date(0).toISOString(),
+    };
+
+    expect(defaultNewBranchBase(repository)).toBe("main");
+    repository.branches[2]!.isCurrent = true;
+    expect(defaultNewBranchBase(repository)).toBe(
+      "release/a-very-long-base-branch-name",
+    );
   });
 });
