@@ -89,8 +89,9 @@ workspace lets you:
 - see the exact logical project, checkout/worktree, branch, HEAD, and diff state;
 - list local branches independently of recent projects, open an existing branch
   worktree, or review and confirm creation of a separate sibling worktree;
-- create a local branch and worktree together from a reviewed conventional
-  prefix plus descriptive name, without switching the source checkout;
+- create a local branch and worktree together from an explicitly selected
+  local base branch plus a reviewed conventional prefix and descriptive name,
+  without switching any existing checkout;
 - switch among successfully opened recent projects or choose, drop, or paste
   another repository without restarting the server;
 - search code, design, and memory from one command surface;

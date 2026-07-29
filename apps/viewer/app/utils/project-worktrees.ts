@@ -81,3 +81,18 @@ export function detachedRepositoryWorktrees(
     (worktree) => !assigned.has(worktree.path),
   );
 }
+
+export function defaultNewBranchBase(
+  repository: ProjectRepositoryState | undefined,
+): string {
+  if (!repository) return "";
+  const eligibleBranches = repository.branches.filter(
+    (branch) => branch.hasProjectManifest,
+  );
+  return (
+    eligibleBranches.find((branch) => branch.isCurrent)?.name ??
+    eligibleBranches.find((branch) => branch.worktree?.isPrimary)?.name ??
+    eligibleBranches[0]?.name ??
+    ""
+  );
+}

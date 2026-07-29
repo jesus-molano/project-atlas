@@ -55,7 +55,18 @@ const { t } = useAtlasI18n();
         </dt>
         <dd :title="preview.branch">
           {{ preview.branch }}
-          <small>{{ preview.shortHead }}</small>
+          <small v-if="preview.creationMode === 'existing-branch'">
+            {{ preview.shortHead }}
+          </small>
+        </dd>
+      </div>
+      <div v-if="preview.creationMode === 'new-branch'">
+        <dt>{{ t("Base branch") }}</dt>
+        <dd :title="preview.baseBranch">
+          {{ preview.baseBranch }}
+          <small :title="preview.baseHead">
+            {{ t("HEAD {head}", { head: preview.baseHead ?? "" }) }}
+          </small>
         </dd>
       </div>
       <div>
@@ -66,21 +77,9 @@ const { t } = useAtlasI18n();
         </dd>
       </div>
       <div>
-        <dt>
-          {{
-            t(
-              preview.creationMode === "new-branch"
-                ? "Starting checkout"
-                : "Current checkout",
-            )
-          }}
-        </dt>
+        <dt>{{ t("Current checkout") }}</dt>
         <dd :title="preview.sourceWorktreePath">
-          {{
-            preview.creationMode === "new-branch"
-              ? (preview.baseBranch ?? t("detached"))
-              : preview.sourceWorktreePath
-          }}
+          {{ preview.sourceWorktreePath }}
           <small>{{ t("Remains unchanged") }}</small>
         </dd>
       </div>
@@ -91,7 +90,7 @@ const { t } = useAtlasI18n();
       {{
         t(
           preview.creationMode === "new-branch"
-            ? "Confirm to create this local branch from the starting HEAD in a separate worktree, scan it, and open it. Atlas will not switch the starting checkout."
+            ? "Confirm to create this local branch from the selected base HEAD in a separate worktree, scan it, and open it. Atlas will not switch any existing checkout."
             : "Confirm to create this separate Git worktree, scan it, and open it. Atlas will not switch the branch of your current checkout.",
         )
       }}

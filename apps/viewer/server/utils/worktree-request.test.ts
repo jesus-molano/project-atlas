@@ -27,15 +27,18 @@ describe("worktree API request contracts", () => {
       parseBranchPreviewRequest({
         branchType: "feat",
         branchNameInput: "Project selector",
+        baseBranch: "release/long-lived",
       }),
     ).toEqual({
       branchType: "feat",
       branchNameInput: "Project selector",
+      baseBranch: "release/long-lived",
     });
     expect(
       parseBranchCreateRequest({
         branchType: "hotfix",
         branchNameInput: "Project selector crash",
+        baseBranch: "release/long-lived",
         expectedBaseHead: "b".repeat(40),
         sourceWorktreePath: path.resolve("source-worktree"),
         worktreePath: path.resolve("hotfix-worktree"),
@@ -43,6 +46,7 @@ describe("worktree API request contracts", () => {
     ).toMatchObject({
       branchType: "hotfix",
       branchNameInput: "Project selector crash",
+      baseBranch: "release/long-lived",
       expectedBaseHead: "b".repeat(40),
     });
   });
@@ -72,13 +76,21 @@ describe("worktree API request contracts", () => {
       parseBranchPreviewRequest({
         branchType: "feature",
         branchNameInput: "selector",
+        baseBranch: "main",
       }),
     ).toThrow("Branch type is invalid");
     expect(() =>
       parseBranchPreviewRequest({
         branchType: "feat",
         branchNameInput: "---",
+        baseBranch: "main",
       }),
     ).toThrow("Branch name is invalid");
+    expect(() =>
+      parseBranchPreviewRequest({
+        branchType: "feat",
+        branchNameInput: "selector",
+      }),
+    ).toThrow("Base branch is invalid");
   });
 });

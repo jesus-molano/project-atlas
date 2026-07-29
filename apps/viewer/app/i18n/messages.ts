@@ -144,6 +144,13 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Create branch and open worktree": "Crear rama y abrir worktree",
   "New branch + worktree": "Nueva rama + worktree",
   "Cancel new branch": "Cancelar nueva rama",
+  "Base branch": "Rama base",
+  "Choose a local branch": "Elige una rama local",
+  "Selected base": "Base elegida",
+  "Unavailable: no package.json": "No disponible: sin package.json",
+  "Select the local branch that will provide the starting HEAD.":
+    "Selecciona la rama local que proporcionará el HEAD inicial.",
+  "HEAD {head}": "HEAD {head}",
   "Branch type": "Tipo de rama",
   "Branch name": "Nombre de rama",
   "short-descriptive-name": "nombre-corto-descriptivo",
@@ -163,10 +170,10 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "Esta rama no se puede abrir porque no contiene package.json.",
   "Confirm to create this separate Git worktree, scan it, and open it. Atlas will not switch the branch of your current checkout.":
     "Confirma para crear este worktree de Git independiente, analizarlo y abrirlo. Atlas no cambiará la rama de tu checkout actual.",
-  "Confirm to create this local branch from the starting HEAD in a separate worktree, scan it, and open it. Atlas will not switch the starting checkout.":
-    "Confirma para crear esta rama local desde el HEAD de origen en un worktree independiente, analizarla y abrirla. Atlas no cambiará el checkout de origen.",
-  "The new branch starts at the active checkout HEAD and opens in a separate worktree.":
-    "La nueva rama parte del HEAD del checkout activo y se abre en un worktree independiente.",
+  "Confirm to create this local branch from the selected base HEAD in a separate worktree, scan it, and open it. Atlas will not switch any existing checkout.":
+    "Confirma para crear esta rama local desde el HEAD de la base elegida en un worktree independiente, analizarla y abrirla. Atlas no cambiará ningún checkout existente.",
+  "The new branch starts at the selected local branch HEAD and opens in a separate worktree.":
+    "La nueva rama parte del HEAD de la rama local elegida y se abre en un worktree independiente.",
   "Atlas could not find a safe sibling folder for this worktree.":
     "Atlas no pudo encontrar una carpeta adyacente segura para este worktree.",
   "The active project is not a Git worktree.":
@@ -182,12 +189,19 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "La ruta del worktree debe ser absoluta.",
   "Branch type is invalid.": "El tipo de rama no es válido.",
   "Branch name is invalid.": "El nombre de rama no es válido.",
+  "Base branch is invalid.": "La rama base no es válida.",
   "That local branch already exists. Open its worktree or choose another name.":
     "Esa rama local ya existe. Abre su worktree o elige otro nombre.",
-  "The active checkout has no commit from which to create a branch.":
-    "El checkout activo no tiene un commit desde el que crear una rama.",
-  "The starting checkout changed after the preview. Review the new branch again.":
-    "El checkout de origen cambió después de la vista previa. Revisa de nuevo la nueva rama.",
+  "That base branch no longer exists.":
+    "Esa rama base ya no existe.",
+  "That base branch does not contain package.json and cannot start an Atlas frontend project.":
+    "Esa rama base no contiene package.json y no puede iniciar un proyecto frontend de Atlas.",
+  "Atlas could not identify the active checkout that must remain unchanged.":
+    "Atlas no pudo identificar el checkout activo que debe permanecer sin cambios.",
+  "The base branch moved after the preview. Review the new branch again before creating anything.":
+    "La rama base cambió después de la vista previa. Revisa de nuevo la nueva rama antes de crear nada.",
+  "The active checkout changed after the preview. Review the new branch again.":
+    "El checkout activo cambió después de la vista previa. Revisa de nuevo la nueva rama.",
   "Project Atlas could not prepare that branch.":
     "Project Atlas no pudo preparar esa rama.",
   "Project Atlas could not create that branch.":

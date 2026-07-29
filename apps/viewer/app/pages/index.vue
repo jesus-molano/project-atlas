@@ -28,6 +28,7 @@ import {
 } from "~/utils/folder-picker";
 import {
   branchAction,
+  defaultNewBranchBase,
   detachedRepositoryWorktrees,
   type ProjectRepositoryState,
   type WorktreeCreationPreview,
@@ -207,6 +208,7 @@ const worktreePreviewPendingBranch = ref("");
 const newBranchFormOpen = ref(false);
 const newBranchType = ref<BranchPrefix>("feat");
 const newBranchName = ref("");
+const newBranchBase = ref("");
 const newBranchPreviewPending = ref(false);
 const folderPicker = shallowRef<AtlasDesktopFolderPicker>();
 const folderPickerPending = ref(false);
@@ -582,11 +584,17 @@ watch(projectPath, (value) => {
   }
 });
 
-watch([newBranchType, newBranchName], () => {
+watch([newBranchType, newBranchName, newBranchBase], () => {
   if (worktreePreview.value?.creationMode === "new-branch") {
     worktreePreview.value = undefined;
   }
 });
+
+const selectedNewBranchBase = computed(() =>
+  projects.value?.repository?.branches.find(
+    (branch) => branch.name === newBranchBase.value,
+  ),
+);
 
 const proposedNewBranchName = computed(() => {
   try {
@@ -608,6 +616,7 @@ function resetSwitchedWorkspace(): void {
   pinnedHandles.value = [];
   newBranchFormOpen.value = false;
   newBranchName.value = "";
+  newBranchBase.value = "";
 }
 
 async function reviewProject(rootPath = projectPath.value): Promise<void> {
@@ -653,8 +662,11 @@ function toggleNewBranchForm(): void {
   projectPreview.value = undefined;
   worktreePreview.value = undefined;
   projectSwitchError.value = "";
-  if (!newBranchFormOpen.value) {
+  if (newBranchFormOpen.value) {
+    newBranchBase.value = defaultNewBranchBase(projects.value?.repository);
+  } else {
     newBranchName.value = "";
+    newBranchBase.value = "";
   }
 }
 
@@ -720,6 +732,7 @@ async function reviewNewWorktree(branch: string): Promise<void> {
 async function reviewNewBranchWorktree(): Promise<void> {
   if (
     !newBranchName.value.trim() ||
+    !selectedNewBranchBase.value?.hasProjectManifest ||
     newBranchPreviewPending.value ||
     projectSwitchPending.value ||
     projectInspectPending.value
@@ -740,6 +753,7 @@ async function reviewNewBranchWorktree(): Promise<void> {
         body: {
           branchType: newBranchType.value,
           branchNameInput: newBranchName.value,
+          baseBranch: newBranchBase.value,
         },
       },
     );
@@ -767,6 +781,7 @@ async function createAndOpenWorktree(): Promise<void> {
             body: {
               branchType: preview.branchType,
               branchNameInput: preview.branchNameInput,
+              baseBranch: preview.baseBranch,
               expectedBaseHead: preview.baseHead,
               sourceWorktreePath: preview.sourceWorktreePath,
               worktreePath: preview.worktreePath,
@@ -1259,6 +1274,53 @@ onBeforeUnmount(() => {
                 class="new-branch-form"
                 @submit.prevent="reviewNewBranchWorktree"
               >
+                <div class="new-branch-base-field">
+                  <label for="new-branch-base">{{ t("Base branch") }}</label>
+                  <select
+                    id="new-branch-base"
+                    v-model="newBranchBase"
+                    aria-describedby="new-branch-base-summary"
+                    :title="
+                      selectedNewBranchBase
+                        ? `${selectedNewBranchBase.name} · ${selectedNewBranchBase.head}`
+                        : undefined
+                    "
+                    :disabled="newBranchPreviewPending || projectSwitchPending"
+                  >
+                    <option disabled value="">
+                      {{ t("Choose a local branch") }}
+                    </option>
+                    <option
+                      v-for="branch in projects.repository.branches"
+                      :key="branch.name"
+                      :value="branch.name"
+                      :disabled="!branch.hasProjectManifest"
+                    >
+                      {{
+                        branch.hasProjectManifest
+                          ? `${branch.name} · ${branch.shortHead}`
+                          : `${branch.name} · ${t("Unavailable: no package.json")}`
+                      }}
+                    </option>
+                  </select>
+                  <small
+                    id="new-branch-base-summary"
+                    class="new-branch-base-summary"
+                  >
+                    <template v-if="selectedNewBranchBase">
+                      <span>{{ t("Selected base") }}</span>
+                      <strong :title="selectedNewBranchBase.name">
+                        {{ selectedNewBranchBase.name }}
+                      </strong>
+                      <code :title="selectedNewBranchBase.head">
+                        {{ selectedNewBranchBase.shortHead }}
+                      </code>
+                    </template>
+                    <template v-else>
+                      {{ t("Select the local branch that will provide the starting HEAD.") }}
+                    </template>
+                  </small>
+                </div>
                 <div>
                   <label for="new-branch-type">{{ t("Branch type") }}</label>
                   <select
@@ -1295,6 +1357,7 @@ onBeforeUnmount(() => {
                   class="secondary-button"
                   :disabled="
                     !newBranchName.trim() ||
+                    !selectedNewBranchBase?.hasProjectManifest ||
                     newBranchPreviewPending ||
                     projectSwitchPending
                   "
@@ -1308,7 +1371,7 @@ onBeforeUnmount(() => {
                 <small>
                   {{
                     t(
-                      "The new branch starts at the active checkout HEAD and opens in a separate worktree.",
+                      "The new branch starts at the selected local branch HEAD and opens in a separate worktree.",
                     )
                   }}
                 </small>

@@ -431,6 +431,7 @@ export function previewNewProjectBranchWorktree(
   rootPath: string,
   branchType: BranchPrefix,
   branchNameInput: string,
+  baseBranchName: string,
 ): WorktreeCreationPreview {
   const repository = projectRepositoryStateForRoot(rootPath);
   if (!repository) {
@@ -455,25 +456,41 @@ export function previewNewProjectBranchWorktree(
         "That local branch already exists. Open its worktree or choose another name.",
     });
   }
-  const source = repository.worktrees.find((worktree) => worktree.isCurrent);
-  if (!source?.head) {
+  const baseBranch = repository.branches.find(
+    (candidate) => candidate.name === baseBranchName,
+  );
+  if (!baseBranch) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: "That base branch no longer exists.",
+    });
+  }
+  if (!baseBranch.hasProjectManifest) {
     throw createError({
       statusCode: 422,
       statusMessage:
-        "The active checkout has no commit from which to create a branch.",
+        "That base branch does not contain package.json and cannot start an Atlas frontend project.",
+    });
+  }
+  const source = repository.worktrees.find((worktree) => worktree.isCurrent);
+  if (!source) {
+    throw createError({
+      statusCode: 422,
+      statusMessage:
+        "Atlas could not identify the active checkout that must remain unchanged.",
     });
   }
   const worktreePath = proposedWorktreePath(repository, branch);
   return {
     creationMode: "new-branch",
     branch,
-    head: source.head,
-    shortHead: source.head.slice(0, 10),
+    head: baseBranch.head,
+    shortHead: baseBranch.shortHead,
     branchType,
     branchNameInput: branchNameInput.trim(),
-    ...(source.branch ? { baseBranch: source.branch } : {}),
-    baseHead: source.head,
-    baseShortHead: source.head.slice(0, 10),
+    baseBranch: baseBranch.name,
+    baseHead: baseBranch.head,
+    baseShortHead: baseBranch.shortHead,
     logicalProjectPath: repository.logicalProjectPath,
     logicalProjectName: repository.logicalProjectName,
     sourceWorktreePath: repository.activeRoot,
@@ -537,6 +554,7 @@ export function createNewProjectBranchWorktree(
   input: {
     branchType: BranchPrefix;
     branchNameInput: string;
+    baseBranch: string;
     expectedBaseHead: string;
     sourceWorktreePath: string;
     worktreePath: string;
@@ -546,16 +564,23 @@ export function createNewProjectBranchWorktree(
     rootPath,
     input.branchType,
     input.branchNameInput,
+    input.baseBranch,
   );
+  if (preview.baseHead !== input.expectedBaseHead) {
+    throw createError({
+      statusCode: 409,
+      statusMessage:
+        "The base branch moved after the preview. Review the new branch again before creating anything.",
+    });
+  }
   if (
-    preview.baseHead !== input.expectedBaseHead ||
     filesystemPathKey(preview.sourceWorktreePath) !==
-      filesystemPathKey(input.sourceWorktreePath)
+    filesystemPathKey(input.sourceWorktreePath)
   ) {
     throw createError({
       statusCode: 409,
       statusMessage:
-        "The starting checkout changed after the preview. Review the new branch again.",
+        "The active checkout changed after the preview. Review the new branch again.",
     });
   }
   if (

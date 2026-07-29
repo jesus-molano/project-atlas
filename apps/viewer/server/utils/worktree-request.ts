@@ -80,6 +80,7 @@ function absoluteWorktreePath(value: unknown): string {
 function newBranchParts(body: unknown): {
   branchType: BranchPrefix;
   branchNameInput: string;
+  baseBranch: string;
 } {
   const input =
     typeof body === "object" && body !== null
@@ -103,12 +104,14 @@ function newBranchParts(body: unknown): {
   return {
     branchType: input.branchType,
     branchNameInput,
+    baseBranch: requiredText(input.baseBranch, "Base branch", 255),
   };
 }
 
 export function parseBranchPreviewRequest(body: unknown): {
   branchType: BranchPrefix;
   branchNameInput: string;
+  baseBranch: string;
 } {
   return newBranchParts(body);
 }
@@ -116,6 +119,7 @@ export function parseBranchPreviewRequest(body: unknown): {
 export function parseBranchCreateRequest(body: unknown): {
   branchType: BranchPrefix;
   branchNameInput: string;
+  baseBranch: string;
   expectedBaseHead: string;
   sourceWorktreePath: string;
   worktreePath: string;
