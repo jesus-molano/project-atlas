@@ -15,8 +15,11 @@ Direct route:
 1. The user provides or selects one concrete frame or component.
 2. At the start of preparation, read sparse metadata for the confirmed scope
    through Figma Desktop MCP at `http://127.0.0.1:3845/mcp` and pass it to
-   `map_figma_file`. A direct link skips candidate ranking, not Design Atlas
-   persistence. Resolve this local connection before any global MCP
+   `map_figma_file` with a SourceReceipt for the exact source decision,
+   adapter/route/operation, node scope, observation, coverage, and freshness.
+   A direct link skips candidate ranking, not Design Atlas persistence.
+   `fileKey+nodeId` remains an immutable pin: a missing, mismatched, or stale
+   node blocks and Atlas never substitutes a ranked candidate. Resolve this local connection before any global MCP
    registration or remote connector.
 3. If the node is cached, call `inspect_design_node`; otherwise use the
    just-mapped node identity.
@@ -61,7 +64,8 @@ General route:
 3. Retrieve sparse XML only for relevant pages and pass each snapshot to
    `map_figma_file`. Repeated snapshots merge by page/scope.
 4. Call `find_design_candidates` with the task. It returns a few candidates,
-   evidence, confidence, findings, and a decision gate.
+   evidence, confidence, findings, and a decision gate. These are explicitly
+   Atlas candidates, never claims that they match a user-confirmed direct node.
 5. Confirm one node before following the direct route.
 
 If the local Desktop MCP is not connected, rejects/times out, does not respond,
@@ -94,7 +98,7 @@ The cache lives in the repository's Atlas SQLite database under local
 application data. An identical source/scope hash returns `unchanged`. New page
 snapshots merge into the same version. A different `version` or `lastModified`
 starts a fresh map so nodes removed from Figma do not remain indefinitely.
-The Task Workbench refreshes the workspace snapshot while confirmed Figma
+The Codex handoff sidecar refreshes the workspace snapshot while confirmed Figma
 ingestion runs, so the Design view can show the persisted map before code
 components are created or the task completes. It reports loading, available,
 confirmed-but-unsynchronized, and access/sync-error states explicitly.

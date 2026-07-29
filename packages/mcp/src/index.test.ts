@@ -34,6 +34,9 @@ describe("Project Atlas MCP surface", () => {
       expect(names).toContain("search_project_memory");
       expect(names).toContain("get_memory_item");
       expect(names).toContain("get_task_context");
+      expect(names).toContain("expand_source_receipt");
+      expect(names).toContain("resume_task_capsule");
+      expect(names).toContain("checkpoint_task");
       expect(names).toContain("check_before_change");
       expect(names).toContain("propose_memory_update");
       expect(names).toContain("apply_memory_update");
@@ -74,6 +77,14 @@ describe("Project Atlas MCP surface", () => {
           ?.inputSchema,
       ).toMatchObject({
         properties: {
+          task_id: {
+            type: "string",
+            pattern: "^[A-Za-z0-9_.:-]{1,160}$",
+          },
+          selected_handles: {
+            type: "array",
+            maxItems: 8,
+          },
           budget_chars: {
             type: "integer",
             minimum: 800,
@@ -84,6 +95,24 @@ describe("Project Atlas MCP surface", () => {
             minimum: 1,
             maximum: 10,
           },
+        },
+      });
+      expect(
+        tools.tools.find((tool) => tool.name === "checkpoint_task")
+          ?.inputSchema,
+      ).toMatchObject({
+        required: expect.arrayContaining([
+          "root_path",
+          "task_id",
+          "milestone",
+          "objective",
+          "objective_approved",
+          "budget_chars",
+          "next_safe_action",
+        ]),
+        properties: {
+          source_receipt_ids: { type: "array", maxItems: 20 },
+          handles: { type: "array", maxItems: 8 },
         },
       });
       expect(
@@ -369,12 +398,25 @@ describe("Project Atlas MCP surface", () => {
         name: "get_task_context",
         arguments: {
           root_path: rootPath,
+          task_id: "task-mcp-e2e",
           task: "add study filter to search on mobile",
           figma_file: "PersonalShop",
           budget_chars: 2800,
+          source_decisions: [
+            {
+              kind: "figma",
+              reference:
+                "https://www.figma.com/design/PersonalShop/Personal-shop",
+              origin: "manual",
+              state: "confirmed",
+              required: false,
+              relationship: "primary",
+            },
+          ],
         },
       });
       expect(taskContext.structuredContent).toMatchObject({
+        taskId: "task-mcp-e2e",
         memory: expect.arrayContaining([
           expect.objectContaining({ id: "decision-search-url-v2" }),
         ]),
@@ -384,6 +426,51 @@ describe("Project Atlas MCP surface", () => {
       expect(
         JSON.stringify(taskContext.structuredContent).length,
       ).toBeLessThanOrEqual(2800);
+
+      const resumed = await client.callTool({
+        name: "resume_task_capsule",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-mcp-e2e",
+        },
+      });
+      expect(resumed.structuredContent).toMatchObject({
+        format: expect.stringMatching(/^(?:toon|json)$/u),
+        bytes: expect.any(Number),
+        fallbackAvailable: true,
+      });
+      expect(
+        (resumed.structuredContent as { bytes?: number } | undefined)?.bytes,
+      ).toBeLessThanOrEqual(4_096);
+      expect(
+        (resumed.structuredContent as { body?: string } | undefined)?.body,
+      ).toContain("task-mcp-e2e");
+
+      const checkpoint = await client.callTool({
+        name: "checkpoint_task",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-mcp-e2e",
+          status: "completed",
+          milestone: "completed",
+          objective: "add study filter to search on mobile",
+          objective_approved: true,
+          source_decisions: [],
+          source_receipt_ids: [],
+          handles: ["code:search-filters"],
+          covered: ["implementation", "validation"],
+          remaining: [],
+          budget_chars: 2800,
+          estimated_tokens: 700,
+          next_safe_action: "No further action.",
+        },
+      });
+      expect(checkpoint.structuredContent).toMatchObject({
+        taskId: "task-mcp-e2e",
+        status: "completed",
+        milestone: "completed",
+        nextSafeAction: "No further action.",
+      });
 
       const gate = await client.callTool({
         name: "check_before_change",

@@ -303,7 +303,7 @@ const navigationGroups = computed<NavigationGroup[]>(() => [
       {
         id: "task",
         icon: "task",
-        label: t("Task Workbench"),
+        label: t("Codex handoff"),
         hint: t("Prepare, run, continue"),
       },
     ],
@@ -412,7 +412,7 @@ const attentionQueue = computed(() => {
       detail: t(
         "Task continuation will preserve and reason about this diff.",
       ),
-      action: t("Continue in Workbench"),
+      action: t("Continue in Codex handoff"),
       section: "task",
     });
   }
@@ -1723,7 +1723,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="activeSection === 'task'" class="section-workspace task-section">
-          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Work / Task Workbench") }}</span><h1>{{ t("Prepare the next move.") }}</h1><p>{{ t("Describe the outcome first. Sources and context controls appear only when useful.") }}</p></div><span :class="['heading-count', { warning: workspace.git.dirty }]">{{ workspace.git.dirty ? t("{count} changed", { count: workspace.git.changedFiles }) : t("Clean checkout") }}</span></header>
+          <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Work / Codex handoff") }}</span><h1>{{ t("Prepare the next move.") }}</h1><p>{{ t("Conversation and execution stay in Codex. Atlas verifies scope, sources, and the compact handoff.") }}</p></div><span :class="['heading-count', { warning: workspace.git.dirty }]">{{ workspace.git.dirty ? t("{count} changed", { count: workspace.git.changedFiles }) : t("Clean checkout") }}</span></header>
           <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" @update-task="taskSeed = $event" @workspace-changed="refreshSnapshot" @figma-sync-state="designSyncState = $event" />
         </section>
 
@@ -1771,7 +1771,7 @@ onBeforeUnmount(() => {
               <AtlasIcon name="search" />
               <span>{{ t("Search the whole project") }}</span>
               <p>{{ t("Open indexed evidence or pin it directly to a task. Local search uses no agent tokens.") }}</p>
-              <div><span>Ctrl 1 · {{ t("Home") }}</span><span>Ctrl 2 · {{ t("Code") }}</span><span>Ctrl 3 · {{ t("Task Workbench") }}</span></div>
+              <div><span>Ctrl 1 · {{ t("Home") }}</span><span>Ctrl 2 · {{ t("Code") }}</span><span>Ctrl 3 · {{ t("Codex handoff") }}</span></div>
             </div>
             <template v-else-if="searchResults?.results.length">
               <div v-for="group in resultGroups" :key="group.source" class="result-group">

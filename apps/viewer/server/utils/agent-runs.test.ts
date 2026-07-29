@@ -18,6 +18,7 @@ import {
   replaceAgentAdapter,
   resumeAgentRun,
   startAgentRun,
+  startFigmaSyncRun,
 } from "./agent-runs";
 import { loadProjectAtlasSnapshot } from "./project";
 
@@ -30,6 +31,7 @@ function compactResult() {
     status: "completed" as const,
     summary: "Prepared bounded evidence.",
     brief: ["Inspect the selected component."],
+    sourceReceipts: [],
     evidence: [],
     decisions: [],
     risks: [],
@@ -114,6 +116,24 @@ class BlockingAdapter extends CompletingAdapter {
   }
 }
 
+class SchemaFailingAdapter extends CompletingAdapter {
+  override run(request: AgentRunRequest) {
+    this.request = request;
+    return {
+      cancel() {},
+      events: (async function* (): AsyncGenerator<AgentRunEvent> {
+        yield {
+          type: "failed",
+          at: new Date().toISOString(),
+          code: "provider",
+          message:
+            '{"error":{"code":"invalid_json_schema","message":"codex_output_schema rejected requested.url"}}',
+        };
+      })(),
+    };
+  }
+}
+
 describe.sequential("viewer agent run ownership", () => {
   let rootPath: string;
   let dataHome: string;
@@ -183,6 +203,105 @@ describe.sequential("viewer agent run ownership", () => {
       resultStatus: "completed",
     });
     expect(JSON.stringify(audits[0])).not.toContain("Review a small interface change");
+  });
+
+  it("bootstraps the exact Figma source before generating any Atlas task context", async () => {
+    const adapter = new CompletingAdapter();
+    restoreAdapter = replaceAgentAdapter(adapter);
+    const snapshot = loadProjectAtlasSnapshot();
+    const reference =
+      "https://www.figma.com/design/AtlasFile/Recovery?node-id=60-2";
+    const started = startFigmaSyncRun({
+      task: "Implement the exact confirmed recovery frame",
+      objectiveConfirmed: true,
+      sourceDecisions: [
+        {
+          id: "source-figma-exact",
+          kind: "figma",
+          reference,
+          origin: "explicit",
+          state: "confirmed",
+          required: true,
+        },
+      ],
+      expectedFingerprint: snapshot.fingerprint,
+    });
+
+    await expect.poll(() => getAgentRun(started.id).state).toBe("completed");
+    expect(adapter.request).toMatchObject({
+      purpose: "figma-sync",
+      mode: "prepare",
+      sandbox: "read-only",
+      compactContext: '{"status":"source-gate","contextGenerated":false}',
+      contextMetrics: {
+        budgetChars: 0,
+        usedChars: 0,
+        estimatedTokens: 0,
+        truncated: false,
+      },
+      sources: [{ kind: "figma", value: reference }],
+    });
+    expect(adapter.request?.compactContext).not.toContain("components");
+    expect(getAgentRun(started.id)).toMatchObject({
+      purpose: "figma-sync",
+    });
+    expect(listAgentRuns()[0]).toMatchObject({
+      purpose: "figma-sync",
+      resumable: false,
+    });
+  });
+
+  it("rejects Figma bootstrap without one exact file and node identity", async () => {
+    const snapshot = loadProjectAtlasSnapshot();
+    const source = {
+      id: "source-figma-file",
+      kind: "figma" as const,
+      reference: "https://www.figma.com/design/AtlasFile/Recovery",
+      origin: "explicit" as const,
+      state: "confirmed" as const,
+      required: true,
+    };
+
+    expect(() =>
+      startFigmaSyncRun({
+        task: "Review the confirmed Figma target",
+        objectiveConfirmed: true,
+        sourceDecisions: [source],
+        expectedFingerprint: snapshot.fingerprint,
+      }),
+    ).toThrow(/fileKey and nodeId/i);
+  });
+
+  it("keeps provider schema failures concise and actionable in the Figma sidecar", async () => {
+    const adapter = new SchemaFailingAdapter();
+    restoreAdapter = replaceAgentAdapter(adapter);
+    const snapshot = loadProjectAtlasSnapshot();
+    const started = startFigmaSyncRun({
+      task: "Review the exact confirmed recovery frame",
+      objectiveConfirmed: true,
+      sourceDecisions: [
+        {
+          id: "source-figma-schema-error",
+          kind: "figma",
+          reference:
+            "https://www.figma.com/design/AtlasFile/Recovery?node-id=60-2",
+          origin: "explicit",
+          state: "confirmed",
+          required: true,
+        },
+      ],
+      expectedFingerprint: snapshot.fingerprint,
+    });
+
+    await expect.poll(() => getAgentRun(started.id).state).toBe("failed");
+    const failed = getAgentRun(started.id).events.find(
+      ({ event }) => event.type === "failed",
+    )?.event;
+    expect(failed).toMatchObject({
+      type: "failed",
+      message: expect.stringContaining("exact Figma source bootstrap"),
+    });
+    expect(JSON.stringify(failed)).not.toContain("invalid_json_schema");
   });
 
   it("locks one checkout and supports real cancellation", async () => {

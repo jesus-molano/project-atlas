@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
 import {
+  createSourceReceipt,
+  sourceIdentityFromReference,
+  sourceIdentityMatches,
+  taskSourceId,
+  type SourceReceipt,
+} from "@component-atlas/core";
+import {
   DESIGN_INDEX_SCHEMA_VERSION,
   type BuildFigmaDesignIndexInput,
   type DesignAnnotation,
@@ -951,6 +958,7 @@ function flattenNodes(
   enrichment: DesignIndexEnrichment | undefined,
   componentLookup: Map<string, string>,
   statusAvailability: DesignDevStatusAvailability,
+  sourceReceiptId: string,
 ): { nodes: DesignIndexNode[]; pages: DesignFileIndex["pages"] } {
   const nodes: DesignIndexNode[] = [];
   const pages: DesignFileIndex["pages"] = [];
@@ -1034,6 +1042,7 @@ function flattenNodes(
         variantProperties: variantProperties(raw),
         codeConnections: codeConnectionsIn(raw, codeConnections),
         childIds: [],
+        sourceReceiptIds: [sourceReceiptId],
       };
       nodes.push(indexedNode);
       currentParent = raw.id;
@@ -1150,23 +1159,67 @@ export function finalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
   };
 }
 
+function cachedSourceReceipt(
+  index: DesignFileIndex,
+  source: DesignFileIndex["sources"][number],
+): SourceReceipt {
+  const reference = source.scopeNodeId
+    ? figmaNodeUrl(index.file.url, source.scopeNodeId)
+    : index.file.url;
+  const requested = sourceIdentityFromReference("figma", reference);
+  return createSourceReceipt({
+    sourceDecisionId: taskSourceId("figma", reference),
+    provider: "figma",
+    requested,
+    resolved: {
+      ...requested,
+      ...(index.file.version ? { version: index.file.version } : {}),
+    },
+    adapter: "atlas-cache",
+    route: "project-atlas-design-index",
+    operation: "migrate_cached_metadata",
+    scope: source.scopeNodeId
+      ? {
+          kind: "node",
+          id: source.scopeNodeId,
+          parentId: index.file.key,
+        }
+      : { kind: "file", id: index.file.key },
+    contentHash: source.hash,
+    observedAt: source.indexedAt,
+    coverage: source.scopeNodeId ? "exact" : "partial",
+    freshness: "unknown",
+  });
+}
+
 export function normalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
-  const sources = index.sources.map((source) => ({
-    ...source,
-    devStatusAvailability:
-      source.devStatusAvailability ??
-      (source.kind === "figma-rest"
-        ? "available"
-        : index.nodes.some((node) => node.devStatus !== "none")
+  const sources = index.sources.map((source) => {
+    const receipt =
+      (source as DesignFileIndex["sources"][number] & {
+        receipt?: SourceReceipt;
+      }).receipt ?? cachedSourceReceipt(index, source);
+    return {
+      ...source,
+      receipt,
+      devStatusAvailability:
+        source.devStatusAvailability ??
+        (source.kind === "figma-rest"
           ? "available"
-          : "source-unavailable"),
-  }));
+          : index.nodes.some((node) => node.devStatus !== "none")
+            ? "available"
+            : "source-unavailable"),
+    };
+  });
   const fallbackAvailability =
     sources.some((source) => source.devStatusAvailability === "available")
       ? "available"
       : "source-unavailable";
   const nodes = index.nodes.map((node) => ({
     ...node,
+    sourceReceiptIds:
+      node.sourceReceiptIds?.length > 0
+        ? node.sourceReceiptIds
+        : sources.map((source) => source.receipt.id),
     devStatusAvailability:
       node.devStatusAvailability ??
       (node.devStatus !== "none" ? "available" : fallbackAvailability),
@@ -1217,6 +1270,58 @@ export function buildFigmaDesignIndex(
   const reference = parseFigmaReference(input.figmaUrl);
   const parsed = parseMetadata(input.metadata, input.format ?? "auto");
   const indexedAt = input.indexedAt ?? new Date().toISOString();
+  const metadataHash = sourceHash(parsed.serialized);
+  const scopeNodeId = input.scopeNodeId ?? reference.nodeId;
+  const observedVersion = input.version ?? text(parsed.rest?.version);
+  const requestedIdentity = sourceIdentityFromReference(
+    "figma",
+    input.figmaUrl,
+  );
+  if (
+    input.sourceReceipt &&
+    (!sourceIdentityMatches(requestedIdentity, input.sourceReceipt.requested) ||
+      !sourceIdentityMatches(requestedIdentity, input.sourceReceipt.resolved))
+  ) {
+    throw new Error(
+      "The Figma source receipt does not match the requested file and node identity.",
+    );
+  }
+  if (
+    input.sourceReceipt?.contentHash &&
+    input.sourceReceipt.contentHash !== metadataHash
+  ) {
+    throw new Error(
+      "The Figma source receipt hash does not match the supplied metadata.",
+    );
+  }
+  const sourceReceipt = createSourceReceipt({
+    ...(input.sourceReceipt ?? {
+      sourceDecisionId: taskSourceId("figma", input.figmaUrl),
+      provider: "figma" as const,
+      requested: requestedIdentity,
+      resolved: requestedIdentity,
+      adapter: "manual-import" as const,
+      route: "provided-metadata",
+      operation: "map_figma_file",
+      scope: scopeNodeId
+        ? {
+            kind: "node" as const,
+            id: scopeNodeId,
+            parentId: reference.fileKey,
+          }
+        : { kind: "file" as const, id: reference.fileKey },
+      observedAt: indexedAt,
+      coverage: "exact" as const,
+      freshness: "current" as const,
+    }),
+    resolved: {
+      ...(input.sourceReceipt?.resolved ?? requestedIdentity),
+      ...(observedVersion ? { version: observedVersion } : {}),
+    },
+    contentHash: metadataHash,
+    observedAt: input.sourceReceipt?.observedAt ?? indexedAt,
+    freshness: input.sourceReceipt?.freshness ?? "current",
+  });
   const restComponents = componentSummaries(parsed.rest?.components);
   const componentSets = componentSummaries(parsed.rest?.componentSets);
   const componentLookup = new Map(
@@ -1233,13 +1338,14 @@ export function buildFigmaDesignIndex(
   const flattened = flattenNodes(
     parsed.roots,
     reference.fileUrl,
-    input.scopeNodeId ?? reference.nodeId,
+    scopeNodeId,
     input.scopePageId && input.scopePageName
       ? { id: input.scopePageId, name: input.scopePageName }
       : undefined,
     input.enrichment,
     componentLookup,
     statusAvailability,
+    sourceReceipt.id,
   );
   const restName = text(parsed.rest?.name);
   const restVersion = text(parsed.rest?.version);
@@ -1247,7 +1353,6 @@ export function buildFigmaDesignIndex(
   const fileName = input.fileName ?? restName;
   const version = input.version ?? restVersion;
   const lastModified = input.lastModified ?? restLastModified;
-  const scopeNodeId = input.scopeNodeId ?? reference.nodeId;
   const index: DesignFileIndex = {
     schemaVersion: DESIGN_INDEX_SCHEMA_VERSION,
     provider: "figma",
@@ -1263,9 +1368,10 @@ export function buildFigmaDesignIndex(
       {
         kind: parsed.kind,
         ...(scopeNodeId ? { scopeNodeId } : {}),
-        hash: sourceHash(parsed.serialized),
+        hash: metadataHash,
         indexedAt,
         devStatusAvailability: statusAvailability,
+        receipt: sourceReceipt,
       },
     ],
     devStatus: {
@@ -1312,6 +1418,12 @@ function mergeDesignNodes(
   const existingById = new Map(existing.map((node) => [node.id, node]));
   return mergeById(existing, incoming, (node) => node.id).map((node) => {
     const previous = existingById.get(node.id);
+    const sourceReceiptIds = [
+      ...new Set([
+        ...(previous?.sourceReceiptIds ?? []),
+        ...node.sourceReceiptIds,
+      ]),
+    ];
     if (
       previous?.devStatusAvailability === "available" &&
       node.devStatusAvailability === "source-unavailable"
@@ -1323,9 +1435,10 @@ function mergeDesignNodes(
         ...(previous.devStatusDescription
           ? { devStatusDescription: previous.devStatusDescription }
           : {}),
+        sourceReceiptIds,
       };
     }
-    return node;
+    return { ...node, sourceReceiptIds };
   });
 }
 
@@ -1414,6 +1527,7 @@ export function isDesignSnapshotCurrent(
         candidate.kind === source.kind &&
         candidate.scopeNodeId === source.scopeNodeId &&
         candidate.hash === source.hash &&
+        candidate.receipt.id === source.receipt.id &&
         (!incoming.file.version ||
           existing.file.version === incoming.file.version) &&
         (!incoming.file.lastModified ||

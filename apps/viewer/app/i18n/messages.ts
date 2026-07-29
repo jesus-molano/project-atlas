@@ -151,6 +151,7 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Select the local branch that will provide the starting HEAD.":
     "Selecciona la rama local que proporcionará el HEAD inicial.",
   "HEAD {head}": "HEAD {head}",
+  HEAD: "HEAD",
   "Branch type": "Tipo de rama",
   "Branch name": "Nombre de rama",
   "short-descriptive-name": "nombre-corto-descriptivo",
@@ -641,6 +642,11 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Only reversible review, postpone, and ignore operations can be applied together.":
     "Solo se pueden aplicar juntas las operaciones reversibles de revisión, aplazamiento e ignorar.",
   Clear: "Borrar",
+  "No blockers": "Sin bloqueos",
+  "Continue in native Codex; expand only the required handle or receipt ID.":
+    "Continúa en Codex nativo; expande solo el handle o ID de recibo necesario.",
+  "Review the failure and confirmed sources before resuming this task.":
+    "Revisa el fallo y las fuentes confirmadas antes de reanudar esta tarea.",
   "No actions match these filters": "Ninguna acción coincide con estos filtros",
   "Change a filter or continue if no material blockers remain.":
     "Cambia un filtro o continúa si no quedan bloqueos materiales.",
@@ -901,6 +907,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "Project Atlas no pudo cargar el proyecto activo.",
   "Retry workspace": "Reintentar espacio de trabajo",
   "Task intake status": "Estado de preparación de la tarea",
+  "Task mode": "Modo de tarea",
+  "Prepare": "Preparar",
   "{level} risk": "riesgo {level}",
   ready: "listo",
   "needs-confirmation": "requiere confirmación",
@@ -951,10 +959,40 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "Sincronizando la fuente confirmada mediante Figma Desktop MCP.",
   "Figma source could not be synchronized. Check Figma Desktop MCP access and the agent result.":
     "No se pudo sincronizar la fuente de Figma. Comprueba el acceso a Figma Desktop MCP y el resultado del agente.",
+  "Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target.":
+    "No se pudo sincronizar la fuente de Figma. Comprueba el acceso a Figma Desktop MCP y reintenta después el objetivo exacto.",
+  "Codex external evidence is missing a matching SourceReceipt.":
+    "La evidencia externa de Codex no incluyó un recibo que coincidiera con el objetivo exacto.",
   "Design Atlas available from the confirmed Figma source.":
     "Design Atlas está disponible a partir de la fuente de Figma confirmada.",
+  "Design Atlas has the exact confirmed target. Prepare task is now available.":
+    "Design Atlas contiene el objetivo exacto confirmado. Ya puedes preparar la tarea.",
   "Figma source confirmed, not synchronized. Start Codex preparation to ingest it.":
     "Fuente de Figma confirmada, sin sincronizar. Inicia la preparación con Codex para ingerirla.",
+  "Figma source confirmed, not synchronized. Synchronize the exact target before preparing context.":
+    "Fuente de Figma confirmada, sin sincronizar. Sincroniza el objetivo exacto antes de preparar el contexto.",
+  "Keep Figma Desktop open with access to this file. Atlas will read and map only this exact node; candidates cannot replace it.":
+    "Mantén Figma Desktop abierto y con acceso a este archivo. Atlas solo leerá y mapeará este nodo exacto; los candidatos no pueden sustituirlo.",
+  "Synchronize exact target": "Sincronizar objetivo exacto",
+  "Retry exact sync": "Reintentar sincronización exacta",
+  "The exact Figma target could not be synchronized.":
+    "No se pudo sincronizar el objetivo Figma exacto.",
+  "A confirmed objective and reviewed exact Figma target are required.":
+    "Se requieren un objetivo confirmado y un objetivo Figma exacto revisado.",
+  "The Atlas snapshot changed after review. Refresh before synchronizing Figma.":
+    "La instantánea de Atlas cambió después de la revisión. Actualiza antes de sincronizar Figma.",
+  "Confirm exactly one authoritative Figma target before synchronization.":
+    "Confirma exactamente un objetivo Figma autoritativo antes de sincronizar.",
+  "The confirmed Figma target must include an exact fileKey and nodeId.":
+    "El objetivo Figma confirmado debe incluir un fileKey y un nodeId exactos.",
+  "Confirm exactly one authoritative Figma target.":
+    "Confirma exactamente un objetivo Figma autoritativo.",
+  "The confirmed Figma target must include an exact file and node ID.":
+    "El objetivo Figma confirmado debe incluir un archivo y un ID de nodo exactos.",
+  "Confirm the task objective and resolve every source decision first.":
+    "Confirma el objetivo de la tarea y resuelve primero todas las decisiones de fuentes.",
+  "The local Codex integration must be available to run Figma Desktop MCP.":
+    "La integración local de Codex debe estar disponible para ejecutar Figma Desktop MCP.",
   "Detected task capabilities": "Capacidades detectadas para la tarea",
   "fixture claim, not a live connection":
     "declaración de fixture, no una conexión en vivo",
@@ -1065,6 +1103,9 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   Checkout: "Checkout",
   Snapshot: "Instantánea",
   Sources: "Fuentes",
+  "Confirmed sources": "Confirmadas",
+  "Pending sources": "Pendientes",
+  "Omitted or unavailable sources": "Omitidas o no disponibles",
   "{confirmed} confirmed · {pending} pending · {omitted} omitted/unavailable":
     "{confirmed} confirmadas · {pending} pendientes · {omitted} omitidas/no disponibles",
   Context: "Contexto",
@@ -1304,6 +1345,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "The write impact could not be calculated.":
     "No se pudo calcular el impacto de escritura.",
   "The source ledger is invalid.": "El registro de fuentes no es válido.",
+  "The task checkpoint ID is invalid.":
+    "El identificador del punto de control de la tarea no es válido.",
   "Durable memory writes require confirmed=true after reviewing the proposal.":
     "Las escrituras de memoria duradera requieren confirmación después de revisar la propuesta.",
   "Rejecting a memory proposal requires confirmed=true after reviewing it.":
@@ -1420,4 +1463,54 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "{scope} · {count}% confidence": "{scope} · {count}% de confianza",
   "Color channels: {red}, {green}, {blue}, alpha {alpha}":
     "Canales de color: {red}, {green}, {blue}, alfa {alpha}",
+  "Codex handoff": "Traspaso a Codex",
+  "Work / Codex handoff": "Trabajo / Traspaso a Codex",
+  "Continue in Codex handoff": "Continuar en el traspaso a Codex",
+  "Conversation and execution stay in Codex. Atlas verifies scope, sources, and the compact handoff.":
+    "La conversación y la ejecución permanecen en Codex. Atlas verifica el alcance, las fuentes y el traspaso compacto.",
+  "Codex first · Atlas verifies the handoff":
+    "Codex primero · Atlas verifica el traspaso",
+  "Use native Codex for conversation and execution. This surface controls scope, source integrity, and traceability.":
+    "Usa Codex nativo para conversar y ejecutar. Esta superficie controla el alcance, la integridad de fuentes y la trazabilidad.",
+  "No source supplied": "No se proporcionó ninguna fuente",
+  "Required source": "Fuente obligatoria",
+  "Optional source": "Fuente opcional",
+  "Required for this task": "Obligatoria para esta tarea",
+  "Prepare a verified handoff to Codex.":
+    "Prepara un traspaso verificado a Codex.",
+  "Atlas sends only a compact brief, handles, and receipt IDs. Persistent indexes and full evidence stay outside the prompt until Codex requests an exact ID.":
+    "Atlas envía solo un brief compacto, handles e IDs de recibo. Los índices persistentes y la evidencia completa quedan fuera del prompt hasta que Codex solicita un ID exacto.",
+  "Handoff copied": "Traspaso copiado",
+  "Copy for Codex": "Copiar para Codex",
+  "Experimental embedded runner": "Runner integrado experimental",
+  "{count} source receipts": "{count} recibos de fuente",
+  Retrieval: "Recuperación",
+  "{hits} hits · {misses} misses · {retries} retries":
+    "{hits} aciertos · {misses} fallos · {retries} reintentos",
+  "Not prepared": "Sin preparar",
+  "Resume capsule": "Cápsula de reanudación",
+  "Next safe action": "Siguiente acción segura",
+  Covered: "Cubierto",
+  Remaining: "Pendiente",
+  Receipts: "Recibos",
+  "Receipt IDs": "IDs de recibo",
+  "Details expand by ID only; no transcript or full index is stored here.":
+    "Los detalles se expanden solo por ID; aquí no se guarda el transcript ni el índice completo.",
+  "The confirmed Figma target {target} has not been synchronized. Map this exact target through Figma Desktop MCP before context retrieval; Atlas candidates cannot replace it.":
+    "El objetivo confirmado de Figma {target} no se ha sincronizado. Mapea este objetivo exacto mediante Figma Desktop MCP antes de recuperar contexto; los candidatos de Atlas no pueden sustituirlo.",
+  "The confirmed Figma file {fileKey} has no exact current source receipt. Synchronize that file through the confirmed adapter before context retrieval.":
+    "El archivo confirmado de Figma {fileKey} no tiene un recibo de fuente exacto y actual. Sincroniza ese archivo mediante el adaptador confirmado antes de recuperar contexto.",
+  "Multiple exact Figma nodes are confirmed. Define one authoritative target or explicitly describe their shared scope before context retrieval.":
+    "Hay varios nodos exactos de Figma confirmados. Define un objetivo autoritativo o describe explícitamente su alcance compartido antes de recuperar contexto.",
+  "Required OpenAPI contracts conflict for {method} {path}. Confirm the governing contract or version before context retrieval.":
+    "Los contratos OpenAPI obligatorios entran en conflicto para {method} {path}. Confirma el contrato o la versión que rige antes de recuperar contexto.",
+  "A required OpenAPI contract could not be resolved ({receiptId}).":
+    "No se pudo resolver un contrato OpenAPI obligatorio ({receiptId}).",
+  "The confirmed Figma node is not present in the Design Index. Synchronize this exact node through Figma Desktop MCP. Do not substitute an Atlas-ranked node.":
+    "El nodo confirmado de Figma no está en el índice de diseño. Sincroniza este nodo exacto mediante Figma Desktop MCP. No lo sustituyas por un nodo clasificado por Atlas.",
+  "The cached design does not prove the confirmed node identity. Read and map this exact node before using it. Atlas candidates remain alternatives, not the confirmed target.":
+    "El diseño en caché no demuestra la identidad del nodo confirmado. Lee y mapea este nodo exacto antes de usarlo. Los candidatos de Atlas siguen siendo alternativas, no el objetivo confirmado.",
+  "The confirmed Figma node is backed only by stale or unknown evidence. Refresh the exact node through the confirmed source before implementation.":
+    "El nodo confirmado de Figma solo está respaldado por evidencia obsoleta o desconocida. Actualiza el nodo exacto mediante la fuente confirmada antes de implementar.",
+  "Not Reviewed": "Sin revisar",
 };

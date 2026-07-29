@@ -13,7 +13,7 @@ describe("desktop evidence workspace contract", () => {
       "Code",
       "Design",
       "Memory",
-      "Task Workbench",
+      "Codex handoff",
       "Action Center",
       "Memory Inbox",
       "Connections",

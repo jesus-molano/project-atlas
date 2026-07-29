@@ -77,6 +77,7 @@ function completedResult(
     status,
     summary: "Prepared the task.",
     brief: ["Reuse the existing filter control."],
+    sourceReceipts: [],
     evidence: [
       {
         source: "atlas",
@@ -111,6 +112,7 @@ function fakeClient(
     prompt?: string;
     resumed?: string;
     signal?: AbortSignal;
+    outputSchema?: unknown;
   },
 ): CodexClient {
   const thread = {
@@ -120,6 +122,7 @@ function fakeClient(
     ) {
       observed.prompt = prompt;
       observed.signal = options.signal;
+      observed.outputSchema = options.outputSchema;
       return {
         events: (async function* () {
           for (const event of events) yield event;
@@ -136,9 +139,48 @@ function fakeClient(
   };
 }
 
+function strictObjectSchemaErrors(
+  value: unknown,
+  path = "$",
+): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) =>
+      strictObjectSchemaErrors(item, `${path}[${index}]`),
+    );
+  }
+  if (!value || typeof value !== "object") return [];
+  const schema = value as Record<string, unknown>;
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  const properties =
+    schema.properties && typeof schema.properties === "object"
+      ? (schema.properties as Record<string, unknown>)
+      : undefined;
+  const required = Array.isArray(schema.required)
+    ? schema.required.map(String)
+    : [];
+  const ownErrors =
+    types.includes("object") &&
+    schema.additionalProperties === false &&
+    properties
+      ? Object.keys(properties)
+          .filter((key) => !required.includes(key))
+          .map((key) => `${path}.${key}`)
+      : [];
+  return [
+    ...ownErrors,
+    ...Object.entries(schema).flatMap(([key, item]) =>
+      strictObjectSchemaErrors(item, `${path}.${key}`),
+    ),
+  ];
+}
+
 describe("Codex Agent Adapter", () => {
   it("maps SDK activity and returns only the compact structured result", async () => {
-    const observed: { prompt?: string; signal?: AbortSignal } = {};
+    const observed: {
+      prompt?: string;
+      signal?: AbortSignal;
+      outputSchema?: unknown;
+    } = {};
     const client = fakeClient(
       [
         { type: "thread.started", thread_id: "thread-1" },
@@ -192,6 +234,7 @@ describe("Codex Agent Adapter", () => {
     expect(observed.prompt).toContain("Do not perform external writes");
     expect(observed.prompt).toContain("shared structured `memoryCloseout` result");
     expect(observed.prompt).toContain("exact shared memoryCloseout confirmation");
+    expect(strictObjectSchemaErrors(observed.outputSchema)).toEqual([]);
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "run-started", threadId: "thread-1" }),
@@ -252,6 +295,58 @@ describe("Codex Agent Adapter", () => {
     expect(observed.prompt?.indexOf("Confirmed Figma ingestion")).toBeLessThan(
       observed.prompt?.indexOf("Preserve existing user changes") ?? -1,
     );
+  });
+
+  it("keeps exact Figma source bootstrap separate from context and repository work", async () => {
+    const observed: { prompt?: string; signal?: AbortSignal } = {};
+    const client = fakeClient(
+      [
+        { type: "thread.started", thread_id: "thread-figma-sync" },
+        {
+          type: "item.completed",
+          item: {
+            id: "message-figma-sync",
+            type: "agent_message",
+            text: completedResult(),
+          },
+        },
+      ],
+      observed,
+    );
+    const adapter = new CodexAgentAdapter(client);
+    const input = request(await root());
+    const reference =
+      "https://www.figma.com/design/atlas-file/Problem-Tags?node-id=10-20";
+    input.purpose = "figma-sync";
+    input.compactContext = '{"status":"source-gate","contextGenerated":false}';
+    input.contextMetrics = {
+      budgetChars: 0,
+      usedChars: 0,
+      estimatedTokens: 0,
+      truncated: false,
+    };
+    input.sources = [{ kind: "figma", value: reference }];
+    input.sourceDecisions = [
+      {
+        id: "source-figma-confirmed",
+        kind: "figma",
+        reference,
+        origin: "explicit",
+        state: "confirmed",
+        required: true,
+      },
+    ];
+
+    await collect(adapter.run(input).events);
+
+    expect(observed.prompt).toContain("Synchronize the exact confirmed Figma target");
+    expect(observed.prompt).toContain("Do not inspect the repository");
+    expect(observed.prompt).toContain("compose Atlas task context");
+    expect(observed.prompt).toContain("single exact confirmed Figma fileKey+nodeId");
+    expect(observed.prompt).toContain("Never replace the confirmed target");
+    expect(observed.prompt).toContain("`map_figma_file`");
+    expect(observed.prompt).not.toContain("Reviewed compact Project Atlas context");
+    expect(observed.prompt).not.toContain("`sync_figma_variables`");
   });
 
   it("does not probe Figma when no Figma source was confirmed", async () => {
@@ -402,6 +497,53 @@ describe("Codex Agent Adapter", () => {
         expect.objectContaining({
           type: "failed",
           message: expect.stringMatching(/invalid compact result/i),
+        }),
+      ]),
+    );
+  });
+
+  it("rejects external Jira or Confluence evidence without a matching receipt", async () => {
+    const invalid = JSON.parse(completedResult()) as Record<string, unknown>;
+    invalid.evidence = [
+      {
+        source: "jira",
+        label: "APP-42",
+      },
+    ];
+    const client = fakeClient(
+      [
+        { type: "thread.started", thread_id: "thread-missing-receipt" },
+        {
+          type: "item.completed",
+          item: {
+            id: "message-missing-receipt",
+            type: "agent_message",
+            text: JSON.stringify(invalid),
+          },
+        },
+      ],
+      {},
+    );
+    const adapter = new CodexAgentAdapter(client);
+    const input = request(await root());
+    input.sources = [{ kind: "jira", value: "APP-42" }];
+    input.sourceDecisions = [
+      {
+        id: "source-jira-fixture",
+        kind: "jira",
+        reference: "APP-42",
+        origin: "manual",
+        state: "confirmed",
+        required: false,
+      },
+    ];
+    const events = await collect(adapter.run(input).events);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "failed",
+          code: "invalid-output",
+          message: expect.stringMatching(/SourceReceipt/i),
         }),
       ]),
     );

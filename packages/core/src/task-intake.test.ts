@@ -3,6 +3,7 @@ import {
   assessTaskIntake,
   assessTaskRisk,
   detectTaskSources,
+  ensureTaskSourceDecisions,
   normalizeTaskSourceDecisions,
   taskSourceId,
   type TaskIntakeState,
@@ -79,11 +80,12 @@ describe("task intake", () => {
     );
   });
 
-  it("accepts an unequivocal instruction to use one OpenAPI specification", () => {
+  it("never auto-confirms an OpenAPI specification from task wording", () => {
     expect(detectTaskSources("Use ./openapi.yaml to implement checkout")[0]).toMatchObject({
       kind: "openapi",
       reference: "./openapi.yaml",
-      state: "confirmed",
+      state: "pending",
+      required: true,
     });
     const prefixed = detectTaskSources(
       "Use OpenAPI: https://api.example.com/v1/openapi.json for checkout",
@@ -91,8 +93,44 @@ describe("task intake", () => {
     expect(prefixed).toHaveLength(1);
     expect(prefixed[0]).toMatchObject({
       kind: "openapi",
-      state: "confirmed",
+      state: "pending",
+      required: true,
     });
+  });
+
+  it("requires the grouped four-source decision before high-risk context", () => {
+    const objective = "Change authentication permissions";
+    const sources = ensureTaskSourceDecisions(objective, []);
+    expect(sources.map(({ kind }) => kind)).toEqual([
+      "jira",
+      "confluence",
+      "figma",
+      "openapi",
+    ]);
+    expect(
+      assessTaskIntake({
+        schemaVersion: 1,
+        scope: "task",
+        objective,
+        objectiveConfirmed: true,
+        risk: assessTaskRisk(objective),
+        sources: [],
+      }),
+    ).toMatchObject({ status: "needs-confirmation" });
+    expect(
+      assessTaskIntake({
+        schemaVersion: 1,
+        scope: "task",
+        objective,
+        objectiveConfirmed: true,
+        risk: assessTaskRisk(objective),
+        sources: sources.map((source) => ({
+          ...source,
+          state: "omitted" as const,
+          decidedAt: new Date(0).toISOString(),
+        })),
+      }),
+    ).toMatchObject({ status: "ready" });
   });
 
   it("blocks execution until objective and source choices are explicit", () => {
@@ -144,5 +182,19 @@ describe("task intake", () => {
         },
       ]),
     ).toThrow(/invalid/i);
+    expect(() =>
+      normalizeTaskSourceDecisions([
+        {
+          kind: "confluence",
+          reference:
+            "https://example.atlassian.net/wiki/spaces/APP/pages/123/Spec",
+          origin: "inferred",
+          state: "confirmed",
+          required: false,
+          parentSourceId: taskSourceId("jira", "APP-42"),
+          relationship: "linked-secondary",
+        },
+      ]),
+    ).toThrow(/promoted to an explicit primary/i);
   });
 });

@@ -218,6 +218,63 @@ describe.sequential("Project Atlas runtime", () => {
       candidates: [],
     });
 
+    const exactReference =
+      "https://www.figma.com/design/PersonalShop/Personal-shop?node-id=60-2";
+    await mapFigmaDesign({
+      rootPath,
+      figmaUrl: exactReference,
+      metadata,
+      format: "figma-mcp-xml",
+      force: true,
+    });
+    const exact = await getTaskContext(rootPath, "update the confirmed search", {
+      budgetChars: 3_200,
+      sourcePolicy: {
+        scope: "task",
+        confirmedKinds: ["figma"],
+        omittedKinds: [],
+        unavailableKinds: [],
+      },
+      confirmedFigmaReferences: [exactReference],
+    });
+    expect(exact.design).toMatchObject({
+      explicitTarget: {
+        fileKey: "PersonalShop",
+        nodeId: "60:2",
+        status: "verified",
+      },
+      candidates: [
+        expect.objectContaining({
+          id: "60:2",
+          origin: "user-confirmed-target",
+          sourceReceiptIds: [expect.stringMatching(/^receipt-/)],
+        }),
+      ],
+    });
+    expect(exact).not.toHaveProperty("sourceReceipts");
+    expect(exact.sourceReceiptIds).toEqual([
+      expect.stringMatching(/^receipt-/),
+    ]);
+    expect(exact.metrics.retrieval).toMatchObject({
+      indexedBytesInjected: 0,
+      receiptsExpanded: 0,
+    });
+
+    const missing = await getTaskContext(rootPath, "update the confirmed search", {
+      budgetChars: 3_200,
+      sourcePolicy: {
+        scope: "task",
+        confirmedKinds: ["figma"],
+        omittedKinds: [],
+        unavailableKinds: [],
+      },
+      confirmedFigmaReferences: [
+        "https://www.figma.com/design/PersonalShop/Personal-shop?node-id=999-999",
+      ],
+    });
+    expect(missing.design.candidates).toEqual([]);
+    expect(missing.gate.overall.status).toBe("blocked");
+
     const graph = await scanProject(rootPath, { writeArtifacts: false });
     const selectedComponent = graph.components[0]!;
     const selectedDesignNodeId = context.design.candidates[0]!.id;

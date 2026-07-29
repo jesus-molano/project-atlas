@@ -1,4 +1,6 @@
-export const DESIGN_INDEX_SCHEMA_VERSION = 3 as const;
+import type { SourceReceipt } from "@component-atlas/core";
+
+export const DESIGN_INDEX_SCHEMA_VERSION = 4 as const;
 
 export type DesignMetadataFormat = "auto" | "figma-mcp-xml" | "figma-rest";
 export type DesignMetadataSource = Exclude<DesignMetadataFormat, "auto">;
@@ -34,6 +36,9 @@ export interface DesignFinding {
     | "figma-code-mismatch"
     | "suspicious-component-api"
     | "source-contradiction"
+    | "explicit-target-missing"
+    | "explicit-target-mismatch"
+    | "explicit-target-stale"
     | "global-variables-unavailable"
     | "dev-status-unavailable"
     | "naming-inconsistency"
@@ -191,6 +196,7 @@ export interface DesignIndexNode {
   variantProperties: string[];
   codeConnections: DesignCodeConnection[];
   childIds: string[];
+  sourceReceiptIds: string[];
 }
 
 export interface DesignIndexPage {
@@ -211,6 +217,7 @@ export interface DesignSourceSnapshot {
   hash: string;
   indexedAt: string;
   devStatusAvailability: DesignDevStatusAvailability;
+  receipt: SourceReceipt;
 }
 
 export interface DesignFileIndex {
@@ -273,6 +280,7 @@ export interface BuildFigmaDesignIndexInput {
   scopePageName?: string;
   indexedAt?: string;
   enrichment?: DesignIndexEnrichment;
+  sourceReceipt?: SourceReceipt;
 }
 
 export interface DesignIndexSummary {
@@ -280,6 +288,7 @@ export interface DesignIndexSummary {
   file: DesignFileIndex["file"];
   indexedAt: string;
   sources: number;
+  sourceReceipts: SourceReceipt[];
   stats: DesignFileIndex["stats"];
   devStatus: DesignFileIndex["devStatus"];
   variables: {
@@ -334,6 +343,8 @@ export interface DesignIndexSummary {
 
 export interface DesignCandidate {
   rank: number;
+  origin: "user-confirmed-target" | "atlas-candidate";
+  sourceReceiptIds: string[];
   confidence: DesignCandidateConfidence;
   score: number;
   node: {
@@ -376,6 +387,7 @@ export interface DesignCandidateResult {
 export interface DesignNodeInspection {
   file: DesignFileIndex["file"];
   node: DesignIndexNode;
+  sourceReceipts: SourceReceipt[];
   breadcrumbs: Array<{ id: string; name: string; type: string }>;
   children: Array<{
     id: string;

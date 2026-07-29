@@ -18,6 +18,7 @@ import {
   designIndexSummary,
   parseFigmaReference,
   rankDesignCandidates,
+  resolveExplicitDesignTarget,
   type DesignFinding,
 } from "@component-atlas/design";
 import {
@@ -40,7 +41,13 @@ import {
 import { AtlasStore } from "@component-atlas/store";
 import fg from "fast-glob";
 import { loadProjectGraph } from "./index.js";
-import { loadConfirmedOpenApiContext } from "./openapi.js";
+import {
+  loadConfirmedOpenApiContext,
+  type ConfirmedOpenApiSource,
+  type OpenApiTaskContext,
+  type OpenApiSourceResolver,
+} from "./openapi.js";
+import { persistSourceReceipts } from "./task-state.js";
 
 export { fitBudgetedResponse } from "@component-atlas/memory";
 
@@ -635,6 +642,9 @@ export async function getTaskContext(
     sourcePolicy?: import("@component-atlas/core").TaskContextSourcePolicy;
     confirmedFigmaReferences?: string[];
     confirmedOpenApiReferences?: string[];
+    confirmedOpenApiSources?: ConfirmedOpenApiSource[];
+    openApiResolver?: OpenApiSourceResolver;
+    preloadedOpenApiContext?: OpenApiTaskContext;
   } = {},
 ) {
   const graph = await loadProjectGraph(rootPath);
@@ -694,27 +704,52 @@ export async function getTaskContext(
         ? (options.confirmedOpenApiReferences?.length ?? 0) > 0
         : options.sourcePolicy.confirmedKinds.includes("openapi");
     const api = openApiAllowed
-      ? await loadConfirmedOpenApiContext(
+      ? options.preloadedOpenApiContext ??
+        (await loadConfirmedOpenApiContext(
           rootPath,
           task,
-          options.confirmedOpenApiReferences ?? [],
-        )
+          options.confirmedOpenApiSources ??
+            options.confirmedOpenApiReferences ??
+            [],
+          options.openApiResolver,
+        ))
       : undefined;
+    const confirmedFigmaTargets = (
+      options.confirmedFigmaReferences ?? []
+    ).flatMap((reference) => {
+      try {
+        return [{ reference, ...parseFigmaReference(reference) }];
+      } catch {
+        return [];
+      }
+    });
     const confirmedFigmaKeys = new Set(
-      (options.confirmedFigmaReferences ?? []).flatMap((reference) => {
-        try {
-          return [parseFigmaReference(reference).fileKey];
-        } catch {
-          return [];
-        }
-      }),
+      confirmedFigmaTargets.map((target) => target.fileKey),
     );
+    const directFigmaTargets = confirmedFigmaTargets.filter(
+      (target): target is typeof target & { nodeId: string } =>
+        Boolean(target.nodeId),
+    );
+    const selectedDirectTarget =
+      directFigmaTargets.length === 1
+        ? directFigmaTargets[0]
+        : selectedDesign?.nodeId
+          ? directFigmaTargets.find(
+              (target) =>
+                target.fileKey === selectedDesign.fileKey &&
+                target.nodeId === selectedDesign.nodeId,
+            )
+          : undefined;
     const eligibleIndexes =
       options.sourcePolicy === undefined
         ? indexes
         : indexes.filter((index) => confirmedFigmaKeys.has(index.file.key));
     const selectedIndex = !designAllowed
       ? undefined
+      : selectedDirectTarget
+        ? eligibleIndexes.find(
+            (index) => index.file.key === selectedDirectTarget.fileKey,
+          )
       : options.figmaFile
         ? eligibleIndexes.find(
             (index) =>
@@ -728,39 +763,122 @@ export async function getTaskContext(
           : eligibleIndexes.length === 1
             ? eligibleIndexes[0]
             : undefined;
+    const designIdentityFindings: DesignFinding[] =
+      directFigmaTargets.length > 1 && !selectedDirectTarget
+        ? [
+            {
+              id: "source-contradiction:multiple-explicit-figma-targets",
+              level: "decision-required",
+              code: "source-contradiction",
+              title: "Multiple explicit Figma nodes are confirmed as the target",
+              evidence: directFigmaTargets
+                .slice(0, 5)
+                .map((target) => `${target.fileKey}::${target.nodeId}`),
+              recommendation:
+                "Select one exact target or explicitly define how the confirmed nodes form one implementation scope.",
+              question: "Which confirmed Figma node is the implementation target?",
+              nodeIds: directFigmaTargets.map((target) => target.nodeId),
+            },
+          ]
+        : selectedDirectTarget && !selectedIndex
+          ? [
+              {
+                id: `explicit-target-missing:${selectedDirectTarget.fileKey}:${selectedDirectTarget.nodeId}`,
+                level: "decision-required",
+                code: "explicit-target-missing",
+                title: "The confirmed Figma target has not been synchronized",
+                evidence: [
+                  `${selectedDirectTarget.fileKey}::${selectedDirectTarget.nodeId}`,
+                ],
+                recommendation:
+                  "Map this exact node through Figma Desktop MCP. Do not use a cached candidate from another file or node.",
+                question:
+                  "Can the exact confirmed Figma node be synchronized before continuing?",
+                nodeIds: [selectedDirectTarget.nodeId],
+              },
+            ]
+          : [];
     const design = selectedIndex
-      ? rankDesignCandidates(selectedIndex, task, {
-          limit: topK,
-          codeSignals: reuse.candidates.map(
-            (candidate) => candidate.component.name,
-          ),
-        })
+      ? selectedDirectTarget
+        ? resolveExplicitDesignTarget(
+            selectedIndex,
+            selectedDirectTarget.nodeId,
+          )
+        : rankDesignCandidates(selectedIndex, task, {
+            limit: topK,
+            codeSignals: reuse.candidates.map(
+              (candidate) => candidate.component.name,
+            ),
+          })
       : undefined;
     const memoryFindings = findingsForMemory(
       rankMemoryItems(memoryCandidates, task, {
         includeInactive: true,
       }),
     );
-    const designFindings: DesignFinding[] = design?.findings ?? [];
+    const designFindings: DesignFinding[] = [
+      ...designIdentityFindings,
+      ...(design?.findings ?? []),
+    ];
+    const apiFindings = [
+      ...(api?.conflicts.map((conflict) => ({
+        id: conflict.id,
+        level: "decision-required" as const,
+        code: "source-contradiction" as const,
+        title: `${conflict.method} ${conflict.path} differs across confirmed OpenAPI contracts`,
+        evidence: conflict.receiptIds,
+        recommendation:
+          "Confirm which exact contract/version governs this operation. Atlas will not merge incompatible definitions.",
+        question: `Which confirmed contract governs ${conflict.method} ${conflict.path}?`,
+        source: "api" as const,
+      })) ?? []),
+      ...(api?.errors.map((failure) => ({
+        id: `openapi-source-error:${failure.receiptId}`,
+        level: "decision-required" as const,
+        code: "source-unavailable" as const,
+        title: "A confirmed OpenAPI contract could not be resolved",
+        evidence: [failure.receiptId, failure.message],
+        recommendation: failure.recoverableWithConnector
+          ? "Resolve this exact contract through an authenticated/internal connector or paste the confirmed contract content."
+          : "Correct the confirmed contract reference or explicitly replace/omit it.",
+        question: "How should this confirmed OpenAPI source be resolved?",
+        source: "api" as const,
+      })) ?? []),
+    ];
     const findings = [
       ...memoryFindings,
       ...designFindings.map((finding) => ({
         ...finding,
         source: "design" as const,
       })),
+      ...apiFindings,
     ];
     const gate = {
       memory: memoryGate(memoryFindings),
-      design: design ? decisionGate(designFindings) : { status: "clear", questions: [] },
+      design:
+        design || designIdentityFindings.length > 0
+          ? decisionGate(designFindings)
+          : { status: "clear", questions: [] },
+      api: {
+        status: apiFindings.length > 0 ? ("blocked" as const) : ("clear" as const),
+        questions: apiFindings.map((finding) => finding.question),
+      },
     };
     const overallGate = {
       status:
-        gate.memory.status === "blocked" || gate.design.status === "blocked"
+        gate.memory.status === "blocked" ||
+        gate.design.status === "blocked" ||
+        gate.api.status === "blocked"
           ? ("blocked" as const)
-          : gate.memory.status === "review" || gate.design.status === "review"
+          : gate.memory.status === "review" ||
+              gate.design.status === "review"
             ? ("review" as const)
             : ("clear" as const),
-      questions: [...gate.memory.questions, ...gate.design.questions],
+      questions: [
+        ...gate.memory.questions,
+        ...gate.design.questions,
+        ...gate.api.questions,
+      ],
     };
     const selectedCode = selectedCodeIds
       .filter((id) => graph.components.some((component) => component.id === id))
@@ -796,6 +914,8 @@ export async function getTaskContext(
         id: candidate.node.id,
         name: candidate.node.name,
         url: candidate.node.url,
+        origin: candidate.origin,
+        sourceReceiptIds: candidate.sourceReceiptIds,
         status: candidate.node.status,
         statusAvailability: candidate.node.statusAvailability,
         pageStatus: candidate.node.pageStatus,
@@ -817,6 +937,8 @@ export async function getTaskContext(
               id: selectedDesignNode.id,
               name: selectedDesignNode.name,
               url: selectedDesignNode.url,
+              origin: "user-confirmed-target" as const,
+              sourceReceiptIds: selectedDesignNode.sourceReceiptIds,
               status: selectedDesignNode.devStatus,
               statusAvailability: selectedDesignNode.devStatusAvailability,
               pageStatus: selectedDesignPage?.devStatus ?? "none",
@@ -834,6 +956,20 @@ export async function getTaskContext(
           collection.findIndex((item) => item.id === candidate.id) === index,
       )
       .slice(0, topK);
+    const designReceiptIds = new Set(
+      designCandidates.flatMap((candidate) => candidate.sourceReceiptIds),
+    );
+    const sourceReceipts = [
+      ...(selectedIndex?.sources
+        .map((source) => source.receipt)
+        .filter((receipt) => designReceiptIds.has(receipt.id)) ?? []),
+      ...(api?.receipts ?? []),
+    ].filter(
+      (receipt, index, collection) =>
+        collection.findIndex((candidate) => candidate.id === receipt.id) ===
+        index,
+    );
+    await persistSourceReceipts(rootPath, sourceReceipts);
     const payload = {
       schemaVersion: 1,
       task: task.trim(),
@@ -862,6 +998,18 @@ export async function getTaskContext(
       code: codeCandidates,
       design: {
         available: Boolean(selectedIndex),
+        ...(selectedDirectTarget
+          ? {
+              explicitTarget: {
+                fileKey: selectedDirectTarget.fileKey,
+                nodeId: selectedDirectTarget.nodeId,
+                status:
+                  designCandidates[0]?.origin === "user-confirmed-target"
+                    ? ("verified" as const)
+                    : ("blocked" as const),
+              },
+            }
+          : {}),
         ...(indexes.length > 1 && !selectedIndex
           ? {
               selectionRequired: true,
@@ -873,7 +1021,26 @@ export async function getTaskContext(
           : {}),
         candidates: designCandidates,
       },
-      ...(api ? { api } : {}),
+      sourceReceiptIds: sourceReceipts.map((receipt) => receipt.id),
+      ...(api
+        ? {
+            api: {
+              available: api.available,
+              format: api.format,
+              contracts: api.contracts,
+              operations: api.operations,
+              authentication: api.authentication,
+              conflicts: api.conflicts,
+              errors: api.errors.map(
+                ({ receiptId, message, recoverableWithConnector }) => ({
+                  receiptId,
+                  message,
+                  recoverableWithConnector,
+                }),
+              ),
+            },
+          }
+        : {}),
       findings: findings.slice(0, 8),
       gate: { ...gate, overall: overallGate },
       nextSteps: [
@@ -894,8 +1061,23 @@ export async function getTaskContext(
         ...reuse.candidates.map((candidate) => candidate.component.id),
         ...(design?.candidates.map((candidate) => candidate.node.id) ?? []),
       ],
-      preserveKeys: ["findings", "questions", "selections"],
+      preserveKeys: ["findings", "questions", "selections", "sourceReceiptIds"],
       preserveFirstKeys: ["memory", "code", "candidates", "operations"],
+      retrieval: {
+        indexedBytesInjected: 0,
+        hits:
+          rankedMemory.length +
+          codeCandidates.length +
+          designCandidates.length +
+          (api?.operations.length ?? 0),
+        misses:
+          Math.max(0, selectedMemoryIds.length - selectedMemory.length) +
+          Math.max(0, selectedCodeIds.length - selectedCode.length) +
+          (selectedDirectTarget && designCandidates.length === 0 ? 1 : 0),
+        retries: 0,
+        connectorsQueried: api ? ["openapi"] : [],
+        receiptsExpanded: 0,
+      },
     });
   } finally {
     store.close();

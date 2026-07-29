@@ -79,6 +79,16 @@ For other tasks, ask about a missing source only when it can materially change
 implementation. Do not ask low-risk repository-only tasks to enumerate optional
 sources.
 
+An exact confirmed entity always wins over discovery:
+
+- preserve Figma `fileKey+nodeId`, Jira issue key/host, Confluence page ID/host,
+  and OpenAPI contract identity;
+- label search results as candidates and never silently substitute them;
+- return linked secondary sources to `pending`;
+- require a current exact SourceReceipt before using external evidence;
+- stop with a minimal discrepancy when identity, version, scope, or freshness
+  differs, including when a fallback route found a plausible alternative.
+
 When Project Atlas has already supplied a task source ledger, honor the
 decisions it actually records and do not repeat them. For a new high-risk task,
 the ledger satisfies the grouped checkpoint only when it records an explicit
@@ -108,9 +118,9 @@ Use this compact shape when no ledger UI exists:
 > Recommended default: omit only sources you know are not part of this task.
 
 When the selector is unavailable, ask one brief question in chat with the same
-evidence and recommended default. The Project Atlas Workbench may render this
-contract as an inline intake form; agents must not invent a second form or
-block on optional sources.
+evidence and recommended default. The Project Atlas Codex handoff may render
+this contract as an inline intake form; agents must not invent a second
+conversation or block on optional sources.
 
 ## Retrieve
 

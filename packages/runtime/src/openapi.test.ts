@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { extractOpenApiTaskContext } from "./openapi.js";
+import { taskSourceId } from "@component-atlas/core";
+import {
+  extractOpenApiTaskContext,
+  loadConfirmedOpenApiContext,
+} from "./openapi.js";
 
 const specification = `
 openapi: 3.1.0
@@ -72,5 +76,75 @@ describe("OpenAPI task context", () => {
     });
     expect(JSON.stringify(context)).not.toContain("/admin/users");
     expect(JSON.stringify(context)).not.toContain("openapi: 3.1.0");
+  });
+
+  it("blocks conflicting operations instead of silently picking a contract", async () => {
+    const changed = specification.replace(
+      "required: [id, status]",
+      "required: [id]",
+    );
+    const context = await loadConfirmedOpenApiContext(
+      "/repo",
+      "Fetch one order",
+      [
+        {
+          sourceDecisionId: taskSourceId("openapi", "contract-a"),
+          reference: "contract-a",
+          content: specification,
+          adapter: "openapi-pasted",
+        },
+        {
+          sourceDecisionId: taskSourceId("openapi", "contract-b"),
+          reference: "contract-b",
+          content: changed,
+          adapter: "openapi-internal-connector",
+          route: "swagger-connector:contract-b",
+        },
+      ],
+    );
+    expect(context?.conflicts).toEqual([
+      expect.objectContaining({
+        method: "GET",
+        path: "/orders/{orderId}",
+        receiptIds: expect.any(Array),
+      }),
+    ]);
+    expect(context?.operations).toEqual([]);
+  });
+
+  it("keeps a valid contract when another confirmed source fails safely", async () => {
+    const context = await loadConfirmedOpenApiContext(
+      "/repo",
+      "Fetch one order",
+      [
+        {
+          sourceDecisionId: taskSourceId("openapi", "contract-valid"),
+          reference: "contract-valid",
+          content: specification,
+          adapter: "openapi-pasted",
+        },
+        {
+          sourceDecisionId: taskSourceId(
+            "openapi",
+            "https://internal.example/openapi",
+          ),
+          reference: "https://internal.example/openapi",
+          content: "not a contract",
+          adapter: "openapi-internal-connector",
+          route: "swagger-connector:internal",
+        },
+      ],
+    );
+    expect(context).toMatchObject({
+      available: true,
+      contracts: 1,
+      errors: [
+        expect.objectContaining({
+          recoverableWithConnector: true,
+          receiptId: expect.stringMatching(/^receipt-/),
+        }),
+      ],
+    });
+    expect(context?.operations[0]?.sourceReceiptIds).toHaveLength(1);
   });
 });

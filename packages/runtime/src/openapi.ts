@@ -1,6 +1,14 @@
 import { lookup } from "node:dns/promises";
+import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import {
+  createSourceReceipt,
+  sourceIdentityFromReference,
+  taskSourceId,
+  type SourceReceipt,
+  type SourceReceiptAdapter,
+} from "@component-atlas/core";
 import { parse } from "yaml";
 
 const MAX_SPEC_BYTES = 1_500_000;
@@ -19,7 +27,7 @@ const HTTP_METHODS = new Set([
 type JsonObject = Record<string, unknown>;
 
 export interface OpenApiTaskContext {
-  available: true;
+  available: boolean;
   format: "openapi" | "swagger" | "mixed";
   contracts: number;
   operations: Array<{
@@ -36,6 +44,7 @@ export interface OpenApiTaskContext {
     request?: unknown;
     responses: Array<{ status: string; schema?: unknown }>;
     security: Array<{ scheme: string; scopes: string[] }>;
+    sourceReceiptIds: string[];
   }>;
   authentication: Array<{
     scheme: string;
@@ -45,7 +54,55 @@ export interface OpenApiTaskContext {
     parameter?: string;
     scopes?: string[];
   }>;
+  receipts: SourceReceipt[];
+  conflicts: Array<{
+    id: string;
+    method: string;
+    path: string;
+    receiptIds: string[];
+    summary: string;
+  }>;
+  errors: Array<{
+    reference: string;
+    receiptId: string;
+    message: string;
+    recoverableWithConnector: boolean;
+  }>;
 }
+
+export interface ConfirmedOpenApiSource {
+  sourceDecisionId: string;
+  reference: string;
+  content?: string;
+  adapter?: Extract<
+    SourceReceiptAdapter,
+    | "openapi-local-file"
+    | "openapi-pasted"
+    | "openapi-public-http"
+    | "openapi-internal-connector"
+    | "manual-import"
+    | "other"
+  >;
+  route?: string;
+  operation?: string;
+  observedAt?: string;
+  version?: string;
+  fallback?: SourceReceipt["fallback"];
+}
+
+export interface ResolvedOpenApiSource {
+  content: string;
+  adapter: ConfirmedOpenApiSource["adapter"];
+  route: string;
+  operation?: string;
+  observedAt?: string;
+  version?: string;
+  fallback?: SourceReceipt["fallback"];
+}
+
+export type OpenApiSourceResolver = (
+  source: ConfirmedOpenApiSource,
+) => Promise<ResolvedOpenApiSource>;
 
 function object(value: unknown): JsonObject | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -277,6 +334,7 @@ function operationScore(taskTokens: Set<string>, text: string): number {
 export function extractOpenApiTaskContext(
   text: string,
   task: string,
+  suppliedReceipt?: SourceReceipt,
 ): OpenApiTaskContext {
   if (Buffer.byteLength(text, "utf8") > MAX_SPEC_BYTES) {
     throw new Error("The confirmed OpenAPI specification exceeds the 1.5 MB limit.");
@@ -346,6 +404,26 @@ export function extractOpenApiTaskContext(
     ? operations.filter((operation) => operation.score > 0)
     : operations;
   const selectedOperations = relevantOperations.slice(0, MAX_OPERATIONS);
+  const contentHash = createHash("sha256").update(text).digest("hex");
+  const receipt =
+    suppliedReceipt ??
+    createSourceReceipt({
+      sourceDecisionId: taskSourceId("openapi", `pasted:${contentHash}`),
+      provider: "openapi",
+      requested: sourceIdentityFromReference(
+        "openapi",
+        `pasted:${contentHash}`,
+      ),
+      resolved: sourceIdentityFromReference("openapi", `pasted:${contentHash}`),
+      adapter: "openapi-pasted",
+      route: "runtime:extract-openapi-task-context",
+      operation: "parse-confirmed-contract",
+      scope: { kind: "document", id: `sha256:${contentHash}` },
+      contentHash: `sha256:${contentHash}`,
+      observedAt: new Date().toISOString(),
+      coverage: "exact",
+      freshness: "current",
+    });
   const usedSchemes = new Set(
     selectedOperations.flatMap((operation) =>
       operation.security.map(({ scheme }) => scheme),
@@ -356,8 +434,14 @@ export function extractOpenApiTaskContext(
     format: document.openapi ? "openapi" : "swagger",
     contracts: 1,
     operations: selectedOperations
-      .map(({ score: _score, ...operation }) => operation),
+      .map(({ score: _score, ...operation }) => ({
+        ...operation,
+        sourceReceiptIds: [receipt.id],
+      })),
     authentication: authenticationSummary(document, usedSchemes),
+    receipts: [receipt],
+    conflicts: [],
+    errors: [],
   };
 }
 
@@ -482,42 +566,170 @@ async function readLocal(rootPath: string, reference: string): Promise<string> {
 export async function loadConfirmedOpenApiContext(
   rootPath: string,
   task: string,
-  references: string[],
+  references: Array<string | ConfirmedOpenApiSource>,
+  resolver?: OpenApiSourceResolver,
 ): Promise<OpenApiTaskContext | undefined> {
-  const confirmed = [
-    ...new Set(references.map((reference) => reference.trim()).filter(Boolean)),
-  ].slice(0, 3);
-  if (confirmed.length === 0) return undefined;
-  const contexts = await Promise.all(
-    confirmed.map(async (reference) => {
-      const resolvedReference = localReference(reference);
-      const text = /^https?:\/\//iu.test(resolvedReference)
-        ? await readRemote(resolvedReference)
-        : await readLocal(rootPath, resolvedReference);
-      return extractOpenApiTaskContext(text, task);
-    }),
-  );
-  const operations = contexts
-    .flatMap((context) => context.operations)
+  const confirmed = references
+    .map((source) =>
+      typeof source === "string"
+        ? {
+            sourceDecisionId: taskSourceId("openapi", source),
+            reference: source.trim(),
+          }
+        : { ...source, reference: source.reference.trim() },
+    )
+    .filter(({ reference }) => Boolean(reference))
     .filter(
-      (operation, index, collection) =>
+      (source, index, collection) =>
         collection.findIndex(
           (candidate) =>
-            candidate.method === operation.method &&
-            candidate.path === operation.path &&
-            candidate.operationId === operation.operationId,
+            candidate.sourceDecisionId === source.sourceDecisionId &&
+            candidate.reference === source.reference,
         ) === index,
     )
-    .slice(0, MAX_OPERATIONS);
+    .slice(0, 3);
+  if (confirmed.length === 0) return undefined;
+  const contexts: OpenApiTaskContext[] = [];
+  const failureReceipts: SourceReceipt[] = [];
+  const errors: OpenApiTaskContext["errors"] = [];
+  for (const source of confirmed) {
+    const requested = sourceIdentityFromReference("openapi", source.reference);
+    try {
+      const resolvedReference = localReference(source.reference);
+      const loaded: ResolvedOpenApiSource = source.content
+        ? {
+            content: source.content,
+            adapter: source.adapter ?? "openapi-pasted",
+            route: source.route ?? "caller:confirmed-openapi-content",
+            ...(source.operation ? { operation: source.operation } : {}),
+            ...(source.observedAt ? { observedAt: source.observedAt } : {}),
+            ...(source.version ? { version: source.version } : {}),
+            ...(source.fallback ? { fallback: source.fallback } : {}),
+          }
+        : resolver
+          ? await resolver(source)
+          : /^https?:\/\//iu.test(resolvedReference)
+            ? {
+                content: await readRemote(resolvedReference),
+                adapter: "openapi-public-http",
+                route: resolvedReference,
+                operation: "http-get-confirmed-contract",
+              }
+            : {
+                content: await readLocal(rootPath, resolvedReference),
+                adapter: "openapi-local-file",
+                route: resolvedReference,
+                operation: "read-confirmed-contract",
+              };
+      const contentHash = createHash("sha256")
+        .update(loaded.content)
+        .digest("hex");
+      const resolved = {
+        ...requested,
+        ...(loaded.version ? { version: loaded.version } : {}),
+      };
+      const receipt = createSourceReceipt({
+        sourceDecisionId: source.sourceDecisionId,
+        provider: "openapi",
+        requested,
+        resolved,
+        adapter: loaded.adapter ?? "other",
+        route: loaded.route,
+        operation: loaded.operation ?? "resolve-confirmed-contract",
+        scope: { kind: "document", id: requested.canonicalId },
+        contentHash: `sha256:${contentHash}`,
+        observedAt: loaded.observedAt ?? new Date().toISOString(),
+        ...(loaded.fallback ? { fallback: loaded.fallback } : {}),
+        coverage: "exact",
+        freshness: "current",
+      });
+      contexts.push(extractOpenApiTaskContext(loaded.content, task, receipt));
+    } catch (error) {
+      const receipt = createSourceReceipt({
+        sourceDecisionId: source.sourceDecisionId,
+        provider: "openapi",
+        requested,
+        resolved: requested,
+        adapter: source.adapter ?? "other",
+        route: source.route ?? source.reference,
+        operation: source.operation ?? "resolve-confirmed-contract",
+        scope: { kind: "document", id: requested.canonicalId },
+        observedAt: source.observedAt ?? new Date().toISOString(),
+        ...(source.fallback ? { fallback: source.fallback } : {}),
+        coverage: "partial",
+        freshness: "unknown",
+      });
+      failureReceipts.push(receipt);
+      errors.push({
+        reference: source.reference,
+        receiptId: receipt.id,
+        message: error instanceof Error ? error.message : "OpenAPI source failed.",
+        recoverableWithConnector:
+          /^https?:\/\//iu.test(source.reference) ||
+          source.adapter === "openapi-internal-connector",
+      });
+    }
+  }
+  const conflicts: OpenApiTaskContext["conflicts"] = [];
+  const operations: OpenApiTaskContext["operations"] = [];
+  const grouped = new Map<
+    string,
+    OpenApiTaskContext["operations"]
+  >();
+  for (const operation of contexts.flatMap((context) => context.operations)) {
+    const key = `${operation.method} ${operation.path}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), operation]);
+  }
+  for (const [key, candidates] of grouped) {
+    const variants = new Map<string, typeof candidates>();
+    for (const candidate of candidates) {
+      const signature = JSON.stringify({
+        operationId: candidate.operationId,
+        parameters: candidate.parameters,
+        request: candidate.request,
+        responses: candidate.responses,
+        security: candidate.security,
+      });
+      variants.set(signature, [...(variants.get(signature) ?? []), candidate]);
+    }
+    if (variants.size > 1) {
+      const [method, ...pathParts] = key.split(" ");
+      const receiptIds = [
+        ...new Set(candidates.flatMap((candidate) => candidate.sourceReceiptIds)),
+      ];
+      conflicts.push({
+        id: `openapi-conflict-${createHash("sha256").update(key).digest("hex").slice(0, 12)}`,
+        method: method!,
+        path: pathParts.join(" "),
+        receiptIds,
+        summary:
+          "Confirmed contracts disagree for this operation; Atlas did not choose one silently.",
+      });
+      continue;
+    }
+    const first = candidates[0]!;
+    operations.push({
+      ...first,
+      sourceReceiptIds: [
+        ...new Set(candidates.flatMap((candidate) => candidate.sourceReceiptIds)),
+      ],
+    });
+  }
+  operations.splice(MAX_OPERATIONS);
   const usedSchemes = new Set(
     operations.flatMap((operation) =>
       operation.security.map(({ scheme }) => scheme),
     ),
   );
   const formats = new Set(contexts.map(({ format }) => format));
+  const receipts = [
+    ...contexts.flatMap((context) => context.receipts),
+    ...failureReceipts,
+  ];
   return {
-    available: true,
-    format: formats.size === 1 ? contexts[0]!.format : "mixed",
+    available: contexts.length > 0,
+    format:
+      formats.size === 1 && contexts[0] ? contexts[0].format : "mixed",
     contracts: contexts.length,
     operations,
     authentication: contexts
@@ -529,5 +741,8 @@ export async function loadConfirmedOpenApiContext(
             (candidate) => candidate.scheme === item.scheme,
           ) === index,
       ),
+    receipts,
+    conflicts,
+    errors,
   };
 }

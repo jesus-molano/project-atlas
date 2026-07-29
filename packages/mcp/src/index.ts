@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
+  assessTaskRisk,
   buildComponentContext,
   buildImpactContext,
   buildReuseContext,
@@ -8,9 +10,13 @@ import {
   componentContextLink,
   componentContextReference,
   componentImpact,
+  createSourceReceipt,
   findComponent,
+  normalizeTaskSourceDecisions,
   searchComponentContext,
   searchComponents,
+  sourceIdentityFromReference,
+  taskSourceId,
   similarComponents,
   type ComponentGraph,
   type ComponentNode,
@@ -23,6 +29,7 @@ import {
   getProjectMemoryItem,
   getProjectCapabilities,
   getTaskContext,
+  expandSourceReceipt,
   graphSummary,
   indexProjectMemory,
   inspectFigmaDesignNode,
@@ -32,14 +39,18 @@ import {
   applyMemoryUpdate,
   checkBeforeChange,
   orientProject,
+  prepareTaskContext,
   proposeMemoryUpdate,
   recordDecision,
   recordProjectOutcome,
   recordTaskEvaluation,
+  loadTaskResumeTransport,
   reportProjectCapabilities,
   scanProject,
   searchProjectMemory,
   syncFigmaDesignVariables,
+  taskContextResumeHandles,
+  writeTaskCheckpoint,
   type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -482,6 +493,35 @@ export function createMcpServer(): McpServer {
       scope_node_id: z.string().optional(),
       scope_page_id: z.string().optional(),
       scope_page_name: z.string().optional(),
+      source_receipt: z
+        .object({
+          source_decision_id: z.string().max(160).optional(),
+          adapter: z.enum([
+            "figma-desktop-mcp-local",
+            "figma-remote-connector",
+            "atlas-cache",
+            "manual-import",
+            "other",
+          ]),
+          route: z.string().min(1).max(500),
+          operation: z.string().min(1).max(160),
+          observed_at: z.string().datetime().optional(),
+          freshness: z.enum(["current", "stale", "unknown"]).optional(),
+          fallback: z
+            .object({
+              from_adapter: z.enum([
+                "figma-desktop-mcp-local",
+                "figma-remote-connector",
+                "atlas-cache",
+                "manual-import",
+                "other",
+              ]),
+              condition: z.string().min(1).max(500),
+              identity_preserved: z.boolean(),
+            })
+            .optional(),
+        })
+        .optional(),
       enrichment: z
         .object({
           libraries: z
@@ -513,10 +553,52 @@ export function createMcpServer(): McpServer {
       scope_node_id,
       scope_page_id,
       scope_page_name,
+      source_receipt,
       enrichment,
       force,
       budget_chars,
     }) => {
+      const identity = sourceIdentityFromReference("figma", figma_url);
+      const exactNodeId = scope_node_id ?? identity.nodeId;
+      const receipt = source_receipt
+        ? createSourceReceipt({
+            sourceDecisionId:
+              source_receipt.source_decision_id ??
+              taskSourceId("figma", figma_url),
+            provider: "figma",
+            requested: identity,
+            resolved: {
+              ...identity,
+              ...(version ? { version } : {}),
+            },
+            adapter: source_receipt.adapter,
+            route: source_receipt.route,
+            operation: source_receipt.operation,
+            scope: exactNodeId
+              ? {
+                  kind: "node",
+                  id: exactNodeId,
+                  ...(identity.fileKey
+                    ? { parentId: identity.fileKey }
+                    : {}),
+                }
+              : { kind: "file", id: identity.fileKey! },
+            observedAt:
+              source_receipt.observed_at ?? new Date().toISOString(),
+            ...(source_receipt.fallback
+              ? {
+                  fallback: {
+                    fromAdapter: source_receipt.fallback.from_adapter,
+                    condition: source_receipt.fallback.condition,
+                    identityPreserved:
+                      source_receipt.fallback.identity_preserved,
+                  },
+                }
+              : {}),
+            coverage: "exact",
+            freshness: source_receipt.freshness ?? "current",
+          })
+        : undefined;
       const result = await mapFigmaDesign({
           rootPath: root_path,
           figmaUrl: figma_url,
@@ -528,6 +610,7 @@ export function createMcpServer(): McpServer {
           ...(scope_node_id ? { scopeNodeId: scope_node_id } : {}),
           ...(scope_page_id ? { scopePageId: scope_page_id } : {}),
           ...(scope_page_name ? { scopePageName: scope_page_name } : {}),
+          ...(receipt ? { sourceReceipt: receipt } : {}),
           ...(enrichment
             ? {
                 enrichment:
@@ -806,31 +889,274 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     "get_task_context",
-    "Build one hard-capped task bundle from Project Memory, Code Atlas, and optional Design Atlas using a shared budget.",
+    "After task/source intake clears, build one hard-capped bundle of handles and receipt IDs. No index or receipt bodies are injected.",
     {
       root_path: z.string(),
       task: z.string().min(1),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u).optional(),
       figma_file: z.string().optional(),
       budget_chars: z.number().int().min(800).max(12000).optional(),
       top_k: z.number().int().min(1).max(10).optional(),
       refresh_memory: z.boolean().optional(),
+      selected_handles: z
+        .array(z.string().regex(/^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/u))
+        .max(8)
+        .optional(),
+      objective_confirmed: z.boolean().optional(),
+      source_decisions: z
+        .array(
+          z.object({
+            id: z.string().optional(),
+            kind: z.enum([
+              "jira",
+              "confluence",
+              "figma",
+              "github",
+              "openapi",
+              "other",
+            ]),
+            reference: z.string(),
+            origin: z.enum(["explicit", "inferred", "manual"]),
+            state: z.enum([
+              "pending",
+              "confirmed",
+              "omitted",
+              "unavailable",
+              "replaced",
+            ]),
+            required: z.boolean(),
+            replacementFor: z.string().optional(),
+            parentSourceId: z.string().optional(),
+            relationship: z
+              .enum(["primary", "search-candidate", "linked-secondary"])
+              .optional(),
+            decidedAt: z.string().optional(),
+          }),
+        )
+        .max(12)
+        .optional(),
     },
     async ({
       root_path,
       task,
+      task_id,
       figma_file,
       budget_chars,
       top_k,
       refresh_memory,
-    }) =>
+      selected_handles,
+      objective_confirmed,
+      source_decisions,
+    }) => {
+      const resolvedTaskId = task_id ?? `task-${randomUUID()}`;
+      const decisions = normalizeTaskSourceDecisions(source_decisions ?? []);
+      const budgetChars = budget_chars ?? 4_200;
+      await writeTaskCheckpoint(root_path, {
+        taskId: resolvedTaskId,
+        milestone: "risk-boundary",
+        objective: task,
+        objectiveApproved: objective_confirmed ?? false,
+        decisions,
+        sourceReceiptIds: [],
+        handles: selected_handles ?? [],
+        covered: ["task intake"],
+        remaining: ["source preflight", "bounded context"],
+        budgetChars,
+        nextSafeAction:
+          "Run the source gate before composing bounded task context.",
+      });
+      try {
+        const context = await prepareTaskContext(
+          root_path,
+          {
+            schemaVersion: 1,
+            scope: "task",
+            objective: task,
+            objectiveConfirmed: objective_confirmed ?? false,
+            risk: assessTaskRisk(task),
+            sources: decisions,
+          },
+          {
+            ...(figma_file ? { figmaFile: figma_file } : {}),
+            ...(budget_chars ? { budgetChars: budget_chars } : {}),
+            ...(top_k ? { topK: top_k } : {}),
+            ...(refresh_memory ? { refreshMemory: true } : {}),
+            ...(selected_handles ? { selectedHandles: selected_handles } : {}),
+          },
+        );
+        await writeTaskCheckpoint(root_path, {
+          taskId: resolvedTaskId,
+          milestone:
+            context.sourceReceiptIds.length > 0
+              ? "source-resolved"
+              : "batch-completed",
+          objective: task,
+          objectiveApproved: objective_confirmed ?? false,
+          decisions,
+          sourceReceiptIds: context.sourceReceiptIds,
+          handles: taskContextResumeHandles(context),
+          covered: ["task intake", "source preflight", "bounded context"],
+          remaining: ["implementation", "validation"],
+          budgetChars: context.metrics.budgetChars,
+          estimatedTokens: context.metrics.estimatedTokens,
+          nextSafeAction:
+            "Expand only the required handles or receipt IDs, then run check_before_change.",
+        });
+        return text({ ...context, taskId: resolvedTaskId });
+      } catch (error) {
+        await writeTaskCheckpoint(root_path, {
+          taskId: resolvedTaskId,
+          status: "blocked",
+          milestone: "blocked",
+          objective: task,
+          objectiveApproved: objective_confirmed ?? false,
+          decisions,
+          sourceReceiptIds: [],
+          handles: selected_handles ?? [],
+          covered: ["task intake"],
+          remaining: [
+            error instanceof Error ? error.message : "Task preparation blocked.",
+          ],
+          budgetChars,
+          nextSafeAction:
+            "Resolve the blocking source or decision, then retry with the same task_id.",
+        }).catch(() => undefined);
+        throw error;
+      }
+    },
+  );
+
+  server.tool(
+    "expand_source_receipt",
+    "Expand one SourceReceipt by immutable ID under a hard budget. Task context returns only these IDs.",
+    {
+      root_path: z.string(),
+      receipt_id: z.string().regex(/^receipt-[a-f0-9]{16}$/u),
+      budget_chars: z.number().int().min(800).max(3000).optional(),
+    },
+    async ({ root_path, receipt_id, budget_chars }) =>
+      text(await expandSourceReceipt(root_path, receipt_id, budget_chars)),
+  );
+
+  server.tool(
+    "resume_task_capsule",
+    "Load only the bounded task checkpoint transport after compaction/resume; expand referenced IDs separately on demand.",
+    {
+      root_path: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
+    },
+    async ({ root_path, task_id }) =>
       text(
-        await getTaskContext(root_path, task, {
-          ...(figma_file ? { figmaFile: figma_file } : {}),
-          ...(budget_chars ? { budgetChars: budget_chars } : {}),
-          ...(top_k ? { topK: top_k } : {}),
-          ...(refresh_memory ? { refreshMemory: true } : {}),
-        }),
+        (await loadTaskResumeTransport(root_path, task_id)) ?? {
+          status: "not-found",
+        },
       ),
+  );
+
+  server.tool(
+    "checkpoint_task",
+    "Persist one compact semantic milestone for compaction-safe resume. Do not call after every action; receipt and handle bodies stay out of the capsule.",
+    {
+      root_path: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
+      status: z.enum(["active", "blocked", "completed"]).optional(),
+      milestone: z.enum([
+        "objective-approved",
+        "decision-confirmed",
+        "source-resolved",
+        "batch-completed",
+        "change-validated",
+        "blocked",
+        "risk-boundary",
+        "completed",
+      ]),
+      objective: z.string().min(1).max(6_000),
+      objective_approved: z.boolean(),
+      source_decisions: z
+        .array(
+          z.object({
+            id: z.string().optional(),
+            kind: z.enum([
+              "jira",
+              "confluence",
+              "figma",
+              "github",
+              "openapi",
+              "other",
+            ]),
+            reference: z.string(),
+            origin: z.enum(["explicit", "inferred", "manual"]),
+            state: z.enum([
+              "pending",
+              "confirmed",
+              "omitted",
+              "unavailable",
+              "replaced",
+            ]),
+            required: z.boolean(),
+            replacementFor: z.string().optional(),
+            parentSourceId: z.string().optional(),
+            relationship: z
+              .enum(["primary", "search-candidate", "linked-secondary"])
+              .optional(),
+            decidedAt: z.string().optional(),
+          }),
+        )
+        .max(12)
+        .optional(),
+      source_receipt_ids: z
+        .array(z.string().regex(/^receipt-[a-f0-9]{16}$/u))
+        .max(20)
+        .optional(),
+      handles: z
+        .array(z.string().regex(/^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/u))
+        .max(8)
+        .optional(),
+      covered: z.array(z.string().max(240)).max(8).optional(),
+      remaining: z.array(z.string().max(240)).max(8).optional(),
+      budget_chars: z.number().int().min(800).max(12_000),
+      estimated_tokens: z.number().int().min(0).max(100_000).optional(),
+      next_safe_action: z.string().min(1).max(500),
+    },
+    async ({
+      root_path,
+      task_id,
+      status,
+      milestone,
+      objective,
+      objective_approved,
+      source_decisions,
+      source_receipt_ids,
+      handles,
+      covered,
+      remaining,
+      budget_chars,
+      estimated_tokens,
+      next_safe_action,
+    }) => {
+      const capsule = await writeTaskCheckpoint(root_path, {
+        taskId: task_id,
+        ...(status ? { status } : {}),
+        milestone,
+        objective,
+        objectiveApproved: objective_approved,
+        decisions: normalizeTaskSourceDecisions(source_decisions ?? []),
+        sourceReceiptIds: source_receipt_ids ?? [],
+        handles: handles ?? [],
+        covered: covered ?? [],
+        remaining: remaining ?? [],
+        budgetChars: budget_chars,
+        ...(estimated_tokens !== undefined ? { estimatedTokens: estimated_tokens } : {}),
+        nextSafeAction: next_safe_action,
+      });
+      return text({
+        taskId: capsule.taskId,
+        status: capsule.status,
+        milestone,
+        updatedAt: capsule.updatedAt,
+        nextSafeAction: capsule.nextSafeAction,
+      });
+    },
   );
 
   server.tool(

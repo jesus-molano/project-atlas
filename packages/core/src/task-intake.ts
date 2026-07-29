@@ -45,6 +45,8 @@ export interface TaskSourceDecision {
   state: TaskSourceState;
   required: boolean;
   replacementFor?: string;
+  parentSourceId?: string;
+  relationship?: "primary" | "search-candidate" | "linked-secondary";
   decidedAt?: string;
 }
 
@@ -97,6 +99,22 @@ const TASK_SOURCE_STATES: TaskSourceState[] = [
 ];
 const MAX_TASK_SOURCES = 12;
 const MAX_SOURCE_REFERENCE_CHARS = 1_000;
+export const HIGH_RISK_INTAKE_SOURCE_KINDS = [
+  "jira",
+  "confluence",
+  "figma",
+  "openapi",
+] as const satisfies readonly TaskSourceKind[];
+
+export function missingTaskSourceReference(kind: TaskSourceKind): string {
+  return `atlas:none:${kind}`;
+}
+
+export function isMissingTaskSourceReference(reference: string): boolean {
+  return /^atlas:none:(?:jira|confluence|figma|github|openapi|other)$/u.test(
+    reference,
+  );
+}
 
 const HIGH_RISK_PATTERNS: Array<[RegExp, string]> = [
   [/\b(?:auth|authentication|authorization|permission|role|access control|autenticaci[oó]n|autorizaci[oó]n|permiso|rol)\b/i, "Identity or access control"],
@@ -166,11 +184,41 @@ export function normalizeTaskSourceDecisions(
       throw new Error("A task source decision timestamp is invalid.");
     }
     if (
+      isMissingTaskSourceReference(reference) &&
+      source.state === "confirmed"
+    ) {
+      throw new Error("A missing source placeholder cannot be confirmed.");
+    }
+    if (
       source.replacementFor !== undefined &&
       (typeof source.replacementFor !== "string" ||
         source.replacementFor.length > 100)
     ) {
       throw new Error("A replacement source reference is invalid.");
+    }
+    if (
+      source.parentSourceId !== undefined &&
+      (typeof source.parentSourceId !== "string" ||
+        source.parentSourceId.length > 160)
+    ) {
+      throw new Error("A parent source reference is invalid.");
+    }
+    if (
+      source.relationship !== undefined &&
+      !["primary", "search-candidate", "linked-secondary"].includes(
+        source.relationship,
+      )
+    ) {
+      throw new Error("A source relationship is invalid.");
+    }
+    if (
+      source.state === "confirmed" &&
+      (source.relationship === "search-candidate" ||
+        source.relationship === "linked-secondary")
+    ) {
+      throw new Error(
+        "A search candidate or linked secondary must be promoted to an explicit primary source before confirmation.",
+      );
     }
     const kind = source.kind as TaskSourceKind;
     return {
@@ -183,6 +231,10 @@ export function normalizeTaskSourceDecisions(
       ...(source.replacementFor
         ? { replacementFor: source.replacementFor }
         : {}),
+      ...(source.parentSourceId
+        ? { parentSourceId: source.parentSourceId }
+        : {}),
+      ...(source.relationship ? { relationship: source.relationship } : {}),
       ...(source.decidedAt ? { decidedAt: source.decidedAt } : {}),
     };
   });
@@ -221,16 +273,6 @@ export function classifyTaskSource(reference: string): TaskSourceKind {
     return "github";
   }
   return "other";
-}
-
-function explicitlyConfirmsOpenApi(task: string, reference: string): boolean {
-  const comparable = reference.replace(/^(?:openapi|swagger)[:#]\s*/iu, "");
-  const index = task.toLowerCase().indexOf(comparable.toLowerCase());
-  if (index < 0) return false;
-  const prefix = task.slice(Math.max(0, index - 90), index);
-  return /\b(?:use|using|usa|usar|utiliza|utilizar|segun|según|according to|implement from)\b[^.!?\n]{0,70}$/iu.test(
-    prefix,
-  );
 }
 
 export function detectTaskSources(task: string): TaskSourceDecision[] {
@@ -286,15 +328,14 @@ export function detectTaskSources(task: string): TaskSourceDecision[] {
   return references
     .map(({ reference, origin }) => {
       const kind = classifyTaskSource(reference);
-      const confirmed =
-        kind === "openapi" && explicitlyConfirmsOpenApi(task, reference);
       return {
         id: taskSourceId(kind, reference),
         kind,
         reference,
         origin,
-        state: confirmed ? ("confirmed" as const) : ("pending" as const),
-        required: false,
+        state: "pending" as const,
+        required: taskRequiredSourceKinds(task).includes(kind),
+        relationship: "primary" as const,
       };
     })
     .filter(
@@ -302,6 +343,82 @@ export function detectTaskSources(task: string): TaskSourceDecision[] {
         collection.findIndex((candidate) => candidate.id === source.id) === index,
     )
     .slice(0, 12);
+}
+
+export function taskRequiredSourceKinds(task: string): TaskSourceKind[] {
+  const required = new Set<TaskSourceKind>();
+  if (
+    /\b(?:openapi|swagger|api contract|contrato (?:de la )?api)\b/iu.test(task) &&
+    /\b(?:source of truth|contract|according to|implement from|must use|use|using|usa|usar|utiliza|seg[uú]n|contrato|fuente de verdad)\b/iu.test(
+      task,
+    )
+  ) {
+    required.add("openapi");
+  }
+  if (
+    /\bfigma\b/iu.test(task) &&
+    /\b(?:source of truth|match exactly|pixel perfect|declared design|fuente de verdad|replicar exactamente|dise[nñ]o objetivo)\b/iu.test(
+      task,
+    )
+  ) {
+    required.add("figma");
+  }
+  return [...required];
+}
+
+export function ensureTaskSourceDecisions(
+  task: string,
+  current: TaskSourceDecision[],
+): TaskSourceDecision[] {
+  const requiredKinds = new Set(taskRequiredSourceKinds(task));
+  const risk = assessTaskRisk(task);
+  const byId = new Map(
+    current.map((source) => [
+      source.id,
+      {
+        ...source,
+        required: source.required || requiredKinds.has(source.kind),
+      },
+    ]),
+  );
+  for (const detected of detectTaskSources(task)) {
+    if (!byId.has(detected.id)) byId.set(detected.id, detected);
+  }
+  let sources = [...byId.values()];
+  const intakeKinds = new Set<TaskSourceKind>([
+    ...(risk.level === "high" ? HIGH_RISK_INTAKE_SOURCE_KINDS : []),
+    ...requiredKinds,
+  ]);
+  for (const kind of intakeKinds) {
+    const concrete = sources.filter(
+      (source) =>
+        source.kind === kind &&
+        !isMissingTaskSourceReference(source.reference) &&
+        source.state !== "replaced",
+    );
+    if (concrete.length > 0) {
+      sources = sources.filter(
+        (source) =>
+          source.kind !== kind ||
+          !isMissingTaskSourceReference(source.reference),
+      );
+      continue;
+    }
+    const reference = missingTaskSourceReference(kind);
+    const id = taskSourceId(kind, reference);
+    if (!sources.some((source) => source.id === id)) {
+      sources.push({
+        id,
+        kind,
+        reference,
+        origin: "manual",
+        state: "pending",
+        required: requiredKinds.has(kind),
+        relationship: "primary",
+      });
+    }
+  }
+  return sources.slice(0, MAX_TASK_SOURCES);
 }
 
 export function assessTaskRisk(task: string): TaskRiskAssessment {
@@ -359,6 +476,20 @@ export function assessTaskIntake(
   if (intake.sources.some((source) => source.state === "pending")) {
     reasons.push("Confirm, replace, omit, or mark every detected source unavailable.");
   }
+  if (intake.risk.level === "high") {
+    const unresolvedKinds = HIGH_RISK_INTAKE_SOURCE_KINDS.filter((kind) => {
+      const decisions = intake.sources.filter((source) => source.kind === kind);
+      return (
+        decisions.length === 0 ||
+        decisions.every((source) => source.state === "pending")
+      );
+    });
+    if (unresolvedKinds.length > 0) {
+      reasons.push(
+        `Resolve the grouped high-risk source intake for ${unresolvedKinds.join(", ")} before repository context or connector access.`,
+      );
+    }
+  }
   const requiredUnavailable = intake.sources.filter(
     (source) =>
       source.required &&
@@ -377,7 +508,11 @@ export function assessTaskIntake(
 export function confirmedTaskSources(
   sources: TaskSourceDecision[],
 ): TaskSourceDecision[] {
-  return sources.filter((source) => source.state === "confirmed");
+  return sources.filter(
+    (source) =>
+      source.state === "confirmed" &&
+      !isMissingTaskSourceReference(source.reference),
+  );
 }
 
 export function taskContextSourcePolicy(
