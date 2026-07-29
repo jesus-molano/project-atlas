@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    { "rootPath": ".", "name": "recent-01", "lastOpenedAt": "2026-07-29T00:00:01.000Z" },
+    { "rootPath": ".", "name": "recent-02", "lastOpenedAt": "2026-07-29T00:00:02.000Z" },
+    { "rootPath": ".", "name": "recent-03", "lastOpenedAt": "2026-07-29T00:00:03.000Z" },
+    { "rootPath": ".", "name": "recent-04", "lastOpenedAt": "2026-07-29T00:00:04.000Z" },
+    { "rootPath": ".", "name": "recent-05", "lastOpenedAt": "2026-07-29T00:00:05.000Z" },
+    { "rootPath": ".", "name": "recent-06", "lastOpenedAt": "2026-07-29T00:00:06.000Z" },
+    { "rootPath": ".", "name": "recent-07", "lastOpenedAt": "2026-07-29T00:00:07.000Z" },
+    { "rootPath": ".", "name": "recent-08", "lastOpenedAt": "2026-07-29T00:00:08.000Z" },
+    { "rootPath": ".", "name": "recent-09", "lastOpenedAt": "2026-07-29T00:00:09.000Z" },
+    { "rootPath": ".", "name": "recent-10", "lastOpenedAt": "2026-07-29T00:00:10.000Z" },
+    { "rootPath": ".", "name": "recent-11", "lastOpenedAt": "2026-07-29T00:00:11.000Z" },
+    { "rootPath": ".", "name": "recent-12", "lastOpenedAt": "2026-07-29T00:00:12.000Z" }
+  ]
+}

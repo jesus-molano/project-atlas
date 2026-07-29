@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { cp, mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,7 @@ import {
   findAvailableLoopbackPort,
   parseViewerPort,
   stopViewerChild,
+  waitForViewer,
   waitForViewerChild,
 } from "../packages/cli/src/index.js";
 
@@ -21,6 +23,12 @@ const cliEntry = path.join(
   "index.js",
 );
 const codeFixture = path.join(repositoryRoot, "fixtures", "vue-nuxt");
+const slowRecentProjects = path.join(
+  repositoryRoot,
+  "scripts",
+  "fixtures",
+  "slow-recent-projects.json",
+);
 const viewerPreload = pathToFileURL(
   path.join(
     repositoryRoot,
@@ -160,6 +168,23 @@ async function waitForExit(
   });
 }
 
+async function listenUrl(
+  server: ReturnType<typeof createServer>,
+): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(
+      { host: "127.0.0.1", port: 0, exclusive: true },
+      () => resolve(),
+    );
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Test server did not expose a loopback port.");
+  }
+  return `http://127.0.0.1:${address.port}`;
+}
+
 describe.sequential("built local product launcher", () => {
   let temporaryRoot: string;
   let environment: NodeJS.ProcessEnv;
@@ -200,6 +225,97 @@ describe.sequential("built local product launcher", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
+  it("uses lightweight launch identity without probing a blocking state route", async () => {
+    let stateRequests = 0;
+    const server = createServer((request, response) => {
+      if (request.url === "/api/agent/session") {
+        response.setHeader("content-type", "application/json");
+        response.end(
+          JSON.stringify({
+            token: "session-token",
+            launch: { mode: "selector" },
+          }),
+        );
+        return;
+      }
+      stateRequests += 1;
+    });
+    const url = await listenUrl(server);
+    try {
+      await waitForViewer(
+        url,
+        { sessionToken: "session-token" },
+        { timeoutMs: 250, requestTimeoutMs: 50, pollIntervalMs: 10 },
+      );
+      expect(stateRequests).toBe(0);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("identifies the first readiness endpoint that stalls", async () => {
+    const diagnostics: string[] = [];
+    const server = createServer((request, response) => {
+      if (request.url === "/api/agent/session") {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ token: "legacy-session" }));
+      }
+      // Deliberately leave the legacy /api/projects response pending.
+    });
+    const url = await listenUrl(server);
+    try {
+      await expect(
+        waitForViewer(
+          url,
+          { sessionToken: "legacy-session" },
+          {
+            timeoutMs: 180,
+            requestTimeoutMs: 50,
+            pollIntervalMs: 10,
+            onProbeTimeout: (diagnostic) => diagnostics.push(diagnostic),
+          },
+        ),
+      ).rejects.toThrow(
+        /Readiness diagnostics: first stalled endpoint \/api\/projects after \d+ ms/,
+      );
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toMatch(
+        /^\/api\/projects timed out after \d+ ms$/,
+      );
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("reports the endpoint, HTTP status, and timing for readiness failures", async () => {
+    const server = createServer((_request, response) => {
+      response.statusCode = 503;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: "not-ready" }));
+    });
+    const url = await listenUrl(server);
+    try {
+      await expect(
+        waitForViewer(
+          url,
+          { sessionToken: "session-token" },
+          {
+            timeoutMs: 100,
+            requestTimeoutMs: 50,
+            pollIntervalMs: 10,
+          },
+        ),
+      ).rejects.toThrow(
+        /\/api\/agent\/session: \d+ attempts, HTTP 503, 0 successful.*last \d+ ms \(\/api\/agent\/session returned HTTP 503 after \d+ ms\)/,
+      );
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("opens the graphical project selector without scanning a default folder", async () => {
     const blocker = net.createServer();
     await new Promise<void>((resolve, reject) => {
@@ -222,6 +338,24 @@ describe.sequential("built local product launcher", () => {
     } finally {
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
     }
+  });
+
+  it("keeps the selector responsive with many recent repositories", async () => {
+    const launcher = await startLauncher([], {
+      ...environment,
+      ATLAS_RECENT_PROJECTS_PATH: slowRecentProjects,
+    });
+    launchers.push(launcher);
+
+    const startedAt = Date.now();
+    const response = await fetch(`${launcher.url!}/api/projects`);
+    const payload = (await response.json()) as {
+      projects: Array<{ git?: unknown }>;
+    };
+    expect(response.status).toBe(200);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(payload.projects).toHaveLength(10);
+    expect(payload.projects.every((project) => !project.git)).toBe(true);
   });
 
   it("uses and releases the exact explicit loopback port", async () => {

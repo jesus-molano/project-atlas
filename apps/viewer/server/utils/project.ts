@@ -160,9 +160,6 @@ export async function listRecentProjects(): Promise<{
   const projects = file.projects.map((project) => ({
     ...project,
     available: existsSync(project.rootPath),
-    ...(existsSync(project.rootPath)
-      ? { git: projectGitStateForRoot(project.rootPath) }
-      : {}),
   }));
   if (
     activeProjectRoot &&
@@ -177,9 +174,6 @@ export async function listRecentProjects(): Promise<{
       name: projectName(activeProjectRoot),
       lastOpenedAt: new Date().toISOString(),
       available: existsSync(activeProjectRoot),
-      ...(existsSync(activeProjectRoot)
-        ? { git: projectGitStateForRoot(activeProjectRoot) }
-        : {}),
     });
   }
   return {

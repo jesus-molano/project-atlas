@@ -79,7 +79,9 @@ export interface ViewerReadiness {
 export interface ViewerWaitOptions {
   timeoutMs?: number;
   pollIntervalMs?: number;
+  requestTimeoutMs?: number;
   signal?: AbortSignal;
+  onProbeTimeout?: (diagnostic: string) => void;
 }
 
 function errorSummary(error: unknown): string {
@@ -89,6 +91,99 @@ function errorSummary(error: unknown): string {
     return `${error.message}: ${cause.message}`;
   }
   return error.message;
+}
+
+interface ViewerProbeStats {
+  attempts: number;
+  successes: number;
+  timeouts: number;
+  lastStatus?: number;
+  lastElapsedMs: number;
+  lastDetail: string;
+}
+
+class ViewerProbeError extends Error {
+  constructor(
+    readonly endpoint: string,
+    readonly elapsedMs: number,
+    readonly timedOut: boolean,
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
+
+async function probeViewerJson(
+  url: string,
+  endpoint: string,
+  requestTimeoutMs: number,
+  signal?: AbortSignal,
+): Promise<{ elapsedMs: number; payload: unknown; status: number }> {
+  const startedAt = Date.now();
+  const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
+  try {
+    const response = await fetch(`${url}${endpoint}`, {
+      signal: signal
+        ? AbortSignal.any([timeoutSignal, signal])
+        : timeoutSignal,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    if (!response.ok) {
+      throw new ViewerProbeError(
+        endpoint,
+        elapsedMs,
+        false,
+        `${endpoint} returned HTTP ${response.status} after ${elapsedMs} ms`,
+        response.status,
+      );
+    }
+    try {
+      return {
+        elapsedMs,
+        payload: (await response.json()) as unknown,
+        status: response.status,
+      };
+    } catch (error) {
+      throw new ViewerProbeError(
+        endpoint,
+        Date.now() - startedAt,
+        false,
+        `${endpoint} returned invalid JSON: ${errorSummary(error)}`,
+      );
+    }
+  } catch (error) {
+    if (error instanceof ViewerProbeError) throw error;
+    const elapsedMs = Date.now() - startedAt;
+    const timedOut = timeoutSignal.aborted && !signal?.aborted;
+    throw new ViewerProbeError(
+      endpoint,
+      elapsedMs,
+      timedOut,
+      timedOut
+        ? `${endpoint} timed out after ${elapsedMs} ms`
+        : `${endpoint} failed after ${elapsedMs} ms: ${errorSummary(error)}`,
+    );
+  }
+}
+
+function formatViewerProbeStats(
+  stats: Map<string, ViewerProbeStats>,
+  firstTimeout: string | undefined,
+): string {
+  const endpoints = [...stats.entries()].map(([endpoint, state]) => {
+    const status = state.lastStatus
+      ? `HTTP ${state.lastStatus}, ${state.successes} successful`
+      : "no response";
+    const timeouts = state.timeouts
+      ? `, ${state.timeouts} timed out`
+      : "";
+    return `${endpoint}: ${state.attempts} attempts, ${status}${timeouts}, last ${state.lastElapsedMs} ms (${state.lastDetail})`;
+  });
+  return [
+    ...(firstTimeout ? [`first stalled endpoint ${firstTimeout}`] : []),
+    ...endpoints,
+  ].join("; ");
 }
 
 interface ViewerOutputRelay {
@@ -137,7 +232,10 @@ export async function waitForViewer(
 ): Promise<void> {
   const timeoutMs = options.timeoutMs ?? 30_000;
   const pollIntervalMs = options.pollIntervalMs ?? 100;
+  const requestTimeoutMs = options.requestTimeoutMs ?? 1_000;
   const deadline = Date.now() + timeoutMs;
+  const probeStats = new Map<string, ViewerProbeStats>();
+  let firstTimeout: string | undefined;
   let lastFailure = "the viewer did not accept a loopback connection";
 
   while (Date.now() < deadline) {
@@ -145,17 +243,27 @@ export async function waitForViewer(
       throw options.signal.reason;
     }
     try {
-      const sessionResponse = await fetch(`${url}/api/agent/session`, {
-        signal: options.signal
-          ? AbortSignal.any([AbortSignal.timeout(500), options.signal])
-          : AbortSignal.timeout(500),
-      });
-      if (!sessionResponse.ok) {
-        throw new Error(
-          `the session endpoint returned HTTP ${sessionResponse.status}`,
-        );
-      }
-      const session = (await sessionResponse.json()) as unknown;
+      const sessionEndpoint = "/api/agent/session";
+      const sessionProbe = await probeViewerJson(
+        url,
+        sessionEndpoint,
+        requestTimeoutMs,
+        options.signal,
+      );
+      const sessionState = probeStats.get(sessionEndpoint) ?? {
+        attempts: 0,
+        successes: 0,
+        timeouts: 0,
+        lastElapsedMs: 0,
+        lastDetail: "not requested",
+      };
+      sessionState.attempts += 1;
+      sessionState.successes += 1;
+      sessionState.lastStatus = sessionProbe.status;
+      sessionState.lastElapsedMs = sessionProbe.elapsedMs;
+      sessionState.lastDetail = `HTTP ${sessionProbe.status}`;
+      probeStats.set(sessionEndpoint, sessionState);
+      const session = sessionProbe.payload;
       if (
         !session ||
         typeof session !== "object" ||
@@ -167,20 +275,54 @@ export async function waitForViewer(
         );
       }
 
+      if (
+        "launch" in session &&
+        session.launch &&
+        typeof session.launch === "object" &&
+        "mode" in session.launch
+      ) {
+        const launch = session.launch;
+        if (
+          readiness.expectedProjectId &&
+          launch.mode === "project" &&
+          "projectId" in launch &&
+          launch.projectId === readiness.expectedProjectId
+        ) {
+          return;
+        }
+        if (!readiness.expectedProjectId && launch.mode === "selector") {
+          return;
+        }
+        throw new Error(
+          readiness.expectedProjectId
+            ? "/api/agent/session returned a different project fingerprint"
+            : "/api/agent/session returned a project session instead of the selector",
+        );
+      }
+
       const endpoint = readiness.expectedProjectId
         ? "/api/workspace"
         : "/api/projects";
-      const response = await fetch(`${url}${endpoint}`, {
-        signal: options.signal
-          ? AbortSignal.any([AbortSignal.timeout(500), options.signal])
-          : AbortSignal.timeout(500),
-      });
-      if (!response.ok) {
-        throw new Error(
-          `${endpoint} returned HTTP ${response.status}`,
-        );
-      }
-      const payload = (await response.json()) as unknown;
+      const stateProbe = await probeViewerJson(
+        url,
+        endpoint,
+        requestTimeoutMs,
+        options.signal,
+      );
+      const endpointState = probeStats.get(endpoint) ?? {
+        attempts: 0,
+        successes: 0,
+        timeouts: 0,
+        lastElapsedMs: 0,
+        lastDetail: "not requested",
+      };
+      endpointState.attempts += 1;
+      endpointState.successes += 1;
+      endpointState.lastStatus = stateProbe.status;
+      endpointState.lastElapsedMs = stateProbe.elapsedMs;
+      endpointState.lastDetail = `HTTP ${stateProbe.status}`;
+      probeStats.set(endpoint, endpointState);
+      const payload = stateProbe.payload;
       if (!readiness.expectedProjectId) {
         if (
           payload &&
@@ -216,6 +358,27 @@ export async function waitForViewer(
       if (options.signal?.aborted) {
         throw options.signal.reason;
       }
+      if (error instanceof ViewerProbeError) {
+        const endpointState = probeStats.get(error.endpoint) ?? {
+          attempts: 0,
+          successes: 0,
+          timeouts: 0,
+          lastElapsedMs: 0,
+          lastDetail: "not requested",
+        };
+        endpointState.attempts += 1;
+        if (error.timedOut) endpointState.timeouts += 1;
+        if (error.status) endpointState.lastStatus = error.status;
+        endpointState.lastElapsedMs = error.elapsedMs;
+        endpointState.lastDetail = error.message;
+        probeStats.set(error.endpoint, endpointState);
+        if (error.timedOut && !firstTimeout) {
+          firstTimeout = `${error.endpoint} after ${error.elapsedMs} ms`;
+          options.onProbeTimeout?.(
+            `${error.endpoint} timed out after ${error.elapsedMs} ms`,
+          );
+        }
+      }
       // The local server may still be binding its port.
       lastFailure = errorSummary(error);
     }
@@ -236,8 +399,9 @@ export async function waitForViewer(
       });
     }
   }
+  const diagnostics = formatViewerProbeStats(probeStats, firstTimeout);
   throw new Error(
-    `Local server did not become ready at ${url} within ${timeoutMs} ms. Last readiness check: ${lastFailure}.`,
+    `Local server did not become ready at ${url} within ${timeoutMs} ms. Last readiness check: ${lastFailure}.${diagnostics ? ` Readiness diagnostics: ${diagnostics}.` : ""}`,
   );
 }
 
@@ -501,7 +665,14 @@ async function openViewer(
           sessionToken,
           ...(graph ? { expectedProjectId: graph.project.id } : {}),
         },
-        { signal: startupController.signal },
+        {
+          signal: startupController.signal,
+          onProbeTimeout: (diagnostic) => {
+            process.stderr.write(
+              `Viewer readiness probe stalled: ${diagnostic}. The viewer is bound; waiting for this same process.\n`,
+            );
+          },
+        },
       ),
       outputRelay.bindFailure,
     ]);
