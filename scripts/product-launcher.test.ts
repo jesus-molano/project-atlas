@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { access, cp, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -420,6 +420,86 @@ describe.sequential("built local product launcher", () => {
     await stopLauncher(launcher);
     await expectServerClosed(launcher.url!);
   });
+
+  it(
+    "activates a Vue project from a standalone production output",
+    async () => {
+      const productionRoot = path.join(temporaryRoot, "viewer-production");
+      const projectRoot = path.join(temporaryRoot, "activation-project");
+      await Promise.all([
+        cp(
+          path.join(repositoryRoot, "apps", "viewer", ".output"),
+          productionRoot,
+          { recursive: true },
+        ),
+        cp(codeFixture, projectRoot, { recursive: true }),
+      ]);
+      await expect(
+        access(
+          path.join(
+            productionRoot,
+            "server",
+            "node_modules",
+            "velocityjs",
+          ),
+        ),
+      ).rejects.toThrow();
+
+      const port = await findAvailableLoopbackPort();
+      const sessionToken = "standalone-production-session";
+      const url = `http://127.0.0.1:${port}`;
+      const standaloneEnvironment = {
+        ...environment,
+        ATLAS_GUI_SESSION_TOKEN: sessionToken,
+        NITRO_HOST: "127.0.0.1",
+        NITRO_PORT: String(port),
+      };
+      delete standaloneEnvironment.NODE_PATH;
+      let output = "";
+      const child = spawn(
+        process.execPath,
+        [path.join(productionRoot, "server", "index.mjs")],
+        {
+          cwd: productionRoot,
+          windowsHide: true,
+          env: standaloneEnvironment,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      child.stdout?.on("data", (chunk) => {
+        output += String(chunk);
+      });
+      child.stderr?.on("data", (chunk) => {
+        output += String(chunk);
+      });
+
+      try {
+        await waitForViewerChild(
+          child,
+          url,
+          { sessionToken },
+          { timeoutMs: 10_000 },
+        );
+        const response = await fetch(`${url}/api/projects/activate`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-atlas-session": sessionToken,
+          },
+          body: JSON.stringify({ rootPath: projectRoot }),
+        });
+        const body = await response.text();
+        expect(response.status, `${body}\n${output}`).toBe(200);
+        expect(JSON.parse(body)).toMatchObject({
+          rootPath: path.resolve(projectRoot),
+        });
+      } finally {
+        await stopViewerChild(child);
+      }
+      await expectServerClosed(url);
+    },
+    20_000,
+  );
 
   it(
     "keeps one automatically selected port while a slow viewer becomes ready",
