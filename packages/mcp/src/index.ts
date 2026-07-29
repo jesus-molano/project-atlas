@@ -45,11 +45,15 @@ import {
   recordProjectOutcome,
   recordTaskEvaluation,
   loadTaskResumeTransport,
+  claimTaskRetrieval,
+  completeTaskRetrieval,
+  reuseRetrievalKey,
   reportProjectCapabilities,
   scanProject,
   searchProjectMemory,
   syncFigmaDesignVariables,
   taskContextResumeHandles,
+  writeTaskExecutionManifest,
   writeTaskCheckpoint,
   type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
@@ -314,21 +318,82 @@ export function createMcpServer(): McpServer {
     {
       root_path: z.string(),
       intent: z.string().min(1),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u).optional(),
       limit: z.number().int().min(1).max(5).optional(),
       budget_chars: z.number().int().min(800).max(12000).optional(),
+      invalidation_reason: z
+        .enum([
+          "graph-changed",
+          "scope-changed",
+          "source-ledger-changed",
+          "user-requested",
+        ])
+        .optional(),
     },
-    async ({ root_path, intent, limit, budget_chars }) => {
+    async ({
+      root_path,
+      intent,
+      task_id,
+      limit,
+      budget_chars,
+      invalidation_reason,
+    }) => {
       const graph = await loadProjectGraph(root_path);
+      const claim = task_id
+        ? await claimTaskRetrieval(root_path, {
+            taskId: task_id,
+            kind: "reuse",
+            key: reuseRetrievalKey({
+              projectId: graph.project.id,
+              intent,
+              ...(graph.project.identity?.checkoutId
+                ? { checkoutId: graph.project.identity.checkoutId }
+                : {}),
+              ...(graph.project.scan?.fingerprint
+                ? { graphFingerprint: graph.project.scan.fingerprint }
+                : {}),
+            }),
+            ...(invalidation_reason
+              ? { invalidationReason: invalidation_reason }
+              : {}),
+          })
+        : undefined;
+      if (claim?.status === "cached") {
+        return text({
+          status: "cached",
+          handle: claim.handle,
+          budgetId: claim.budgetId,
+          contextInjected: false,
+          nextSafeAction:
+            "Reuse the prior compact selection; expand a named component only if required.",
+        });
+      }
       const context = buildReuseContext(graph, intent, limit ?? 3);
-      return text(
-        fitBudgetedResponse(context as unknown as Record<string, unknown>, {
+      const response = fitBudgetedResponse(
+        context as unknown as Record<string, unknown>,
+        {
           budgetChars: budget_chars,
           totalMatches: context.candidates.length,
           expandableIds: context.candidates.map(
             (candidate) => candidate.component.id,
           ),
-        }),
+        },
       );
+      if (claim) {
+        await completeTaskRetrieval(root_path, claim.handle, context);
+      }
+      return text({
+        ...response,
+        ...(claim
+          ? {
+              retrieval: {
+                handle: claim.handle,
+                budgetId: claim.budgetId,
+                contextInjected: true,
+              },
+            }
+          : {}),
+      });
     },
   );
 
@@ -982,6 +1047,14 @@ export function createMcpServer(): McpServer {
             ...(top_k ? { topK: top_k } : {}),
             ...(refresh_memory ? { refreshMemory: true } : {}),
             ...(selected_handles ? { selectedHandles: selected_handles } : {}),
+            taskId: resolvedTaskId,
+            sourceLedgerHash: JSON.stringify(
+              decisions.map((decision) => [
+                decision.id,
+                decision.state,
+                decision.reference,
+              ]),
+            ),
           },
         );
         await writeTaskCheckpoint(root_path, {
@@ -1036,6 +1109,90 @@ export function createMcpServer(): McpServer {
     },
     async ({ root_path, receipt_id, budget_chars }) =>
       text(await expandSourceReceipt(root_path, receipt_id, budget_chars)),
+  );
+
+  server.tool(
+    "register_task_manifest",
+    "Register skill/reference/script digests and retrieval keys once for a task. Bodies stay out of the manifest and resumed context.",
+    {
+      root_path: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
+      objective_hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+      source_ledger_hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+      skills: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(120),
+            digest: z.string().regex(/^[a-f0-9]{16,64}$/u),
+            phase: z.enum([
+              "intake",
+              "design",
+              "implementation",
+              "validation",
+              "closeout",
+            ]),
+          }),
+        )
+        .max(12),
+      references: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(160),
+            digest: z.string().regex(/^[a-f0-9]{16,64}$/u),
+            phase: z.enum([
+              "intake",
+              "design",
+              "implementation",
+              "validation",
+              "closeout",
+            ]),
+          }),
+        )
+        .max(24)
+        .optional(),
+      scripts: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(160),
+            interface_version: z.string().min(1).max(40),
+            digest: z.string().regex(/^[a-f0-9]{16,64}$/u),
+          }),
+        )
+        .max(12)
+        .optional(),
+      retrieval_keys: z.array(z.string().max(160)).max(24).optional(),
+    },
+    async ({
+      root_path,
+      task_id,
+      objective_hash,
+      source_ledger_hash,
+      skills,
+      references,
+      scripts,
+      retrieval_keys,
+    }) =>
+      text(
+        await writeTaskExecutionManifest(root_path, {
+          taskId: task_id,
+          objectiveHash: objective_hash,
+          sourceLedgerHash: source_ledger_hash,
+          skills,
+          references: references ?? [],
+          scripts: (scripts ?? []).map((script) => ({
+            id: script.id,
+            interfaceVersion: script.interface_version,
+            digest: script.digest,
+          })),
+          retrievalKeys: retrieval_keys ?? [],
+          invalidatesOn: [
+            "checkout-change",
+            "head-change",
+            "objective-change",
+            "source-ledger-change",
+          ],
+        }),
+      ),
   );
 
   server.tool(
@@ -1109,8 +1266,37 @@ export function createMcpServer(): McpServer {
         .max(20)
         .optional(),
       handles: z
-        .array(z.string().regex(/^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/u))
+        .array(
+          z.string().regex(
+            /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16})$/u,
+          ),
+        )
         .max(8)
+        .optional(),
+      execution_manifest: z
+        .object({
+          handle: z
+            .string()
+            .regex(/^manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}$/u),
+          hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+          source_ledger_hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+          retrieval_budget_id: z
+            .string()
+            .regex(/^retrieval-budget:[A-Za-z0-9_.:-]{1,160}$/u),
+        })
+        .optional(),
+      active_policy: z
+        .object({
+          visual_mode: z.enum(["fidelity", "inherit", "explore"]).optional(),
+          invention_budget: z.union([
+            z.literal(0),
+            z.literal(1),
+            z.literal(2),
+            z.literal(3),
+          ]).optional(),
+          excluded_surfaces: z.array(z.string().max(80)).max(6).optional(),
+          auth_mode: z.enum(["real", "dev-mock-no-session"]).optional(),
+        })
         .optional(),
       covered: z.array(z.string().max(240)).max(8).optional(),
       remaining: z.array(z.string().max(240)).max(8).optional(),
@@ -1128,6 +1314,8 @@ export function createMcpServer(): McpServer {
       source_decisions,
       source_receipt_ids,
       handles,
+      execution_manifest,
+      active_policy,
       covered,
       remaining,
       budget_chars,
@@ -1143,6 +1331,34 @@ export function createMcpServer(): McpServer {
         decisions: normalizeTaskSourceDecisions(source_decisions ?? []),
         sourceReceiptIds: source_receipt_ids ?? [],
         handles: handles ?? [],
+        ...(execution_manifest
+          ? {
+              executionManifest: {
+                handle: execution_manifest.handle,
+                hash: execution_manifest.hash,
+                sourceLedgerHash: execution_manifest.source_ledger_hash,
+                retrievalBudgetId: execution_manifest.retrieval_budget_id,
+              },
+            }
+          : {}),
+        ...(active_policy
+          ? {
+              activePolicy: {
+                ...(active_policy.visual_mode
+                  ? { visualMode: active_policy.visual_mode }
+                  : {}),
+                ...(active_policy.invention_budget !== undefined
+                  ? { inventionBudget: active_policy.invention_budget }
+                  : {}),
+                ...(active_policy.excluded_surfaces
+                  ? { excludedSurfaces: active_policy.excluded_surfaces }
+                  : {}),
+                ...(active_policy.auth_mode
+                  ? { authMode: active_policy.auth_mode }
+                  : {}),
+              },
+            }
+          : {}),
         covered: covered ?? [],
         remaining: remaining ?? [],
         budgetChars: budget_chars,

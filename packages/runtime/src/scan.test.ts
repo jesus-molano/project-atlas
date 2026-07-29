@@ -1,18 +1,29 @@
-import { cp, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import {
+  access,
+  cp,
+  mkdtemp,
+  mkdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { projectStorageDirectory } from "@component-atlas/store";
 import { afterEach, describe, expect, it } from "vitest";
 import { scanProject } from "./index.js";
 
 const temporary: string[] = [];
+const execFileAsync = promisify(execFile);
 const vueSrcFixture = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../fixtures/vue-src",
 );
 
 afterEach(async () => {
-  delete process.env.COMPONENT_ATLAS_HOME;
+  delete process.env.PROJECT_ATLAS_HOME;
   await Promise.all(
     temporary.splice(0).map((directory) =>
       rm(directory, { recursive: true, force: true }),
@@ -21,11 +32,47 @@ afterEach(async () => {
 });
 
 describe("incremental repository scans", () => {
+  it("keeps scan artifacts outside the checkout and leaves git status unchanged", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-clean-scan-"));
+    const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
+    temporary.push(root, dataHome);
+    process.env.PROJECT_ATLAS_HOME = dataHome;
+    await mkdir(path.join(root, "components"), { recursive: true });
+    await writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        name: "clean-scan-fixture",
+        dependencies: { vue: "^3.0.0" },
+      }),
+    );
+    await writeFile(
+      path.join(root, "components", "LoginForm.vue"),
+      "<template><form>Login</form></template>",
+    );
+    await execFileAsync("git", ["init", root]);
+    await execFileAsync("git", ["-C", root, "config", "user.email", "atlas@test"]);
+    await execFileAsync("git", ["-C", root, "config", "user.name", "Atlas Test"]);
+    await execFileAsync("git", ["-C", root, "add", "."]);
+    await execFileAsync("git", ["-C", root, "commit", "-m", "fixture"]);
+    const before = (
+      await execFileAsync("git", ["-C", root, "status", "--porcelain=v1"])
+    ).stdout;
+    const graph = await scanProject(root);
+    const after = (
+      await execFileAsync("git", ["-C", root, "status", "--porcelain=v1"])
+    ).stdout;
+    expect(after).toBe(before);
+    await expect(access(path.join(root, ".component-atlas"))).rejects.toThrow();
+    await expect(
+      access(path.join(projectStorageDirectory(graph.project.id), "project.json")),
+    ).resolves.toBeUndefined();
+  }, 15_000);
+
   it("indexes every existing Vue src node without assuming a router from folder names", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-vue-src-"));
     const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
     temporary.push(root, dataHome);
-    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    process.env.PROJECT_ATLAS_HOME = dataHome;
     await cp(vueSrcFixture, root, { recursive: true });
 
     const initial = await scanProject(root, { writeArtifacts: false });
@@ -65,7 +112,7 @@ describe("incremental repository scans", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-incremental-"));
     const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
     temporary.push(root, dataHome);
-    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    process.env.PROJECT_ATLAS_HOME = dataHome;
     await mkdir(path.join(root, "components"), { recursive: true });
     await writeFile(
       path.join(root, "package.json"),
@@ -104,7 +151,7 @@ describe("incremental repository scans", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-abort-"));
     const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
     temporary.push(root, dataHome);
-    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    process.env.PROJECT_ATLAS_HOME = dataHome;
     await writeFile(
       path.join(root, "package.json"),
       JSON.stringify({ name: "abort-fixture", dependencies: { vue: "^3.0.0" } }),

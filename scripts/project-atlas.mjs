@@ -121,10 +121,7 @@ function normalizeArguments(args) {
 try {
   if (!(await productBuildIsCurrent())) buildProduct();
   const cliArguments = normalizeArguments(process.argv.slice(2));
-  const { configureGlobalIgnore, createProgram } = await import(
-    pathToFileURL(cliEntry).href
-  );
-  if (cliArguments[0] === "open") await configureGlobalIgnore();
+  const { createProgram } = await import(pathToFileURL(cliEntry).href);
   await createProgram().parseAsync([
     process.execPath,
     "project-atlas",

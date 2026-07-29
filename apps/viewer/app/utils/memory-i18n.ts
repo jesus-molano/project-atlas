@@ -96,10 +96,10 @@ const en = {
   targetLegend: "Choose where this reviewed knowledge will live",
   localTitle: "Local private memory",
   localCopy: "Personal or episodic Markdown, ignored by Git and not shared by cloning.",
-  localPath: ".component-atlas/memory/*.md",
+  localPath: "ProjectAtlas/projects/<id>/memory/local/*.md",
   canonicalTitle: "Canonical project memory",
   canonicalCopy: "Team-shareable Markdown that can be reviewed and versioned in the repository.",
-  canonicalPath: "project-memory/*.md",
+  canonicalPath: "ProjectAtlas/projects/<id>/memory/canonical/*.md",
   loadingImpact: "Calculating exact write impact…",
   impactError: "The write impact could not be calculated.",
   approvalBlocked: "Approval blocked",
@@ -111,7 +111,7 @@ const en = {
   confirmLocalCopy:
     "This writes private, Git-ignored Markdown at the exact paths shown above.",
   confirmCanonicalCopy:
-    "This writes team-shareable, versionable Markdown under project-memory.",
+    "This writes reviewed canonical Markdown to centralized Project Atlas storage.",
   canonicalAcknowledgement:
     "I understand these canonical files may be committed and shared with the team.",
   confirmLocal: "Confirm local write",
@@ -232,10 +232,10 @@ const es: Record<keyof typeof en, string> = {
   targetLegend: "Elige dónde vivirá este conocimiento revisado",
   localTitle: "Memoria local privada",
   localCopy: "Markdown personal o episódico, ignorado por Git y no compartido al clonar.",
-  localPath: ".component-atlas/memory/*.md",
+  localPath: "ProjectAtlas/projects/<id>/memory/local/*.md",
   canonicalTitle: "Memoria canónica del proyecto",
   canonicalCopy: "Markdown compartible con el equipo que puede revisarse y versionarse en el repositorio.",
-  canonicalPath: "project-memory/*.md",
+  canonicalPath: "ProjectAtlas/projects/<id>/memory/canonical/*.md",
   loadingImpact: "Calculando el impacto exacto de escritura…",
   impactError: "No se pudo calcular el impacto de escritura.",
   approvalBlocked: "Aprobación bloqueada",
@@ -247,7 +247,7 @@ const es: Record<keyof typeof en, string> = {
   confirmLocalCopy:
     "Esto escribe Markdown privado e ignorado por Git en las rutas exactas mostradas arriba.",
   confirmCanonicalCopy:
-    "Esto escribe Markdown compartible y versionable dentro de project-memory.",
+    "Esto escribe Markdown canónico revisado en el almacenamiento centralizado de Project Atlas.",
   canonicalAcknowledgement:
     "Entiendo que estos archivos canónicos pueden confirmarse en Git y compartirse con el equipo.",
   confirmLocal: "Confirmar escritura local",

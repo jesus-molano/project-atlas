@@ -17,17 +17,20 @@ import {
   type TaskSourceDecision,
 } from "@component-atlas/core";
 import { fitBudgetedResponse } from "@component-atlas/memory";
+import { projectStorageDirectory } from "@component-atlas/store";
 import { decode, encode } from "@toon-format/toon";
+import { resolveProjectIdentity } from "./identity.js";
 
 const execFileAsync = promisify(execFile);
-const CAPSULE_SCHEMA_VERSION = 1 as const;
+const CAPSULE_SCHEMA_VERSION = 2 as const;
+const LEGACY_CAPSULE_SCHEMA_VERSION = 1 as const;
 const MAX_CAPSULE_BYTES = 4_096;
 const MAX_JOURNAL_EVENT_BYTES = 2_048;
 const CLOSED_TTL_MS = 24 * 60 * 60 * 1_000;
 const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const RECEIPT_ID = /^receipt-[a-f0-9]{16}$/u;
 const EXPANDABLE_HANDLE =
-  /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16})$/u;
+  /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16})$/u;
 
 export type TaskJournalMilestone =
   | "objective-approved"
@@ -40,7 +43,9 @@ export type TaskJournalMilestone =
   | "completed";
 
 export interface TaskResumeCapsule {
-  schemaVersion: typeof CAPSULE_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof LEGACY_CAPSULE_SCHEMA_VERSION
+    | typeof CAPSULE_SCHEMA_VERSION;
   taskId: string;
   status: "active" | "blocked" | "completed";
   createdAt: string;
@@ -68,6 +73,18 @@ export interface TaskResumeCapsule {
     contextChars: number;
     estimatedTokens: number;
   };
+  executionManifest?: {
+    handle: string;
+    hash: string;
+    sourceLedgerHash: string;
+    retrievalBudgetId: string;
+  };
+  activePolicy?: {
+    visualMode?: "fidelity" | "inherit" | "explore";
+    inventionBudget?: 0 | 1 | 2 | 3;
+    excludedSurfaces?: string[];
+    authMode?: "real" | "dev-mock-no-session";
+  };
   nextSafeAction: string;
 }
 
@@ -84,6 +101,8 @@ export interface TaskCheckpointInput {
   remaining: string[];
   budgetChars: number;
   estimatedTokens?: number;
+  executionManifest?: TaskResumeCapsule["executionManifest"];
+  activePolicy?: TaskResumeCapsule["activePolicy"];
   nextSafeAction: string;
   head?: string;
   at?: string;
@@ -111,7 +130,15 @@ function short(value: string, maximum: number): string {
     .slice(0, maximum);
 }
 
-function taskStateRoot(rootPath: string): string {
+async function taskStateRoot(rootPath: string): Promise<string> {
+  const identity = await resolveProjectIdentity(rootPath);
+  return path.join(
+    projectStorageDirectory(identity.logicalId),
+    "task-state",
+  );
+}
+
+function legacyTaskStateRoot(rootPath: string): string {
   return path.join(rootPath, ".component-atlas", "task-state");
 }
 
@@ -145,7 +172,10 @@ function validateCapsule(value: unknown): TaskResumeCapsule {
   }
   const capsule = value as TaskResumeCapsule;
   if (
-    capsule.schemaVersion !== CAPSULE_SCHEMA_VERSION ||
+    ![
+      LEGACY_CAPSULE_SCHEMA_VERSION,
+      CAPSULE_SCHEMA_VERSION,
+    ].includes(capsule.schemaVersion) ||
     !TASK_ID.test(capsule.taskId) ||
     !["active", "blocked", "completed"].includes(capsule.status) ||
     !capsule.objective?.text ||
@@ -213,6 +243,20 @@ function fitCapsuleStorageBudget(
         .slice(0, 4)
         .map((item) => short(item, 96)),
     },
+    ...(capsule.activePolicy
+      ? {
+          activePolicy: {
+            ...capsule.activePolicy,
+            ...(capsule.activePolicy.excludedSurfaces
+              ? {
+                  excludedSurfaces: capsule.activePolicy.excludedSurfaces
+                    .slice(0, 6)
+                    .map((item) => short(item, 80)),
+                }
+              : {}),
+          },
+        }
+      : {}),
     nextSafeAction: short(capsule.nextSafeAction, 180),
   };
   if (Buffer.byteLength(JSON.stringify(compact), "utf8") <= MAX_CAPSULE_BYTES) {
@@ -268,7 +312,7 @@ export async function appendTaskJournalMilestone(
   at = new Date().toISOString(),
 ): Promise<void> {
   checkedId(taskId, TASK_ID, "Task ID");
-  const directory = path.join(taskStateRoot(rootPath), "journals");
+  const directory = path.join(await taskStateRoot(rootPath), "journals");
   await mkdir(directory, { recursive: true });
   const event = {
     schemaVersion: 1,
@@ -293,17 +337,39 @@ export async function writeTaskCheckpoint(
 ): Promise<TaskResumeCapsule> {
   checkedId(input.taskId, TASK_ID, "Task ID");
   const now = input.at ?? new Date().toISOString();
-  const directory = path.join(taskStateRoot(rootPath), "capsules");
+  const directory = path.join(await taskStateRoot(rootPath), "capsules");
   await mkdir(directory, { recursive: true });
   const filePath = path.join(directory, `${input.taskId}.json`);
   let createdAt = now;
+  let existingCapsule: TaskResumeCapsule | undefined;
   try {
-    const existing = validateCapsule(JSON.parse(await readFile(filePath, "utf8")));
-    createdAt = existing.createdAt;
+    existingCapsule = validateCapsule(
+      JSON.parse(await readFile(filePath, "utf8")),
+    );
+    createdAt = existingCapsule.createdAt;
   } catch {
-    // A missing or invalid prior capsule is replaced by the validated checkpoint.
+    try {
+      existingCapsule = validateCapsule(
+        JSON.parse(
+          await readFile(
+            path.join(
+              legacyTaskStateRoot(rootPath),
+              "capsules",
+              `${input.taskId}.json`,
+            ),
+            "utf8",
+          ),
+        ),
+      );
+      createdAt = existingCapsule.createdAt;
+    } catch {
+      // Missing or invalid legacy state is left untouched.
+    }
   }
   const status = input.status ?? "active";
+  const executionManifest =
+    input.executionManifest ?? existingCapsule?.executionManifest;
+  const activePolicy = input.activePolicy ?? existingCapsule?.activePolicy;
   const capsule = fitCapsuleStorageBudget({
     schemaVersion: CAPSULE_SCHEMA_VERSION,
     taskId: input.taskId,
@@ -354,6 +420,8 @@ export async function writeTaskCheckpoint(
       estimatedTokens:
         input.estimatedTokens ?? Math.ceil(input.budgetChars / 4),
     },
+    ...(executionManifest ? { executionManifest } : {}),
+    ...(activePolicy ? { activePolicy } : {}),
     nextSafeAction: short(input.nextSafeAction, 240),
   });
   validateCapsule(capsule);
@@ -382,17 +450,38 @@ export async function loadTaskResumeCapsule(
 ): Promise<TaskResumeCapsule | undefined> {
   checkedId(taskId, TASK_ID, "Task ID");
   await pruneExpiredTaskState(rootPath);
+  const stateRoot = await taskStateRoot(rootPath);
   try {
     return validateCapsule(
       JSON.parse(
         await readFile(
-          path.join(taskStateRoot(rootPath), "capsules", `${taskId}.json`),
+          path.join(stateRoot, "capsules", `${taskId}.json`),
           "utf8",
         ),
       ),
     );
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      try {
+        return validateCapsule(
+          JSON.parse(
+            await readFile(
+              path.join(
+                legacyTaskStateRoot(rootPath),
+                "capsules",
+                `${taskId}.json`,
+              ),
+              "utf8",
+            ),
+          ),
+        );
+      } catch (legacyError) {
+        if ((legacyError as NodeJS.ErrnoException).code === "ENOENT") {
+          return undefined;
+        }
+        throw legacyError;
+      }
+    }
     throw error;
   }
 }
@@ -410,7 +499,7 @@ export async function persistSourceReceipts(
   receipts: SourceReceipt[],
 ): Promise<void> {
   if (receipts.length === 0) return;
-  const directory = path.join(taskStateRoot(rootPath), "receipts");
+  const directory = path.join(await taskStateRoot(rootPath), "receipts");
   await mkdir(directory, { recursive: true });
   for (const receipt of receipts) {
     const validated = parseSourceReceipt(receipt);
@@ -428,12 +517,25 @@ export async function expandSourceReceipt(
   budgetChars = 1_600,
 ) {
   checkedId(receiptId, RECEIPT_ID, "Source receipt ID");
-  const receipt = parseSourceReceipt(JSON.parse(
-    await readFile(
-      path.join(taskStateRoot(rootPath), "receipts", `${receiptId}.json`),
+  const stateRoot = await taskStateRoot(rootPath);
+  let source: string;
+  try {
+    source = await readFile(
+      path.join(stateRoot, "receipts", `${receiptId}.json`),
       "utf8",
-    ),
-  ));
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    source = await readFile(
+      path.join(
+        legacyTaskStateRoot(rootPath),
+        "receipts",
+        `${receiptId}.json`,
+      ),
+      "utf8",
+    );
+  }
+  const receipt = parseSourceReceipt(JSON.parse(source));
   if (receipt.id !== receiptId) throw new Error("Source receipt identity is invalid.");
   return fitBudgetedResponse(
     { receipt },
@@ -457,7 +559,8 @@ export async function pruneExpiredTaskState(
   rootPath: string,
   now = new Date(),
 ): Promise<number> {
-  const capsules = path.join(taskStateRoot(rootPath), "capsules");
+  const stateRoot = await taskStateRoot(rootPath);
+  const capsules = path.join(stateRoot, "capsules");
   let names: string[];
   try {
     names = await readdir(capsules);
@@ -479,7 +582,7 @@ export async function pruneExpiredTaskState(
       ) {
         continue;
       }
-      const finalDirectory = path.join(taskStateRoot(rootPath), "final");
+      const finalDirectory = path.join(stateRoot, "final");
       await mkdir(finalDirectory, { recursive: true });
       await atomicJson(path.join(finalDirectory, name), {
         schemaVersion: 1,
@@ -490,7 +593,7 @@ export async function pruneExpiredTaskState(
       });
       await rm(capsulePath, { force: true });
       await rm(
-        path.join(taskStateRoot(rootPath), "journals", `${capsule.taskId}.ndjson`),
+        path.join(stateRoot, "journals", `${capsule.taskId}.ndjson`),
         { force: true },
       );
       removed += 1;

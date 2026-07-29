@@ -20,7 +20,7 @@ async function fixture(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "atlas-integrations-"));
   const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
   temporary.push(root, dataHome);
-  process.env.COMPONENT_ATLAS_HOME = dataHome;
+  process.env.PROJECT_ATLAS_HOME = dataHome;
   await writeFile(
     path.join(root, "package.json"),
     JSON.stringify({ name: "integration-fixture", dependencies: { vue: "^3.0.0" } }),
@@ -29,7 +29,7 @@ async function fixture(): Promise<string> {
 }
 
 afterEach(async () => {
-  delete process.env.COMPONENT_ATLAS_HOME;
+  delete process.env.PROJECT_ATLAS_HOME;
   await Promise.all(
     temporary.splice(0).map((directory) =>
       rm(directory, { recursive: true, force: true }),

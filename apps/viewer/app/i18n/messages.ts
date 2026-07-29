@@ -1402,8 +1402,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     'La propuesta de memoria "{id}" tiene hallazgos sin resolver que requieren una decisión y no puede aplicarse.',
   "Memory proposal item {index} is invalid.":
     "El elemento {index} de la propuesta de memoria no es válido.",
-  "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the versionable project-memory paths.":
-    "Las escrituras canónicas de Project Memory requieren canonicalConfirmed=true después de revisar las rutas versionables de project-memory.",
+  "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the centralized Atlas storage paths.":
+    "Las escrituras canónicas de Project Memory requieren canonicalConfirmed=true después de revisar las rutas del almacenamiento centralizado de Atlas.",
   "{command} is not bulk-safe.":
     "{command} no se puede aplicar de forma segura por lotes.",
   "{command} is not allowed for {type}.":

@@ -127,9 +127,9 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 | Location | Purpose |
 | --- | --- |
 | Product repository | Product code; Atlas queries do not edit it |
-| `.component-atlas/` | Ignored project-local artifacts and local memory |
-| Windows LocalAppData | Project-isolated SQLite indexes |
-| `project-memory/` | Optional canonical Markdown, only when policy and a user allow it |
+| `%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\` | All durable Atlas data for one logical project |
+| `%LOCALAPPDATA%\ProjectAtlas\temp\` | Ephemeral owned sessions with TTL/purge |
+| `%LOCALAPPDATA%\ProjectAtlas\recent-projects.json` | Minimal recent-project registry |
 | `~/.agents/skills/` | Codex skill links/copies |
 | Codex `config.toml` | Local Atlas MCP registration |
 | `~/.codex/AGENTS.md` | Optional small managed routing block |

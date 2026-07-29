@@ -73,8 +73,8 @@ pnpm atlas -- "C:\path\to\product-repository"
       selection-only fallback.
 - [ ] Check whether Code Connect exists in the organization; keep it optional.
 - [ ] Scan one real Vue/Nuxt repository and review scope classification.
-- [ ] Decide whether `project-memory/` may be committed by the team; keep local
-      episodes under ignored `.component-atlas/memory/` meanwhile.
+- [ ] Run `pnpm atlas storage` and confirm all durable data is under the single
+      Project Atlas application-data root.
 - [ ] Verify the secret-prevention policy against corporate scanning rules
       without using real credentials.
 - [ ] Run five real tasks:

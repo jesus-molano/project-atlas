@@ -140,10 +140,14 @@ When Project Atlas is available:
    clear before indexing, source resolution, or connector access. The result
    contains only relevant summaries, handles, SourceReceipt IDs, and compact
    retrieval telemetry; it never injects persistent indexes or receipt bodies.
+   Register one `register_task_manifest` projection for the skills,
+   references, and stable script interfaces already loaded. Record only IDs
+   and content digests, never their bodies.
 5. Follow the retrieval ladder only when needed: `orient_project`, then
    `search_project_memory`, then `get_memory_item` for a confirmed ID. Do not
    expand every result.
-6. If Project Memory is not available, call `get_reuse_context` once and use
+6. If Project Memory is not available, call `get_reuse_context` once with the
+   same `task_id` and use
    its compact candidates, scopes, APIs, consumers, tests, and impact.
    Expand a handle or receipt ID only when the decision needs it. Never expand
    all results or receipts by default.
@@ -288,12 +292,16 @@ global Variables, and library data improve evidence but are optional.
 - After Codex context compaction or task resume, call `resume_task_capsule`.
   Rehydrate only its strict bounded transport (TOON when a validated round trip
   is smaller, otherwise JSON), then expand its handles/receipt IDs on demand.
-  Do not replay a transcript, repository/design index, or source document.
+  Honor its execution-manifest hash: do not reread unchanged skill,
+  reference, or script bodies and do not run a stable script's `--help`.
+  Reload only an entry invalidated by a changed digest, checkout/HEAD,
+  objective, or source ledger. Do not replay a transcript,
+  repository/design index, or source document.
 - The task capsule contains only the approved objective, source decisions,
-  receipt/Atlas IDs, covered and remaining scope, worktree/HEAD, budget, and
-  next safe action. Closed capsules have a short TTL. If the capsule has
-  expired or a material decision is absent, ask the user again instead of
-  inferring it from chat fragments.
+  receipt/Atlas IDs, manifest projection, active visual/auth policy, covered
+  and remaining scope, worktree/HEAD, budget, and next safe action. Closed
+  capsules have a short TTL. If the capsule has expired or a material decision
+  is absent, ask the user again instead of inferring it from chat fragments.
 
 ## Resolve visual direction before UI code
 
@@ -340,8 +348,10 @@ review guard without option generation.
    with the locked DesignContract (and exact Figma target in `fidelity`), then
    fix and recapture the same implementation rather than reviving variants.
 4. Rescan Atlas after component changes and confirm the graph reflects them.
-5. Finish every completed task with the compact **Memory candidates** closeout
-   in `references/memory-closeout.md`, even when there is no candidate. This is
+5. At closeout, load `references/memory-closeout.md` only if its manifest
+   digest was not already loaded for this phase. Finish every completed task
+   with the compact **Memory candidates** closeout, even when there is no
+   candidate. This is
    the shared structured `memoryCloseout` result: produce it once, present it in
    chat, and let the GUI render the same object without reclassification. It is
    a status, not a generic follow-up interview:

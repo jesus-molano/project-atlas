@@ -14,8 +14,8 @@ Keep this file as a map, not a manual.
 - Product/domain overview: `<link to repository document>`
 - Frontend conventions: `<link to repository document>`
 - Component ownership: `<link to repository document>`
-- Project Memory: `project-memory/`
-- Local Atlas artifacts: `.component-atlas/` (ignored)
+- Project Memory and local Atlas state: centralized Project Atlas storage
+  outside the checkout (`pnpm atlas storage`)
 
 ## Non-negotiable rules
 

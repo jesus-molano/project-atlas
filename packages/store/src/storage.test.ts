@@ -1,0 +1,77 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  inspectProjectAtlasStorage,
+  projectAtlasStorageRoot,
+  projectStorageDirectory,
+  readRecentProjects,
+  rememberRecentProject,
+} from "./storage.js";
+
+describe("Project Atlas storage", () => {
+  it("uses one ProjectAtlas root on Windows", () => {
+    const root = projectAtlasStorageRoot({
+      platform: "win32",
+      homeDirectory: "C:\\Users\\atlas",
+      env: { LOCALAPPDATA: "C:\\Users\\atlas\\AppData\\Local" },
+    });
+    expect(root).toBe(
+      path.join("C:\\Users\\atlas\\AppData\\Local", "ProjectAtlas"),
+    );
+    expect(root).not.toContain("ComponentAtlas");
+    expect(root).not.toContain(".codex");
+  });
+
+  it("honors only the canonical Project Atlas home override", () => {
+    const root = projectAtlasStorageRoot({
+      platform: "win32",
+      homeDirectory: "C:\\Users\\atlas",
+      env: {
+        LOCALAPPDATA: "C:\\Users\\atlas\\AppData\\Local",
+        PROJECT_ATLAS_HOME: "D:\\AtlasState",
+        COMPONENT_ATLAS_HOME: "D:\\LegacyState",
+      },
+    });
+    expect(root).toBe(path.resolve("D:\\AtlasState"));
+    expect(projectStorageDirectory("project-42", {
+      platform: "win32",
+      homeDirectory: "C:\\Users\\atlas",
+      env: { PROJECT_ATLAS_HOME: "D:\\AtlasState" },
+    })).toBe(path.join(path.resolve("D:\\AtlasState"), "projects", "project-42"));
+  });
+
+  it("keeps recent project data and diagnostics under the same root", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "project-atlas-storage-"));
+    const options = {
+      env: { PROJECT_ATLAS_HOME: root },
+      platform: process.platform,
+      homeDirectory: os.homedir(),
+    };
+    await rememberRecentProject(
+      {
+        id: "project-42",
+        name: "Checkout",
+        rootPath: "C:\\work\\checkout",
+        lastOpenedAt: "2026-07-29T12:00:00.000Z",
+      },
+      options,
+    );
+    expect(await readRecentProjects(options)).toEqual([
+      expect.objectContaining({ id: "project-42" }),
+    ]);
+    const diagnostic = await inspectProjectAtlasStorage(options);
+    expect(diagnostic.rootPath).toBe(root);
+    expect(diagnostic.projectsPath).toBe(path.join(root, "projects"));
+    expect(diagnostic.tempPath).toBe(path.join(root, "temp"));
+    expect(diagnostic.categories.find((item) => item.name === "temp")).toMatchObject({
+      ephemeral: true,
+    });
+    expect(
+      JSON.parse(
+        await readFile(path.join(root, "recent-projects.json"), "utf8"),
+      ),
+    ).toMatchObject({ schemaVersion: 1 });
+  });
+});

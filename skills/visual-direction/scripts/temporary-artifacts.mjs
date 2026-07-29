@@ -14,9 +14,32 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+function projectAtlasRoot() {
+  if (process.env.PROJECT_ATLAS_HOME?.trim()) {
+    return path.resolve(process.env.PROJECT_ATLAS_HOME);
+  }
+  if (process.platform === "win32" && process.env.LOCALAPPDATA?.trim()) {
+    return path.join(process.env.LOCALAPPDATA, "ProjectAtlas");
+  }
+  if (process.platform === "darwin") {
+    return path.join(
+      os.homedir(),
+      "Library",
+      "Application Support",
+      "ProjectAtlas",
+    );
+  }
+  return path.join(
+    process.env.XDG_DATA_HOME?.trim() ||
+      path.join(os.homedir(), ".local", "share"),
+    "ProjectAtlas",
+  );
+}
+
 export const DEFAULT_ROOT = path.join(
-  os.tmpdir(),
-  "component-atlas-visual-direction",
+  projectAtlasRoot(),
+  "temp",
+  "visual-direction",
 );
 export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1_000;
 

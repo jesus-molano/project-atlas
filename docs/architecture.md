@@ -165,18 +165,16 @@ matrix and honest degradation boundary.
 
 ## Storage
 
-Storage follows a strict source split:
-
-- reconstructed facts from code and Figma live in SQLite and can be regenerated;
-- declared, shareable knowledge lives in project Markdown;
-- local/personal knowledge and episodic outcomes live in ignored Markdown and
-  are indexed under the current checkout;
-- every hypothesis is marked `inferred` and never presented as verified fact.
+Storage follows a strict source and checkout split without writing into the
+analyzed repository. Reconstructed facts, declared memory, local outcomes,
+receipts, task state, journals, manifests, and decisions all live under one
+Project Atlas application-data root. Every hypothesis remains marked
+`inferred` and is never presented as verified fact.
 
 Machine state:
 
 ```text
-%LOCALAPPDATA%\ComponentAtlas\projects\<project-id>\atlas.sqlite
+%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\atlas.sqlite
 ```
 
 `<project-id>` is the logical repository identity, not the checkout path. Atlas
@@ -184,8 +182,9 @@ normalizes the `origin` remote (SSH and HTTPS forms resolve equally), hashes it,
 and keeps a separate checkout ID for every clone/worktree path and branch
 snapshot. Repositories without a remote use their Git common directory; a
 non-Git directory falls back to its canonical path. `PROJECT_ATLAS_PROJECT_KEY`
-or `scan --project-key` provides an explicit override. The ignored
-`project.json` pins that override for later queries.
+or `scan --project-key` provides an explicit override. The centralized
+`project.json` records that identity for diagnostics; a legacy repository-local
+artifact is read-only compatibility evidence.
 
 The same database contains checkout-specific code graph snapshots, a
 project-level component catalog whose sightings retain checkout provenance, one
@@ -200,9 +199,10 @@ logical scope unless an explicit override is used; Atlas does not silently merge
 the two repositories.
 
 Task intake, exact source references, confirmations, briefs, permissions,
-thread IDs, and execution state remain task-scoped. A bounded ignored local
-journal/capsule persists semantic checkpoints and IDs for compaction-safe
-resume without persisting a transcript or reloading indexes. Persisted run
+thread IDs, and execution state remain task-scoped. A bounded centralized
+journal/capsule persists semantic checkpoints, skill-manifest hashes and IDs
+for compaction-safe resume without persisting a transcript or reloading
+indexes. Persisted run
 audits retain only content-free counts and source kinds. Component decisions default to the
 current checkout; promoting one to the logical project requires explicit user
 confirmation. See [Task intake and persistence scopes](task-intake-and-scopes.md).
@@ -224,20 +224,22 @@ Version, `lastModified`, scope, and metadata hashes prevent unchanged page
 snapshots from being reprocessed. A changed file version invalidates the old
 map before new page snapshots are merged.
 
-Repository and local artifacts:
+Centralized artifacts:
 
 ```text
-.component-atlas/
-├── project.json
-├── catalog.md
-├── memory/                 # local/episodic, globally ignored
-└── decisions/
-
-project-memory/             # optional canonical team knowledge
-└── *.md                    # frontmatter + Markdown + wikilinks
+%LOCALAPPDATA%\ProjectAtlas\
+├── recent-projects.json
+├── projects\<project-id>\
+│   ├── atlas.sqlite
+│   ├── project.json
+│   ├── catalog.md
+│   ├── memory\
+│   ├── decisions\
+│   └── task-state\
+└── temp\                    # ephemeral, owned, TTL/purge managed
 ```
 
-See [project-memory.md](project-memory.md) for the memory schema and
+See [storage.md](storage.md) and [project-memory.md](project-memory.md) for the memory schema and
 [token-budgets.md](token-budgets.md) for response guarantees. The reproducible
 resource, termination, dependency and performance baseline is in
 [quality-audit.md](quality-audit.md).

@@ -513,6 +513,7 @@ function buildPrompt(request: AgentRunRequest): string {
     "- Do not perform external writes, commits, pushes, ticket changes, or documentation publication.",
     "- Ask only when a material decision or contradiction remains. Include evidence and a recommendation.",
     "- Keep task intake, exact references, hypotheses, and run state task-scoped. Propose durable project memory separately; never promote it implicitly.",
+    "- Reuse the task capsule's execution-manifest hashes and retrieval handles after continuation or compaction. Do not reread unchanged skill/reference/script bodies, run stable scripts with --help, or recompute reuse context without a named invalidation.",
     ...MEMORY_CLOSEOUT_PROMPT_RULES,
     "- Return the requested compact structured result. Do not include raw source documents, code dumps, or transient localhost asset URLs.",
   ]

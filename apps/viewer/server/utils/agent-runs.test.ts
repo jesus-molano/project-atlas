@@ -143,8 +143,8 @@ describe.sequential("viewer agent run ownership", () => {
   beforeEach(async () => {
     rootPath = await mkdtemp(path.join(os.tmpdir(), "atlas-agent-viewer-"));
     dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-agent-data-"));
-    previousDataHome = process.env.COMPONENT_ATLAS_HOME;
-    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    previousDataHome = process.env.PROJECT_ATLAS_HOME;
+    process.env.PROJECT_ATLAS_HOME = dataHome;
     await cp(fixture, rootPath, { recursive: true });
     await scanProject(rootPath);
     process.env.ATLAS_PROJECT_ROOT = rootPath;
@@ -159,8 +159,8 @@ describe.sequential("viewer agent run ownership", () => {
     restoreAdapter?.();
     restoreAdapter = undefined;
     delete process.env.ATLAS_PROJECT_ROOT;
-    if (previousDataHome === undefined) delete process.env.COMPONENT_ATLAS_HOME;
-    else process.env.COMPONENT_ATLAS_HOME = previousDataHome;
+    if (previousDataHome === undefined) delete process.env.PROJECT_ATLAS_HOME;
+    else process.env.PROJECT_ATLAS_HOME = previousDataHome;
     await Promise.all([
       rm(rootPath, { recursive: true, force: true }),
       rm(dataHome, { recursive: true, force: true }),

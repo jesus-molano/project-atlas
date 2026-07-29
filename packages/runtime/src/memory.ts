@@ -38,7 +38,10 @@ import {
   type MemorySearchOptions,
   type MemoryWriteTarget,
 } from "@component-atlas/memory";
-import { AtlasStore } from "@component-atlas/store";
+import {
+  AtlasStore,
+  projectStorageDirectory,
+} from "@component-atlas/store";
 import fg from "fast-glob";
 import { loadProjectGraph } from "./index.js";
 import {
@@ -48,6 +51,13 @@ import {
   type OpenApiSourceResolver,
 } from "./openapi.js";
 import { persistSourceReceipts } from "./task-state.js";
+import {
+  claimTaskRetrieval,
+  completeTaskRetrieval,
+  loadTaskRetrievalResult,
+  reuseRetrievalKey,
+  type TaskRetrievalInvalidationReason,
+} from "./task-execution.js";
 
 export { fitBudgetedResponse } from "@component-atlas/memory";
 
@@ -126,7 +136,7 @@ async function ensureMemoryIndexed(
 export async function indexProjectMemory(rootPath: string) {
   const graph = await loadProjectGraph(rootPath);
   const absoluteRoot = graph.project.rootPath;
-  const files = await fg(MEMORY_PATTERNS, {
+  const legacyFiles = await fg(MEMORY_PATTERNS, {
     cwd: absoluteRoot,
     absolute: true,
     onlyFiles: true,
@@ -135,13 +145,31 @@ export async function indexProjectMemory(rootPath: string) {
     ignore: ["**/node_modules/**"],
     followSymbolicLinks: false,
   });
+  const storageRoot = projectStorageDirectory(graph.project.id);
+  const storageFiles = await fg(["memory/**/*.md"], {
+    cwd: storageRoot,
+    absolute: true,
+    onlyFiles: true,
+    unique: true,
+    dot: true,
+    followSymbolicLinks: false,
+  });
+  const files = [...new Set([...legacyFiles, ...storageFiles])];
   const entries: Array<{ item: MemoryItem; sourceHash: string }> = [];
   const sourceById = new Map<string, string>();
   for (const filePath of files.sort()) {
     const source = await readFile(filePath, "utf8");
     if (!source.startsWith("---")) continue;
-    const relativePath = slash(path.relative(absoluteRoot, filePath));
-    const local = relativePath.startsWith(".component-atlas/");
+    const inStorage =
+      path.relative(storageRoot, filePath) !== "" &&
+      !path.relative(storageRoot, filePath).startsWith("..") &&
+      !path.isAbsolute(path.relative(storageRoot, filePath));
+    const relativePath = inStorage
+      ? `atlas-storage/${slash(path.relative(storageRoot, filePath))}`
+      : slash(path.relative(absoluteRoot, filePath));
+    const local =
+      relativePath.startsWith(".component-atlas/") ||
+      relativePath.startsWith("atlas-storage/memory/local/");
     const parsed = parseMemoryMarkdown(source, {
       projectId: graph.project.id,
       projectName: graph.project.name,
@@ -673,6 +701,9 @@ export async function getTaskContext(
     confirmedOpenApiSources?: ConfirmedOpenApiSource[];
     openApiResolver?: OpenApiSourceResolver;
     preloadedOpenApiContext?: OpenApiTaskContext;
+    taskId?: string;
+    retrievalInvalidationReason?: TaskRetrievalInvalidationReason;
+    sourceLedgerHash?: string;
   } = {},
 ) {
   const graph = await loadProjectGraph(rootPath);
@@ -722,7 +753,40 @@ export async function getTaskContext(
           collection.findIndex((item) => item.item.id === candidate.item.id) === index,
       )
       .slice(0, topK);
-    const reuse = buildReuseContext(graph, task, topK);
+    let reuse: ReturnType<typeof buildReuseContext>;
+    if (options.taskId) {
+      const claim = await claimTaskRetrieval(rootPath, {
+        taskId: options.taskId,
+        kind: "reuse",
+        key: reuseRetrievalKey({
+          projectId: graph.project.id,
+          intent: task,
+          ...(graph.project.identity?.checkoutId
+            ? { checkoutId: graph.project.identity.checkoutId }
+            : {}),
+          ...(graph.project.scan?.fingerprint
+            ? { graphFingerprint: graph.project.scan.fingerprint }
+            : {}),
+          ...(options.sourceLedgerHash
+            ? { sourceLedgerHash: options.sourceLedgerHash }
+            : {}),
+        }),
+        ...(options.retrievalInvalidationReason
+          ? { invalidationReason: options.retrievalInvalidationReason }
+          : {}),
+      });
+      if (claim.status === "cached") {
+        reuse = (await loadTaskRetrievalResult(
+          rootPath,
+          claim.handle,
+        )) as ReturnType<typeof buildReuseContext>;
+      } else {
+        reuse = buildReuseContext(graph, task, topK);
+        await completeTaskRetrieval(rootPath, claim.handle, reuse);
+      }
+    } else {
+      reuse = buildReuseContext(graph, task, topK);
+    }
     const indexes = store.listDesignIndexes(graph.project.id);
     const designAllowed =
       options.sourcePolicy === undefined ||
@@ -1377,8 +1441,8 @@ function proposalReview(
   const gate = memoryGate(proposal.findings);
   const directory =
     target === "canonical"
-      ? ("project-memory" as const)
-      : (".component-atlas/memory" as const);
+      ? ("atlas-storage/memory/canonical" as const)
+      : ("atlas-storage/memory/local" as const);
   const items = proposal.items.map((draft) => {
     const item = itemFromDraft(
       draft,
@@ -1456,22 +1520,33 @@ async function writeMemoryItem(
 ): Promise<MemoryItem> {
   const directory =
     target === "canonical"
-      ? path.join(rootPath, "project-memory")
-      : path.join(rootPath, ".component-atlas", "memory");
+      ? path.join(
+          projectStorageDirectory(item.projectId),
+          "memory",
+          "canonical",
+        )
+      : path.join(
+          projectStorageDirectory(item.projectId),
+          "memory",
+          "local",
+        );
   await mkdir(directory, { recursive: true });
-  const [realRoot, realDirectory] = await Promise.all([
-    realpath(rootPath),
+  const storageRoot = projectStorageDirectory(item.projectId);
+  const [realStorageRoot, realDirectory] = await Promise.all([
+    realpath(storageRoot),
     realpath(directory),
   ]);
-  const directoryRelative = path.relative(realRoot, realDirectory);
+  const directoryRelative = path.relative(realStorageRoot, realDirectory);
   if (
     directoryRelative.startsWith("..") ||
     path.isAbsolute(directoryRelative)
   ) {
-    throw new Error("Refusing to write memory outside the project root.");
+    throw new Error("Refusing to write memory outside Project Atlas storage.");
   }
   const filePath = path.join(directory, `${safeFileName(item.id)}.md`);
-  const relativePath = slash(path.relative(rootPath, filePath));
+  const relativePath = `atlas-storage/${slash(
+    path.relative(storageRoot, filePath),
+  )}`;
   const next = { ...item, bodyPath: relativePath };
   await writeFile(filePath, memoryItemMarkdown(next), "utf8");
   return next;
@@ -1482,14 +1557,22 @@ async function rewriteSupersededSource(
   item: MemoryItem,
 ): Promise<void> {
   if (!item.bodyPath) return;
-  const absolute = path.resolve(rootPath, item.bodyPath);
-  const relative = path.relative(rootPath, absolute);
+  if (!item.bodyPath.startsWith("atlas-storage/")) {
+    // Repository-local memory is legacy read-only compatibility data.
+    return;
+  }
+  const storageRoot = projectStorageDirectory(item.projectId);
+  const storageRelative = item.bodyPath.slice("atlas-storage/".length);
+  const absolute = path.resolve(storageRoot, storageRelative);
+  const relative = path.relative(storageRoot, absolute);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`Refusing to rewrite memory outside project scope: ${item.bodyPath}`);
+    throw new Error(
+      `Refusing to rewrite memory outside Project Atlas storage: ${item.bodyPath}`,
+    );
   }
   if (await exists(absolute)) {
     const [realRoot, realSource] = await Promise.all([
-      realpath(rootPath),
+      realpath(storageRoot),
       realpath(absolute),
     ]);
     const realRelative = path.relative(realRoot, realSource);
@@ -1543,7 +1626,7 @@ export async function applyMemoryUpdate(
     }
     if (target === "canonical" && options.canonicalConfirmed !== true) {
       throw new Error(
-        "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the versionable project-memory paths.",
+        "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the centralized Atlas storage paths.",
       );
     }
     assertMemoryContentSafe(proposal);

@@ -1,8 +1,10 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { taskSourceId, type TaskSourceDecision } from "@component-atlas/core";
-import { describe, expect, it, vi } from "vitest";
+import { projectStorageDirectory } from "@component-atlas/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveProjectIdentity } from "./identity.js";
 import {
   loadTaskResumeCapsule,
   loadTaskResumeTransport,
@@ -21,6 +23,21 @@ const sources: TaskSourceDecision[] = [
     required: true,
   },
 ];
+
+let dataHome: string;
+let previousDataHome: string | undefined;
+
+beforeEach(async () => {
+  previousDataHome = process.env.PROJECT_ATLAS_HOME;
+  dataHome = await mkdtemp(path.join(os.tmpdir(), "project-atlas-state-"));
+  process.env.PROJECT_ATLAS_HOME = dataHome;
+});
+
+afterEach(async () => {
+  if (previousDataHome === undefined) delete process.env.PROJECT_ATLAS_HOME;
+  else process.env.PROJECT_ATLAS_HOME = previousDataHome;
+  await rm(dataHome, { recursive: true, force: true });
+});
 
 describe("task checkpoint and resume", () => {
   it("derives only compact, unique and explicitly expandable context handles", () => {
@@ -65,6 +82,18 @@ describe("task checkpoint and resume", () => {
       remaining: ["implementation", "validation"],
       budgetChars: 2_400,
       nextSafeAction: "Expand code:checkout-form only.",
+      executionManifest: {
+        handle: "manifest:task-42:0123456789abcdef",
+        hash: "0123456789abcdef0123456789abcdef",
+        sourceLedgerHash: "fedcba9876543210fedcba9876543210",
+        retrievalBudgetId: "retrieval-budget:task-42",
+      },
+      activePolicy: {
+        visualMode: "fidelity",
+        inventionBudget: 0,
+        excludedSurfaces: ["ProfileFingerprintModal"],
+        authMode: "dev-mock-no-session",
+      },
       head: "abc123",
       at: "2026-07-29T12:00:00.000Z",
     });
@@ -75,6 +104,12 @@ describe("task checkpoint and resume", () => {
       "visual:vd-task-42:0123456789abcdef",
       "memory:contract-rule",
     ]);
+    expect(capsule?.schemaVersion).toBe(2);
+    expect(capsule?.activePolicy).toMatchObject({
+      visualMode: "fidelity",
+      inventionBudget: 0,
+      authMode: "dev-mock-no-session",
+    });
     expect(expand).not.toHaveBeenCalled();
     const transport = await loadTaskResumeTransport(root, "task-42");
     expect(transport?.bytes).toBeLessThanOrEqual(4_096);
@@ -106,10 +141,10 @@ describe("task checkpoint and resume", () => {
       await pruneExpiredTaskState(root, new Date("2026-07-29T00:00:00.000Z")),
     ).toBe(1);
     expect(await loadTaskResumeCapsule(root, "task-closed")).toBeUndefined();
+    const identity = await resolveProjectIdentity(root);
     const finalReceipt = await readFile(
       path.join(
-        root,
-        ".component-atlas",
+        projectStorageDirectory(identity.logicalId),
         "task-state",
         "final",
         "task-closed.json",

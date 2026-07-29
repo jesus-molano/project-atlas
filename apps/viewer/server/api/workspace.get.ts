@@ -130,6 +130,7 @@ function projectRisks(snapshot: ProjectAtlasSnapshot) {
 }
 
 function localArtifactHealth(rootPath: string) {
+  if (!existsSync(path.join(rootPath, ".component-atlas"))) return [];
   const packageFile = path.join(rootPath, "package.json");
   const packageText = existsSync(packageFile)
     ? readFileSync(packageFile, "utf8")
@@ -163,9 +164,9 @@ function localArtifactHealth(rootPath: string) {
           id: "local-artifacts-formatter-scope",
           level: "warning" as const,
           title: "Local Atlas artifacts may enter formatter or lint scans",
-          detail: `Detected ${unprotected.join(" and ")} without an Atlas-specific ignore entry.`,
+          detail: `Detected legacy repository-local Atlas data and ${unprotected.join(" and ")} without a matching ignore entry.`,
           recommendation:
-            "If these tools traverse ignored directories, add `.component-atlas/` to the relevant formatter or lint ignore file. Atlas will not edit it automatically.",
+            "Keep the legacy directory read-only or add `.component-atlas/` to the relevant formatter or lint ignore file. New Atlas data is stored outside the checkout.",
         },
       ];
 }

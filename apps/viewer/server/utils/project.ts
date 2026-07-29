@@ -2,6 +2,8 @@ import {
   canonicalFilesystemPath,
   filesystemPathKey,
   filesystemPathsEquivalent,
+  recentProjectsPath as projectAtlasRecentProjectsPath,
+  resolveProjectIdentity,
   type ProjectAtlasSnapshot,
 } from "@component-atlas/runtime";
 import { AtlasStore } from "@component-atlas/store";
@@ -16,7 +18,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createError } from "h3";
-import os from "node:os";
 import path from "node:path";
 
 const launchProjectRoot = process.env.ATLAS_PROJECT_ROOT
@@ -44,6 +45,7 @@ export function projectRootPath(): string {
 }
 
 export interface RecentProject {
+  id?: string;
   rootPath: string;
   name: string;
   lastOpenedAt: string;
@@ -57,12 +59,7 @@ interface RecentProjectsFile {
 }
 
 function recentProjectsPath(): string {
-  if (process.env.ATLAS_RECENT_PROJECTS_PATH) {
-    return path.resolve(process.env.ATLAS_RECENT_PROJECTS_PATH);
-  }
-  const dataRoot =
-    process.env.LOCALAPPDATA ?? path.join(os.homedir(), ".local", "share");
-  return path.join(dataRoot, "ProjectAtlas", "recent-projects.json");
+  return projectAtlasRecentProjectsPath();
 }
 
 function projectName(rootPath: string): string {
@@ -192,9 +189,11 @@ export async function listRecentProjects(): Promise<{
 export async function rememberRecentProject(rootPath: string): Promise<void> {
   const targetPath = recentProjectsPath();
   const current = await readRecentProjectsFile();
+  const identity = await resolveProjectIdentity(rootPath);
   const key = normalizedPathKey(rootPath);
   const projects = [
     {
+      id: identity.logicalId,
       rootPath,
       name: projectName(rootPath),
       lastOpenedAt: new Date().toISOString(),
@@ -349,9 +348,24 @@ export function loadProjectAtlasSnapshot(): ProjectAtlasSnapshot {
   const launchIdentityMatches =
     launchProjectRoot &&
     normalizedPathKey(launchProjectRoot) === normalizedPathKey(rootPath);
+  const recentProject = (() => {
+    try {
+      const parsed = JSON.parse(
+        readFileSync(recentProjectsPath(), "utf8"),
+      ) as Partial<RecentProjectsFile>;
+      return parsed.projects?.find(
+        (project) =>
+          project.id &&
+          normalizedPathKey(project.rootPath) === normalizedPathKey(rootPath),
+      );
+    } catch {
+      return undefined;
+    }
+  })();
   const id =
     (launchIdentityMatches ? process.env.ATLAS_PROJECT_ID : undefined) ??
     (artifactMatches ? artifact?.project?.id : undefined) ??
+    recentProject?.id ??
     createHash("sha256")
       .update(path.resolve(rootPath).toLowerCase())
       .digest("hex")

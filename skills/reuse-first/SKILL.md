@@ -16,7 +16,10 @@ create a component until the discovery and decision gate is complete.
    accessibility, empty/loading/error behavior, responsive rules, variants,
    ownership, reuse horizon, and API constraints.
 3. Refresh the index with `scan_repository`.
-4. Call `get_reuse_context` once using the full implementation intent.
+4. Call `get_reuse_context` once using the full implementation intent and the
+   parent task's stable `task_id`. A repeated identical request must reuse its
+   handle; recompute only after a named graph, scope, or source-ledger
+   invalidation.
 5. Inspect the ranked candidates, scopes, API summaries, composition,
    consumers, similarity evidence, tests, and impact in that bundle.
 6. Use `get_component`, `find_similar_components`, or

@@ -90,11 +90,11 @@ function memory(
 describe.sequential("logical project component catalog", () => {
   beforeEach(async () => {
     dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-catalog-"));
-    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    process.env.PROJECT_ATLAS_HOME = dataHome;
   });
 
   afterEach(async () => {
-    delete process.env.COMPONENT_ATLAS_HOME;
+    delete process.env.PROJECT_ATLAS_HOME;
     await rm(dataHome, { recursive: true, force: true });
   });
 

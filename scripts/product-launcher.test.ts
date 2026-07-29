@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, cp, mkdtemp, rm } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -194,11 +194,7 @@ describe.sequential("built local product launcher", () => {
     temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "atlas-product-"));
     environment = {
       ...process.env,
-      COMPONENT_ATLAS_HOME: path.join(temporaryRoot, "atlas-home"),
-      ATLAS_RECENT_PROJECTS_PATH: path.join(
-        temporaryRoot,
-        "recent-projects.json",
-      ),
+      PROJECT_ATLAS_HOME: path.join(temporaryRoot, "atlas-home"),
     };
     delete environment.ATLAS_PROJECT_ROOT;
     delete environment.ATLAS_PROJECT_ID;
@@ -341,9 +337,15 @@ describe.sequential("built local product launcher", () => {
   });
 
   it("keeps the selector responsive with many recent repositories", async () => {
+    const slowHome = path.join(temporaryRoot, "slow-home");
+    await mkdir(slowHome, { recursive: true });
+    await cp(
+      slowRecentProjects,
+      path.join(slowHome, "recent-projects.json"),
+    );
     const launcher = await startLauncher([], {
       ...environment,
-      ATLAS_RECENT_PROJECTS_PATH: slowRecentProjects,
+      PROJECT_ATLAS_HOME: slowHome,
     });
     launchers.push(launcher);
 

@@ -12,7 +12,8 @@ init -> open -> record options -> selected -> review -> close
 cleanup failure -> cleanup-pending -> retry or TTL sweep -> clean
 ```
 
-Use the operating-system temp root by default:
+Use the centralized Project Atlas temp root by default
+(`%LOCALAPPDATA%\ProjectAtlas\temp\visual-direction` on Windows):
 
 ```powershell
 node skills/visual-direction/scripts/temporary-artifacts.mjs init --task "<task-local-id>"

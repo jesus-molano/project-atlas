@@ -44,8 +44,8 @@ describe.sequential("Project Atlas runtime", () => {
     rootPath = await mkdtemp(path.join(os.tmpdir(), "project-atlas-memory-"));
     emptyRoot = await mkdtemp(path.join(os.tmpdir(), "project-atlas-empty-"));
     dataHome = await mkdtemp(path.join(os.tmpdir(), "project-atlas-data-"));
-    previousDataHome = process.env.COMPONENT_ATLAS_HOME;
-    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    previousDataHome = process.env.PROJECT_ATLAS_HOME;
+    process.env.PROJECT_ATLAS_HOME = dataHome;
     await cp(vueFixture, rootPath, { recursive: true });
     await cp(vueFixture, emptyRoot, { recursive: true });
     await rm(path.join(emptyRoot, "project-memory"), {
@@ -57,8 +57,8 @@ describe.sequential("Project Atlas runtime", () => {
   });
 
   afterEach(async () => {
-    if (previousDataHome === undefined) delete process.env.COMPONENT_ATLAS_HOME;
-    else process.env.COMPONENT_ATLAS_HOME = previousDataHome;
+    if (previousDataHome === undefined) delete process.env.PROJECT_ATLAS_HOME;
+    else process.env.PROJECT_ATLAS_HOME = previousDataHome;
     await Promise.all([
       rm(rootPath, { recursive: true, force: true }),
       rm(emptyRoot, { recursive: true, force: true }),
@@ -684,7 +684,7 @@ paths:
       applied: [
         expect.objectContaining({
           title: "Normalize filter query values once",
-          path: expect.stringContaining(".component-atlas/memory/"),
+          path: expect.stringContaining("atlas-storage/memory/local/"),
         }),
       ],
     });
@@ -757,7 +757,7 @@ paths:
         blockingFindingIds: [expect.stringContaining("memory-contradiction")],
       },
       impact: {
-        directory: ".component-atlas/memory",
+        directory: "atlas-storage/memory/local",
         itemCount: 1,
       },
     });
@@ -793,12 +793,13 @@ paths:
       canApply: true,
       requiresCanonicalConfirmation: true,
       impact: {
-        directory: "project-memory",
+        directory: "atlas-storage/memory/canonical",
         items: [
           {
             id: "canonical-review-contract",
             scope: "canonical",
-            path: "project-memory/canonical-review-contract.md",
+            path:
+              "atlas-storage/memory/canonical/canonical-review-contract.md",
           },
         ],
       },
@@ -822,7 +823,7 @@ paths:
       status: "applied",
       target: "canonical",
       impact: {
-        directory: "project-memory",
+        directory: "atlas-storage/memory/canonical",
         itemCount: 1,
       },
     });

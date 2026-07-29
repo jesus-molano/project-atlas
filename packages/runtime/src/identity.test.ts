@@ -37,7 +37,7 @@ async function repository(name: string, remote?: string): Promise<string> {
 }
 
 afterEach(async () => {
-  delete process.env.COMPONENT_ATLAS_HOME;
+  delete process.env.PROJECT_ATLAS_HOME;
   await Promise.all(
     temporary.splice(0).map((directory) =>
       rm(directory, { recursive: true, force: true }),
@@ -82,7 +82,7 @@ describe("stable project identity", () => {
 
     const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
     temporary.push(dataHome);
-    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    process.env.PROJECT_ATLAS_HOME = dataHome;
     const primaryGraph = await scanProject(root, { writeArtifacts: false });
     await writeFile(
       path.join(worktree, "components", "StatusCard.vue"),
@@ -144,7 +144,7 @@ describe("stable project identity", () => {
     );
     const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-data-"));
     temporary.push(dataHome);
-    process.env.COMPONENT_ATLAS_HOME = dataHome;
+    process.env.PROJECT_ATLAS_HOME = dataHome;
     const legacyId = projectId(root);
     const legacy = new AtlasStore(legacyId);
     const now = new Date().toISOString();
