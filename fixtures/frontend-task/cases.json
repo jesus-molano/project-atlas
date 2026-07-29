@@ -35,11 +35,64 @@
         "atlas": "compact-context",
         "figma": "confirm-reference-then-inspect-node",
         "figmaRoute": "figma-desktop-mcp-first",
+        "localEndpoint": "http://127.0.0.1:3845/mcp",
+        "preinspection": "get_metadata",
+        "complexity": "small-bounded-node",
+        "deepContext": "direct-standard-timeout",
+        "doNotUseFirst": ["global-figma-mcp", "remote-figma-connector"],
         "codexFigmaSkillRole": "instructions-or-operation-prerequisite",
-        "fallbackOnlyWhen": ["desktop-mcp-not-connected", "desktop-mcp-unauthorized", "operation-unsupported"],
+        "fallbackOnlyWhen": ["desktop-mcp-not-connected", "desktop-mcp-request-failed", "desktop-mcp-timeout-or-no-response", "desktop-mcp-unauthorized", "operation-unsupported"],
         "readyForDevRequired": false,
         "questionMode": "source-confirmation",
         "gate": "confirm-explicit-source-before-connector"
+      }
+    },
+    {
+      "id": "large-figma-frame-segmented-context",
+      "request": "Implement the confirmed checkout page with several sections and responsive states.",
+      "sources": ["conversation", "repository", "figma-node-url"],
+      "capabilities": ["figma-desktop-mcp", "project-atlas"],
+      "expected": {
+        "figmaRoute": "figma-desktop-mcp-first",
+        "localEndpoint": "http://127.0.0.1:3845/mcp",
+        "preinspection": "sparse-metadata-hierarchy",
+        "complexitySignals": ["node-types", "dimensions", "children", "sections-or-frames", "state-or-viewport-families"],
+        "deepContext": "segment-from-start-by-relevant-subtree",
+        "incrementalProgress": true,
+        "timeoutRecovery": "reduce-scope-and-segment",
+        "unchangedRetryWithHigherTimeout": false
+      }
+    },
+    {
+      "id": "very-large-figma-page-adaptive-degradation",
+      "request": "Use the confirmed product page even though full-page context exceeds the response limit.",
+      "sources": ["conversation", "repository", "figma-page-url"],
+      "capabilities": ["figma-desktop-mcp", "project-atlas"],
+      "expected": {
+        "originalPageReference": "preserved",
+        "overview": ["screenshot-or-summary-when-available", "economical-hierarchy-and-ids"],
+        "atlasSupplement": "cached-sparse-scope-only",
+        "selection": "relevant-components-and-related-groups",
+        "batching": "small-adaptive-related-subtrees",
+        "singleNodeOnly": false,
+        "oversizedBatchRecovery": "shrink-next-batch",
+        "successfulChunks": "preserved-not-repeated",
+        "incrementalAssembly": ["covered-scope-ids", "remaining-scope-ids", "omitted-unrelated-scopes"],
+        "missingOverviewOrMetadata": "document-and-request-narrower-evidence",
+        "inventHierarchy": false
+      }
+    },
+    {
+      "id": "figma-local-fallback",
+      "request": "Read the confirmed frame while the local Desktop MCP does not respond.",
+      "sources": ["conversation", "repository", "figma-node-url"],
+      "capabilities": ["figma-remote", "project-atlas"],
+      "expected": {
+        "localEndpointAttemptedFirst": "http://127.0.0.1:3845/mcp",
+        "localCondition": "timeout-or-no-response",
+        "fallback": "remote-figma-connector",
+        "fallbackExplanation": "brief-and-required",
+        "unchangedRetryWithHigherTimeout": false
       }
     },
     {

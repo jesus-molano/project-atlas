@@ -13,8 +13,9 @@ user for links.
    does not authorize connector access.
 3. Inspect the tools actually available in this session:
    - Atlassian Rovo for Jira/Confluence;
-   - Figma Desktop MCP (the local server exposed by the desktop application) as
-     the primary Figma route, plus any other Figma connector only as fallback;
+   - Figma Desktop MCP at `http://127.0.0.1:3845/mcp` as the primary Figma
+     route, plus any global MCP registration or remote Figma connector only as
+     fallback;
    - GitHub for relevant remote repository/issue context;
    - Project Atlas MCP for local code/design/memory context.
    A local or remote Swagger/OpenAPI document is a task source, not evidence
@@ -116,12 +117,15 @@ block on optional sources.
 Use the provider that owns each source instead of reproducing it:
 
 - Jira/Confluence through available Atlassian Rovo capabilities;
-- confirmed Figma through Figma Desktop MCP, the local MCP server exposed by
-  the Figma desktop application, first. Use the applicable Codex/Figma skill
-  only as instructions or a prerequisite for the intended desktop MCP
-  operation, never as a substitute data route. Use another connector, manual
-  selection, or alternative evidence only when Figma Desktop MCP is not
-  connected, not authorized, or lacks the required operation;
+- confirmed Figma through Figma Desktop MCP at
+  `http://127.0.0.1:3845/mcp` first. Resolve it before a global MCP
+  registration or remote Figma connector, and do not bypass it while it is
+  healthy and exposes the required operation. Use the applicable Codex/Figma
+  skill only as instructions or a prerequisite, never as a substitute data
+  route. Use another connector, manual selection, or alternative evidence only
+  when the local MCP is not connected, rejects/times out, does not respond, is
+  unauthorized, or lacks the required operation; state the reason and fallback
+  briefly;
 - confirmed Swagger/OpenAPI through the supplied local file, URL, or pasted
   contract; extract only task-relevant operations, schemas, responses, and
   authentication;
@@ -131,6 +135,19 @@ Use the provider that owns each source instead of reproducing it:
 Follow only explicit relevant links between sources. Keep provenance, use
 orient/search/expand, and retrieve detail only after a source or node is
 confirmed.
+
+For confirmed Figma, preinspect sparse metadata/hierarchy before requesting
+full design context. Read a small bounded node directly with the standard
+timeout. Segment a large page/frame from the outset by relevant sections,
+frames, or children. After a timeout, narrow and continue incrementally instead
+of repeating the same request with a larger timeout.
+
+When a very large page exceeds limits, fails, or times out, retain its original
+reference. Use an available lightweight screenshot/summary plus economical
+hierarchy/IDs, then retrieve relevant related groups in small adaptive batches
+and preserve successful chunks. If neither overview nor metadata is available,
+state the limitation and request a narrower link, selection, screenshot, or
+export.
 
 Keep the ledger in task/thread state. Durable source metadata can be proposed
 for project promotion only with an explicit user decision; a task reference is
