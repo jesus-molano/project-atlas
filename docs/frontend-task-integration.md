@@ -131,7 +131,10 @@ receipt/Atlas IDs, covered/remaining scope, worktree/HEAD, budget, and next safe
 action. TOON is used only when a strict round trip validates and is smaller;
 JSON remains the canonical readable fallback. No transcript or index is
 replayed. Closed capsules expire after 24 hours and leave a minimal final
-receipt.
+receipt. A selected visual direction crosses this boundary only as its opaque
+`visual:` contract handle; its compact DesignContract remains in the owned
+temporary session and becomes intentionally unexpandable after close, cancel,
+or TTL purge.
 
 Invoking the skill authorizes this task-scoped orchestration. It does not
 authorize plugin installation, connector login, access to an unconnected

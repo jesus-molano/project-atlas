@@ -354,7 +354,7 @@ describe("visual-direction temporary artifact lifecycle", () => {
     }
   });
 
-  it("sweeps expired sessions and rejects artifact roots inside Git", async () => {
+  it("expires selected handles without residue and rejects artifact roots inside Git", async () => {
     const testRoot = await mkdtemp(
       path.join(os.tmpdir(), "visual-direction-ttl-"),
     );
@@ -367,12 +367,36 @@ describe("visual-direction temporary artifact lifecycle", () => {
         ttlMs: 1_000,
         now: start,
       });
+      const selection = await selectDirection({
+        sessionPath: session.sessionPath,
+        direction: {
+          version: 1,
+          mode: "explore",
+          locked_direction: { base: "direction-a" },
+        },
+        root: ownedRoot,
+      });
+      await expect(
+        readSelectedContract({
+          contractHandle: selection.contractHandle,
+          root: ownedRoot,
+        }),
+      ).resolves.toMatchObject({
+        contractHandle: selection.contractHandle,
+        directionHash: selection.directionHash,
+      });
       const swept = await sweepExpired({
         root: ownedRoot,
-        now: start + 1_001,
+        now: Date.parse(selection.expiresAt) + 1,
       });
       expect(swept.cleaned).toContain(session.sessionId);
       expect(await readdir(ownedRoot)).toEqual([]);
+      await expect(
+        readSelectedContract({
+          contractHandle: selection.contractHandle,
+          root: ownedRoot,
+        }),
+      ).rejects.toThrow();
 
       const forbiddenRoot = path.join(
         process.cwd(),

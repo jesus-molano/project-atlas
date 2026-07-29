@@ -112,6 +112,8 @@ validation:
   - Commands and manual checks required
 resume_capsule:
   task_id: Stable task ID
+  handles:
+    - Opaque Atlas IDs and optional selected visual contract handle
   covered: [Bounded scope IDs]
   remaining: [Bounded scope IDs]
   worktree_head: Exact HEAD

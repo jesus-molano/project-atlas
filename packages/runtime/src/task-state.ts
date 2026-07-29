@@ -26,6 +26,8 @@ const MAX_JOURNAL_EVENT_BYTES = 2_048;
 const CLOSED_TTL_MS = 24 * 60 * 60 * 1_000;
 const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const RECEIPT_ID = /^receipt-[a-f0-9]{16}$/u;
+const EXPANDABLE_HANDLE =
+  /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16})$/u;
 
 export type TaskJournalMilestone =
   | "objective-approved"
@@ -179,9 +181,7 @@ export function taskContextResumeHandles(
     ...(context.memory ?? []).map((item) => `memory:${item.id}`),
     ...(context.design?.candidates ?? []).map((item) => `design:${item.id}`),
   ]
-    .filter((handle) =>
-      /^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/u.test(handle),
-    )
+    .filter((handle) => EXPANDABLE_HANDLE.test(handle))
     .filter((handle, index, collection) => collection.indexOf(handle) === index)
     .slice(0, 8);
 }
@@ -334,9 +334,7 @@ export async function writeTaskCheckpoint(
     handles: [
       ...new Set(
         input.handles
-          .filter((handle) =>
-            /^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/u.test(handle),
-          )
+          .filter((handle) => EXPANDABLE_HANDLE.test(handle))
           .slice(0, 8),
       ),
     ],
