@@ -1,15 +1,20 @@
-import { lookup } from "node:dns/promises";
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import {
+  assertSourceReceiptMatchesDecision,
   createSourceReceipt,
   sourceIdentityFromReference,
   taskSourceId,
   type SourceReceipt,
   type SourceReceiptAdapter,
+  type TaskSourceRoutePolicy,
 } from "@component-atlas/core";
 import { parse } from "yaml";
+import {
+  canonicalizePublicOpenApiReference,
+  type CanonicalOpenApiDocument,
+} from "./openapi-source.js";
 
 const MAX_SPEC_BYTES = 1_500_000;
 const MAX_OPERATIONS = 6;
@@ -88,6 +93,7 @@ export interface ConfirmedOpenApiSource {
   observedAt?: string;
   version?: string;
   fallback?: SourceReceipt["fallback"];
+  routePolicy?: TaskSourceRoutePolicy;
 }
 
 export interface ResolvedOpenApiSource {
@@ -98,6 +104,7 @@ export interface ResolvedOpenApiSource {
   observedAt?: string;
   version?: string;
   fallback?: SourceReceipt["fallback"];
+  derivation?: CanonicalOpenApiDocument["derivation"];
 }
 
 export type OpenApiSourceResolver = (
@@ -445,94 +452,6 @@ export function extractOpenApiTaskContext(
   };
 }
 
-function privateAddress(address: string): boolean {
-  const normalized = address.toLowerCase();
-  if (normalized.startsWith("::ffff:")) {
-    return privateAddress(normalized.slice("::ffff:".length));
-  }
-  if (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fe80:") ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd")
-  ) {
-    return true;
-  }
-  const octets = normalized.split(".").map(Number);
-  return (
-    octets.length === 4 &&
-    (octets[0] === 0 ||
-      octets[0] === 10 ||
-      octets[0] === 127 ||
-      (octets[0] === 100 && (octets[1] ?? 0) >= 64 && (octets[1] ?? 0) <= 127) ||
-      (octets[0] === 169 && octets[1] === 254) ||
-      (octets[0] === 172 && (octets[1] ?? 0) >= 16 && (octets[1] ?? 0) <= 31) ||
-      (octets[0] === 192 && octets[1] === 168) ||
-      (octets[0] === 198 && octets[1] === 18) ||
-      (octets[0] ?? 0) >= 224)
-  );
-}
-
-async function assertPublicUrl(url: URL): Promise<void> {
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
-    throw new Error("OpenAPI URLs must use HTTP(S) without embedded credentials.");
-  }
-  const hostname = url.hostname.toLowerCase();
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-    throw new Error("Local network OpenAPI URLs are not allowed.");
-  }
-  const addresses = await lookup(hostname, { all: true });
-  if (addresses.length === 0 || addresses.some(({ address }) => privateAddress(address))) {
-    throw new Error("Private network OpenAPI URLs are not allowed.");
-  }
-}
-
-async function readRemote(reference: string): Promise<string> {
-  let url = new URL(reference);
-  for (let redirect = 0; redirect <= 3; redirect += 1) {
-    await assertPublicUrl(url);
-    const response = await fetch(url, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(8_000),
-      headers: { accept: "application/json, application/yaml, text/yaml, */*" },
-    });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      if (!location || redirect === 3) {
-        throw new Error("The confirmed OpenAPI URL redirected too many times.");
-      }
-      url = new URL(location, url);
-      continue;
-    }
-    if (!response.ok) {
-      throw new Error(`The confirmed OpenAPI URL returned HTTP ${response.status}.`);
-    }
-    const length = Number(response.headers.get("content-length") ?? 0);
-    if (length > MAX_SPEC_BYTES) {
-      throw new Error("The confirmed OpenAPI specification exceeds the 1.5 MB limit.");
-    }
-    if (!response.body) return "";
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_SPEC_BYTES) {
-        await reader.cancel();
-        throw new Error(
-          "The confirmed OpenAPI specification exceeds the 1.5 MB limit.",
-        );
-      }
-      chunks.push(value);
-    }
-    return Buffer.concat(chunks, total).toString("utf8");
-  }
-  throw new Error("The confirmed OpenAPI URL could not be loaded.");
-}
-
 function localReference(reference: string): string {
   return reference
     .replace(/^(?:openapi|swagger)[:#]\s*/iu, "")
@@ -609,12 +528,17 @@ export async function loadConfirmedOpenApiContext(
         : resolver
           ? await resolver(source)
           : /^https?:\/\//iu.test(resolvedReference)
-            ? {
-                content: await readRemote(resolvedReference),
-                adapter: "openapi-public-http",
-                route: resolvedReference,
-                operation: "http-get-confirmed-contract",
-              }
+            ? await canonicalizePublicOpenApiReference(resolvedReference).then(
+                (canonical) => ({
+                  content: canonical.content,
+                  adapter: "openapi-public-http" as const,
+                  route: canonical.finalUrl,
+                  operation: canonical.operation,
+                  ...(canonical.derivation
+                    ? { derivation: canonical.derivation }
+                    : {}),
+                }),
+              )
             : {
                 content: await readLocal(rootPath, resolvedReference),
                 adapter: "openapi-local-file",
@@ -640,9 +564,32 @@ export async function loadConfirmedOpenApiContext(
         contentHash: `sha256:${contentHash}`,
         observedAt: loaded.observedAt ?? new Date().toISOString(),
         ...(loaded.fallback ? { fallback: loaded.fallback } : {}),
+        ...(loaded.derivation
+          ? {
+              derivation: {
+                kind: loaded.derivation.kind,
+                sourceId: requested.canonicalId,
+                targetId: loaded.derivation.targetUrl,
+                evidenceHash: loaded.derivation.evidenceHash,
+                redirectChain: loaded.derivation.redirectChain,
+              },
+            }
+          : {}),
         coverage: "exact",
         freshness: "current",
       });
+      if (source.routePolicy) {
+        assertSourceReceiptMatchesDecision(
+          {
+            id: source.sourceDecisionId,
+            kind: "openapi",
+            reference: source.reference,
+            state: "confirmed",
+            routePolicy: source.routePolicy,
+          },
+          receipt,
+        );
+      }
       contexts.push(extractOpenApiTaskContext(loaded.content, task, receipt));
     } catch (error) {
       const receipt = createSourceReceipt({

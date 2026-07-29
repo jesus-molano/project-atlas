@@ -21,27 +21,38 @@ inspect and record the same structured intake before context generation:
    unavailable. Optional omitted sources never block the task.
 6. Only confirmed sources enter task context or authorize connector access;
    connector health, credentials, and searches are not probed beforehand.
-   OpenAPI is loaded directly only after confirmation; Atlas extracts a bounded
+   OpenAPI is loaded only after confirmation; Atlas extracts a bounded
    task-relevant subset of operations, parameters, schemas, responses, and
-   authentication instead of injecting the full specification. Local, pasted,
-   public, and authenticated/internal connector routes record distinct
-   provenance. One failed contract does not discard valid contracts;
-   conflicting operations block instead of being silently merged.
+   authentication instead of injecting the full specification. A confirmed
+   Swagger UI URL remains the requested identity while Atlas may statically
+   derive a same-origin specification URL through bounded config or initializer
+   reads. The receipt records that derivation without storing either response
+   body. Cross-origin redirects/targets, private-network destinations, and
+   ambiguous contract lists fail closed. Local, pasted, public, and
+   authenticated/internal connector routes record distinct provenance. One
+   failed contract does not discard valid contracts; conflicting operations
+   block instead of being silently merged.
 7. Codex prepares the brief in a read-only turn.
 8. Editing requires a second confirmation and resumes the same reviewed thread
    with checkout write permission.
 
-The task draft and active run remain in browser/in-memory state. A separate
-ignored local task-state store persists no transcript: an append-only journal
-of bounded semantic milestones and one materialized capsule (maximum 4 KB)
-containing the approved objective, source decisions, receipt/Atlas handle IDs,
-covered/remaining scope, worktree/HEAD, budget, and next safe action. Resume
-loads only this capsule. Closed capsules expire after 24 hours; Atlas then keeps
-only a minimal final receipt (task ID, completion time, HEAD, receipt IDs).
+The task draft and active run remain in browser/in-memory state. Atlas stores
+the complete task source ledger and bounded task state outside every checkout
+under `%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\task-state\`. The
+append-only journal contains semantic milestones, while one materialized
+capsule (maximum 4 KB) contains the approved objective, source-decision and
+receipt/Atlas handle IDs, covered/remaining scope, worktree/HEAD, budget, and
+next safe action. Resume loads only this capsule and expands ledger entries by
+handle when needed. Closed capsules expire after 24 hours; Atlas then keeps only
+a minimal final receipt (task ID, completion time, HEAD, receipt IDs). Legacy
+checkout-local state may be read compatibly but is never migrated or deleted
+automatically.
 
 OpenAPI references and extracted contract context remain task-scoped. They are
-never written to durable memory automatically, and exact URLs or specification
-content are excluded from persisted run audits.
+never promoted to durable project memory automatically. Exact confirmed and
+derived URLs live only in the external source ledger/receipts; specification,
+Swagger UI, config, and initializer bodies are excluded from persisted run
+audits and capsules.
 
 ## Scope policy
 

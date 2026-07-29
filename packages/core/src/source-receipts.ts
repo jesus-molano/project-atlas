@@ -75,6 +75,17 @@ export interface SourceReceipt {
     ancestorIds?: string[];
     proofHash?: string;
   };
+  derivation?: {
+    kind:
+      | "same-origin-redirect"
+      | "swagger-ui-config"
+      | "swagger-ui-config-url"
+      | "swagger-ui-initializer";
+    sourceId: string;
+    targetId: string;
+    evidenceHash: string;
+    redirectChain?: string[];
+  };
   contentHash?: string;
   observedAt: string;
   fallback?: {
@@ -247,6 +258,7 @@ export function sourceReceiptId(input: {
   contentHash?: string;
   scope?: SourceReceipt["scope"];
   scopeRelation?: SourceReceipt["scopeRelation"];
+  derivation?: SourceReceipt["derivation"];
 }): string {
   const immutable = [
     input.sourceDecisionId,
@@ -268,6 +280,16 @@ export function sourceReceiptId(input: {
       ...(input.scopeRelation?.ancestorIds ?? []),
       input.scopeRelation?.proofHash ?? "",
     );
+    if (input.derivation) {
+      immutable.push(
+        "derivation",
+        input.derivation.kind,
+        input.derivation.sourceId,
+        input.derivation.targetId,
+        input.derivation.evidenceHash,
+        ...(input.derivation.redirectChain ?? []),
+      );
+    }
   }
   const value = immutable.join("\0");
   let first = 0x811c9dc5;
@@ -329,6 +351,21 @@ export function createSourceReceipt(
           : {}),
       }
     : undefined;
+  const derivation = input.derivation
+    ? {
+        kind: input.derivation.kind,
+        sourceId: short(input.derivation.sourceId, 1_000),
+        targetId: short(input.derivation.targetId, 1_000),
+        evidenceHash: short(input.derivation.evidenceHash, 200),
+        ...(input.derivation.redirectChain
+          ? {
+              redirectChain: input.derivation.redirectChain
+                .map((item) => short(item, 1_000))
+                .slice(0, 4),
+            }
+          : {}),
+      }
+    : undefined;
   if (
     scopeRelation &&
     (!["same-scope", "contained-scope"].includes(scopeRelation.kind) ||
@@ -339,6 +376,20 @@ export function createSourceReceipt(
         scopeRelation.sourceId === scopeRelation.targetId))
   ) {
     throw new Error("Source receipt scope relation is invalid.");
+  }
+  if (
+    derivation &&
+    (![
+      "same-origin-redirect",
+      "swagger-ui-config",
+      "swagger-ui-config-url",
+      "swagger-ui-initializer",
+    ].includes(derivation.kind) ||
+      derivation.sourceId !== input.requested.canonicalId ||
+      derivation.sourceId === derivation.targetId ||
+      !/^sha256:[a-f0-9]{64}$/u.test(derivation.evidenceHash))
+  ) {
+    throw new Error("Source receipt derivation is invalid.");
   }
   const normalized = {
     ...input,
@@ -353,6 +404,7 @@ export function createSourceReceipt(
         : {}),
     },
     ...(scopeRelation ? { scopeRelation } : {}),
+    ...(derivation ? { derivation } : {}),
     ...(contentHash ? { contentHash } : {}),
     observedAt,
   };
@@ -365,6 +417,7 @@ export function createSourceReceipt(
     ...(contentHash ? { contentHash } : {}),
     scope: normalized.scope,
     ...(scopeRelation ? { scopeRelation } : {}),
+    ...(derivation ? { derivation } : {}),
   });
   if (input.id && input.id !== expectedId) {
     throw new Error("Source receipt ID does not match its immutable fields.");

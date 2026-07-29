@@ -8,7 +8,7 @@ sources reduce evidence; they do not invalidate the workflow.
 | Repository instructions | Local files and source search | Ask for repository path only if it cannot be discovered |
 | Jira task | Atlassian Rovo read/search from the supplied issue | Supplied text or another adapter only when the task ledger explicitly allows it |
 | Confluence context | Atlassian Rovo read/search from the supplied page | Supplied text or another adapter only when the task ledger explicitly allows it |
-| Swagger/OpenAPI contract | Confirmed supplied URL, local file, or pasted contract; extract a bounded task-relevant subset | Ask for the contract when required, or omit when optional |
+| Swagger/OpenAPI contract | Confirmed supplied URL (including Swagger UI), local file, or pasted contract; securely derive a same-origin spec when needed and extract a bounded task-relevant subset | Require an explicit new source decision for cross-origin, ambiguous, authenticated, or otherwise unsafe derivation; ask for the contract when required, or omit when optional |
 | Refresh component graph | `scan_repository` | `component-atlas scan <root>` then manual search |
 | Observe connector/enrichment state | `report_source_capabilities`, then `get_source_capabilities` | `component-atlas capabilities report/show` |
 | Compact project orientation | `orient_project` | `component-atlas memory orient <root>` |

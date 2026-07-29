@@ -18,9 +18,9 @@ user for links.
      fallback;
    - GitHub for relevant remote repository/issue context;
    - Project Atlas MCP for local code/design/memory context.
-   A local or remote Swagger/OpenAPI document is a task source, not evidence
-   that a connector exists. Infer availability only from the supplied reference
-   and ordinary read capabilities.
+   A local contract, remote OpenAPI document, or Swagger UI URL is a task
+   source, not evidence that a connector exists. Infer availability only from
+   the supplied reference and ordinary read capabilities.
    When Atlas is available, report this session observation with
    `report_source_capabilities` and read `get_source_capabilities` only if
    connector health affects an already confirmed task source. Do not call a
@@ -135,9 +135,13 @@ Use the provider that owns each source instead of reproducing it:
   route. Use another connector, manual selection, or alternative evidence only
   when the local MCP is not connected, rejects/times out, does not respond, is
   unauthorized, or lacks the required operation; state the reason and fallback
-  briefly;
+  briefly, and only when the task ledger has `allow-list` permission for that
+  adapter. `ask` pauses for a user decision and `deny` forbids fallback;
 - confirmed Swagger/OpenAPI through the supplied local file, URL, or pasted
-  contract; extract only task-relevant operations, schemas, responses, and
+  contract. Treat a confirmed Swagger UI URL as the immutable source and let
+  Atlas statically derive only a same-origin spec/config target. Do not execute
+  page JavaScript or follow private-network, cross-origin, or ambiguous
+  targets. Extract only task-relevant operations, schemas, responses, and
   authentication;
 - GitHub through the GitHub capability when remote evidence matters;
 - Project Atlas through its MCP when its compact context adds value.

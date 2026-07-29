@@ -90,6 +90,19 @@ export {
   type OpenApiSourceResolver,
 } from "./openapi.js";
 export {
+  assertPublicRemoteUrl,
+  assertSameOriginTransition,
+  canonicalizePublicOpenApiReference,
+  isOpenApiDocument,
+  privateNetworkAddress,
+  readPublicDocument,
+  type CanonicalOpenApiDocument,
+  type PublicAddress,
+  type PublicAddressResolver,
+  type PublicDocument,
+  type PublicDocumentLoader,
+} from "./openapi-source.js";
+export {
   prepareTaskContext,
   TaskPreparationBlockedError,
   type GuardedTaskContextDependencies,

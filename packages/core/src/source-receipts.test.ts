@@ -198,6 +198,49 @@ describe("source receipts", () => {
     expect(parseSourceReceipt({ ...legacy, id })).toEqual({ ...legacy, id });
   });
 
+  it("records a derived OpenAPI spec without replacing confirmed Swagger UI identity", () => {
+    const reference = "https://api.example.com/swagger";
+    const identity = sourceIdentityFromReference("openapi", reference);
+    const receipt = createSourceReceipt({
+      sourceDecisionId: taskSourceId("openapi", reference),
+      provider: "openapi",
+      requested: identity,
+      resolved: identity,
+      adapter: "openapi-public-http",
+      route: "https://api.example.com/openapi.json",
+      operation: "canonicalize-swagger-ui-contract",
+      scope: { kind: "document", id: identity.canonicalId },
+      derivation: {
+        kind: "swagger-ui-config",
+        sourceId: identity.canonicalId,
+        targetId: "https://api.example.com/openapi.json",
+        evidenceHash: `sha256:${"a".repeat(64)}`,
+      },
+      observedAt: "2026-07-29T12:00:00.000Z",
+      coverage: "exact",
+      freshness: "current",
+    });
+
+    expect(receipt).toMatchObject({
+      requested: { canonicalId: reference },
+      resolved: { canonicalId: reference },
+      derivation: {
+        targetId: "https://api.example.com/openapi.json",
+      },
+    });
+    expect(() => parseSourceReceipt(receipt)).not.toThrow();
+    expect(() =>
+      createSourceReceipt({
+        ...receipt,
+        id: undefined,
+        derivation: {
+          ...receipt.derivation!,
+          sourceId: "https://api.example.com/openapi.json",
+        },
+      }),
+    ).toThrow(/derivation/i);
+  });
+
   it("applies the same exact-identity rule to Jira and Confluence", () => {
     const jiraReference =
       "https://example.atlassian.net/browse/APP-42";

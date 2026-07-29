@@ -203,6 +203,16 @@ function receiptId(receipt: AgentSourceReceipt): string {
       ...(receipt.scopeRelation?.ancestorIds ?? []),
       receipt.scopeRelation?.proofHash ?? "",
     );
+    if (receipt.derivation) {
+      immutable.push(
+        "derivation",
+        receipt.derivation.kind,
+        receipt.derivation.sourceId,
+        receipt.derivation.targetId,
+        receipt.derivation.evidenceHash,
+        ...(receipt.derivation.redirectChain ?? []),
+      );
+    }
   }
   const value = immutable.join("\0");
   let first = 0x811c9dc5;
@@ -265,6 +275,20 @@ export function parseAgentSourceReceipt(value: unknown): AgentSourceReceipt {
         receipt.scopeRelation.sourceId === receipt.scopeRelation.targetId))
   ) {
     throw new Error("SourceReceipt scope relation is invalid.");
+  }
+  if (
+    receipt.derivation &&
+    (![
+      "same-origin-redirect",
+      "swagger-ui-config",
+      "swagger-ui-config-url",
+      "swagger-ui-initializer",
+    ].includes(receipt.derivation.kind) ||
+      receipt.derivation.sourceId !== receipt.requested.canonicalId ||
+      receipt.derivation.sourceId === receipt.derivation.targetId ||
+      !/^sha256:[a-f0-9]{64}$/u.test(receipt.derivation.evidenceHash))
+  ) {
+    throw new Error("SourceReceipt derivation is invalid.");
   }
   if (receipt.id !== receiptId(receipt)) {
     throw new Error("SourceReceipt ID does not match immutable fields.");

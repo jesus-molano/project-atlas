@@ -71,4 +71,48 @@ describe("agent SourceReceipt compatibility", () => {
       }),
     ).toThrow(/fallback/i);
   });
+
+  it("accepts a core v2 Swagger UI derivation without changing source identity", () => {
+    const receipt = parseAgentSourceReceipt({
+      sourceDecisionId: "source-openapi-324cbdaa",
+      provider: "openapi",
+      requested: {
+        provider: "openapi",
+        canonicalId: "https://api.example.com/swagger",
+        url: "https://api.example.com/swagger",
+        host: "api.example.com",
+      },
+      resolved: {
+        provider: "openapi",
+        canonicalId: "https://api.example.com/swagger",
+        url: "https://api.example.com/swagger",
+        host: "api.example.com",
+      },
+      adapter: "openapi-public-http",
+      route: "https://api.example.com/openapi.json",
+      operation: "canonicalize-swagger-ui-contract",
+      scope: {
+        kind: "document",
+        id: "https://api.example.com/swagger",
+      },
+      derivation: {
+        kind: "swagger-ui-config",
+        sourceId: "https://api.example.com/swagger",
+        targetId: "https://api.example.com/openapi.json",
+        evidenceHash: `sha256:${"a".repeat(64)}`,
+      },
+      observedAt: "2026-07-29T12:00:00.000Z",
+      coverage: "exact",
+      freshness: "current",
+      schemaVersion: 2,
+      id: "receipt-d88f07f4839f1304",
+    });
+
+    expect(receipt.requested.canonicalId).toBe(
+      "https://api.example.com/swagger",
+    );
+    expect(receipt.derivation?.targetId).toBe(
+      "https://api.example.com/openapi.json",
+    );
+  });
 });

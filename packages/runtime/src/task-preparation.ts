@@ -169,6 +169,7 @@ export async function preflightConfirmedSourceIntegrity(
     .map((source) => ({
       sourceDecisionId: source.id,
       reference: source.reference,
+      ...(source.routePolicy ? { routePolicy: source.routePolicy } : {}),
     }));
   let preloadedOpenApiContext: OpenApiTaskContext | undefined;
   if (requiredOpenApi.length > 0) {

@@ -70,6 +70,17 @@ export interface AgentSourceReceipt {
     ancestorIds?: string[];
     proofHash?: string;
   };
+  derivation?: {
+    kind:
+      | "same-origin-redirect"
+      | "swagger-ui-config"
+      | "swagger-ui-config-url"
+      | "swagger-ui-initializer";
+    sourceId: string;
+    targetId: string;
+    evidenceHash: string;
+    redirectChain?: string[];
+  };
   contentHash?: string;
   observedAt: string;
   fallback?: {

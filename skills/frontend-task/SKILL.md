@@ -289,11 +289,18 @@ evidence.
   operation, exact scope, observation/version/hash, fallback condition,
   coverage, and freshness live in the receipt. Expand it with
   `expand_source_receipt` only when evidence is inspected.
-- OpenAPI may come from a confirmed local file, pasted content, public URL, or
-  authenticated/internal connector. Keep per-contract and per-operation
-  receipt IDs. Do not auto-confirm task wording, silently merge incompatible
-  operations, or let one unreadable corporate contract discard other valid
-  confirmed contracts.
+- OpenAPI may come from a confirmed local file, pasted content, public URL,
+  Swagger UI URL, or authenticated/internal connector. A confirmed Swagger UI
+  URL remains the immutable source identity. Atlas may derive a same-origin
+  specification with a bounded static config/initializer read and records the
+  derived target, redirect chain, and evidence hash in the receipt; it never
+  executes page JavaScript. Cross-origin targets, ambiguous `urls` lists, and
+  unsafe network destinations fail closed and require a separately confirmed
+  source decision. Do not ask the user to replace a confirmed UI URL with its
+  JSON URL when this safe derivation succeeds. Keep per-contract and
+  per-operation receipt IDs. Do not auto-confirm task wording, silently merge
+  incompatible operations, or let one unreadable corporate contract discard
+  other valid confirmed contracts.
 - Long tasks call `checkpoint_task` with the same `task_id` only at semantic
   milestones and before a risk boundary: approved objective, confirmed
   decision, source resolution, completed batch, validated change/test, block,
@@ -359,8 +366,7 @@ review guard without option generation.
    fix and recapture the same implementation rather than reviving variants.
 4. Rescan Atlas after component changes and confirm the graph reflects them.
 5. At closeout, load `references/memory-closeout.md` only if its manifest
-   digest was not already loaded for this phase. Finish every completed task
-   with the compact **Memory candidates** closeout, even when there is no
+   digest was not already loaded for this phase. Finish every completed task with the compact **Memory candidates** closeout, even when there is no
    candidate. This is
    the shared structured `memoryCloseout` result: produce it once, present it in
    chat, and let the GUI render the same object without reclassification. It is

@@ -147,4 +147,51 @@ describe("OpenAPI task context", () => {
     });
     expect(context?.operations[0]?.sourceReceiptIds).toHaveLength(1);
   });
+
+  it("keeps Swagger UI identity while recording a verified derived spec", async () => {
+    const reference = "https://api.example.com/swagger";
+    const context = await loadConfirmedOpenApiContext(
+      "/repo",
+      "Create a login challenge",
+      [
+        {
+          sourceDecisionId: taskSourceId("openapi", reference),
+          reference,
+          routePolicy: {
+            primaryAdapter: "openapi-public-http",
+            fallback: "deny",
+          },
+        },
+      ],
+      async () => ({
+        content: specification,
+        adapter: "openapi-public-http",
+        route: "https://api.example.com/openapi.json",
+        operation: "canonicalize-swagger-ui-contract",
+        observedAt: "2026-07-29T12:00:00.000Z",
+        derivation: {
+          kind: "swagger-ui-config",
+          targetUrl: "https://api.example.com/openapi.json",
+          evidenceHash: `sha256:${"a".repeat(64)}`,
+          redirectChain: [
+            "https://api.example.com/swagger",
+            "https://api.example.com/openapi.json",
+          ],
+        },
+      }),
+    );
+
+    expect(context?.receipts[0]).toMatchObject({
+      requested: { canonicalId: reference },
+      resolved: { canonicalId: reference },
+      adapter: "openapi-public-http",
+      route: "https://api.example.com/openapi.json",
+      derivation: {
+        kind: "swagger-ui-config",
+        sourceId: reference,
+        targetId: "https://api.example.com/openapi.json",
+      },
+      coverage: "exact",
+    });
+  });
 });

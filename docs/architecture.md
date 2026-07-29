@@ -89,6 +89,15 @@ is evaluated against that ledger: `deny` forbids fallback, `ask` pauses before
 access, and `allow-list` permits only named adapters with a recorded condition.
 Legacy v1 receipts remain readable and are not rewritten automatically.
 
+A confirmed Swagger UI URL also remains immutable receipt identity. The public
+OpenAPI loader may derive a same-origin specification through bounded static
+HTML/config/initializer inspection and records the target and evidence hash as
+receipt derivation. It executes no JavaScript, rejects private or loopback DNS
+answers, pins the validated DNS result for the request, limits redirects to the
+exact origin, restricts ports and response sizes, and rejects ambiguous
+multi-contract pages. Cross-origin or authenticated contracts require their own
+explicit source route/decision.
+
 ## Agent context contract
 
 `buildReuseContext` is the stable integration boundary. Given a repository graph,
