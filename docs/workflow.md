@@ -22,7 +22,10 @@ The skill performs this sequence:
    confirmation for Jira, Confluence, Figma, and Swagger/OpenAPI before code
    investigation, even when none was detected. Each source can be confirmed,
    supplied/replaced, or explicitly omitted. Other tasks ask only for a source
-   or decision that can materially change implementation.
+   or decision that can materially change implementation. Persist full
+   decisions in the external task source ledger with authority role, primary
+   adapter, fallback policy, and any explicit requirement-to-visual-scope
+   relation. Later checkpoints reuse the ledger rather than asking again.
 3. **Code index.** Call `scan_repository` for the current checkout. Code Atlas
    derives components, routes, layouts, imports, composition, consumers,
    similarity, tests, and impact. The compact result also reports the detected
@@ -32,10 +35,12 @@ The skill performs this sequence:
    index exists. An explicit refresh is used when approved memory files changed.
 5. **Design index.** When a Figma source is confirmed, preparation first reads
    sparse metadata through Figma Desktop MCP and persists it with
-   `map_figma_file` plus an exact SourceReceipt. A confirmed node preserves
+   `map_figma_file` with the task/source-decision IDs plus an exact
+   SourceReceipt. A confirmed node preserves
    `fileKey+nodeId`, skips ranking, and blocks instead of accepting a missing,
    mismatched, or stale target; a
-   file/page is mapped and ranked before deep retrieval. The workspace refreshes
+   file/page can retain its immutable identity while a proven contained child
+   selection becomes the implementation scope. The workspace refreshes
    during the run so Design Atlas is visible before code work or task completion.
 6. **Bounded context.** Retrieve a few task-relevant memory, code, and optional
    design candidates under one shared hard cap.

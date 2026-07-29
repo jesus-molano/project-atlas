@@ -3,6 +3,7 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { normalizeProjectAtlasArguments } from "./project-atlas-arguments.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const cliEntry = path.join(repositoryRoot, "packages", "cli", "dist", "index.js");
@@ -92,39 +93,10 @@ function buildProduct() {
   }
 }
 
-function normalizeArguments(args) {
-  const normalized = args[0] === "--" ? args.slice(1) : args;
-  if (normalized[0] === "open") return normalized;
-  if (normalized.length === 0 || normalized[0]?.startsWith("-")) {
-    return ["open", ...normalized];
-  }
-  const cliCommands = new Set([
-    "setup",
-    "scan",
-    "capabilities",
-    "evaluation",
-    "search",
-    "context",
-    "show",
-    "similar",
-    "impact",
-    "decision",
-    "memory",
-    "figma",
-    "mcp",
-  ]);
-  return cliCommands.has(normalized[0])
-    ? normalized
-    : ["open", ...normalized];
-}
-
 try {
   if (!(await productBuildIsCurrent())) buildProduct();
-  const cliArguments = normalizeArguments(process.argv.slice(2));
-  const { configureGlobalIgnore, createProgram } = await import(
-    pathToFileURL(cliEntry).href
-  );
-  if (cliArguments[0] === "open") await configureGlobalIgnore();
+  const cliArguments = normalizeProjectAtlasArguments(process.argv.slice(2));
+  const { createProgram } = await import(pathToFileURL(cliEntry).href);
   await createProgram().parseAsync([
     process.execPath,
     "project-atlas",

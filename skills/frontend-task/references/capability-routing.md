@@ -6,9 +6,9 @@ sources reduce evidence; they do not invalidate the workflow.
 | Need | Preferred route | Fallback |
 | --- | --- | --- |
 | Repository instructions | Local files and source search | Ask for repository path only if it cannot be discovered |
-| Jira task | Connected Jira read/search from supplied issue | Supplied text or conversation |
-| Confluence context | Connected Confluence read/search from supplied page | Supplied text or omit |
-| Swagger/OpenAPI contract | Confirmed supplied URL, local file, or pasted contract; extract a bounded task-relevant subset | Ask for the contract when required, or omit when optional |
+| Jira task | Atlassian Rovo read/search from the supplied issue | Supplied text or another adapter only when the task ledger explicitly allows it |
+| Confluence context | Atlassian Rovo read/search from the supplied page | Supplied text or another adapter only when the task ledger explicitly allows it |
+| Swagger/OpenAPI contract | Confirmed supplied URL (including Swagger UI), local file, or pasted contract; securely derive a same-origin spec when needed and extract a bounded task-relevant subset | Require an explicit new source decision for cross-origin, ambiguous, authenticated, or otherwise unsafe derivation; ask for the contract when required, or omit when optional |
 | Refresh component graph | `scan_repository` | `component-atlas scan <root>` then manual search |
 | Observe connector/enrichment state | `report_source_capabilities`, then `get_source_capabilities` | `component-atlas capabilities report/show` |
 | Compact project orientation | `orient_project` | `component-atlas memory orient <root>` |
@@ -21,14 +21,17 @@ sources reduce evidence; they do not invalidate the workflow.
 | Record task episode | `record_outcome` | `component-atlas memory outcome <root> <json>` |
 | Opt-in private task metrics | `record_task_evaluation` | `component-atlas evaluation record <root> --input <json>` |
 | Compact reuse candidates | `get_reuse_context` | `component-atlas context <root> <intent>` |
+| Lock implementation boundary | `get_change_surface` with one primary, at most two reference-only components, and explicit exclusions | Keep the same compact boundary manually; do not broaden search without a named invalidation |
 | Inspect code candidate | `get_component` | `component-atlas show <root> <selector>` |
 | Similarity or usages | `find_similar_components`, `list_component_usages` | `component-atlas similar` or `impact` |
 | Shared API impact | `analyze_prop_change_impact` | `component-atlas impact` plus source/test inspection |
 | Record reuse decision | `record_component_decision` | `component-atlas decision` |
-| Direct Figma node | Use Figma Desktop MCP at `http://127.0.0.1:3845/mcp`; read `get_metadata`, persist it with `map_figma_file`, then inspect/retrieve the confirmed node; load any required Codex/Figma skill only as instructions or an operation prerequisite | Use another connector, manual selection, or supplied screenshot/spec only when the local MCP is not connected, rejects/times out, does not respond, is unauthorized, or lacks the operation; briefly state the fallback reason and do not infer missing values |
+| Direct Figma node | Use Figma Desktop MCP at `http://127.0.0.1:3845/mcp`; read `get_metadata`, persist it with task/source decision IDs via `map_figma_file`, then inspect/retrieve the confirmed node or proven contained scope; load any required Codex/Figma skill only as instructions or an operation prerequisite | Use another connector, manual selection, or supplied screenshot/spec only when the local MCP fails and the task ledger explicitly allows that adapter; briefly state the fallback reason and do not infer missing values |
 | Map Figma file/page | Use Figma Desktop MCP at `http://127.0.0.1:3845/mcp`; discover pages and read relevant sparse `get_metadata`, then call `map_figma_file` | Use another connector or `component-atlas figma map` with saved XML/JSON metadata only for a stated local connection, response, authorization, or operation failure |
 | Rank design candidates | `find_design_candidates` | `component-atlas figma find` |
 | Inspect cached node | `inspect_design_node` | `component-atlas figma inspect` |
+| Capture selected Figma asset | `capture_figma_asset` from Desktop MCP localhost URL to an expiring external handle; never emit the body | Explicit supplied export only when the provider fallback policy permits it |
+| Materialize selected asset | `materialize_figma_asset` to one new checkout-relative production asset path | Manual copy only after the same provenance/format/size/local-endpoint checks |
 | Exact node variables | Figma Desktop MCP `get_variable_defs` after confirmation, with the applicable Codex/Figma skill used only as instructions/prerequisite | Repository tokens and screenshot evidence only when Figma Desktop MCP is not connected, not authorized, or lacks the operation |
 | Global variable modes | Figma Desktop MCP read-only Variables catalog when permitted, with Codex/Figma skill prerequisites followed | Collection/mode hints or selection-only variables only when Figma Desktop MCP is not connected, not authorized, or lacks the operation |
 
@@ -47,7 +50,9 @@ sources reduce evidence; they do not invalidate the workflow.
 - Use another connector, manual selection, or alternative evidence only when
   the local MCP is not connected, rejects or times out on the request, does not
   respond, is unauthorized, or does not expose the operation. Add one concise
-  explanation naming that condition and the fallback route used.
+  explanation naming that condition and the fallback route used, and only when
+  the task ledger has `allow-list` permission for that adapter. `ask` requires a
+  user decision before access; `deny` forbids fallback.
 - As preparation starts, ingest every confirmed Figma reference with sparse
   Figma Desktop MCP metadata and `map_figma_file`, then refresh the Atlas
   task/design snapshot. This persists Design Atlas before code work or task
@@ -97,7 +102,10 @@ sources reduce evidence; they do not invalidate the workflow.
   links, evidence, and a recommendation.
 - When no node matches, offer proceeding without Figma or accepting a direct
   link. Do not fabricate a match.
-- Do not retain `localhost` asset URLs from a Figma session as durable evidence.
+- Do not retain `localhost` asset URLs from a Figma session as durable evidence,
+  print their SVG bodies, or place those URLs in code. Capture selected assets
+  as expiring ProjectAtlas handles, materialize only the chosen files, and
+  purge expired handles.
 - Group related viewport/storyboard nodes before reporting duplication, and do
   not infer small breakpoints that are absent from metadata.
 

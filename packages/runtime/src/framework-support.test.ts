@@ -30,7 +30,7 @@ const acceptance = JSON.parse(
 const temporary: string[] = [];
 
 afterEach(async () => {
-  delete process.env.COMPONENT_ATLAS_HOME;
+  delete process.env.PROJECT_ATLAS_HOME;
   await Promise.all(
     temporary.splice(0).map((directory) =>
       rm(directory, { recursive: true, force: true }),
@@ -42,7 +42,7 @@ async function copiedFixture(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "atlas-frameworks-"));
   const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-framework-data-"));
   temporary.push(root, dataHome);
-  process.env.COMPONENT_ATLAS_HOME = dataHome;
+  process.env.PROJECT_ATLAS_HOME = dataHome;
   await cp(fixtureRoot, root, { recursive: true });
   return root;
 }

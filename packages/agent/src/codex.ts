@@ -15,6 +15,10 @@ import {
   assertAgentSourceReceiptMatchesDecision,
   parseAgentSourceReceipt,
 } from "./source-receipts.js";
+import {
+  assertAgentDelegationBundle,
+  compactDelegatedEvidence,
+} from "./delegation.js";
 import type {
   AgentAdapter,
   AgentAdapterStatus,
@@ -353,12 +357,15 @@ function clampText(value: string, limit = MAX_EVENT_TEXT_CHARS): string {
 }
 
 function assertRequest(request: AgentRunRequest): void {
+  const delegatedChars = request.delegation
+    ? compactDelegatedEvidence(request.delegation).length
+    : 0;
   if (!request.task.trim() || request.task.length > MAX_TASK_CHARS) {
     throw new Error(`Task must contain 1-${MAX_TASK_CHARS} characters.`);
   }
-  if (request.compactContext.length > MAX_CONTEXT_CHARS) {
+  if (request.compactContext.length + delegatedChars > MAX_CONTEXT_CHARS) {
     throw new Error(
-      `Compact context exceeds the ${MAX_CONTEXT_CHARS}-character adapter cap.`,
+      `Combined compact and delegated context exceeds the ${MAX_CONTEXT_CHARS}-character adapter cap.`,
     );
   }
   if (request.sources.length > MAX_SOURCES) {
@@ -394,9 +401,13 @@ function assertRequest(request: AgentRunRequest): void {
       "A write-capable turn must resume a reviewed Project Atlas thread.",
     );
   }
-  if (request.contextMetrics.usedChars > request.contextMetrics.budgetChars) {
+  if (
+    request.contextMetrics.usedChars + delegatedChars >
+    request.contextMetrics.budgetChars
+  ) {
     throw new Error("Context metrics exceed the reviewed hard cap.");
   }
+  if (request.delegation) assertAgentDelegationBundle(request.delegation);
 }
 
 function buildPrompt(request: AgentRunRequest): string {
@@ -420,7 +431,7 @@ function buildPrompt(request: AgentRunRequest): string {
       ? request.sourceDecisions
           .map((source) =>
             source.state === "confirmed"
-              ? `- ${source.kind}: confirmed primary; decision=${source.id}; exact=${source.reference}`
+              ? `- ${source.kind}: confirmed primary; decision=${source.id}; authority=${source.authorityRole ?? "kind-default"}; exact=${source.reference}; route=${source.routePolicy?.primaryAdapter ?? "kind-default"}; fallback=${source.routePolicy?.fallback ?? "ask"}`
               : `- ${source.kind}: ${source.state}; decision=${source.id}; do not access`,
           )
           .join("\n")
@@ -437,13 +448,15 @@ function buildPrompt(request: AgentRunRequest): string {
           ...confirmedFigmaSources,
           "- Connect to and use Figma Desktop MCP, the local MCP server exposed by the Figma desktop application, when it is available and authorized.",
           "- For each confirmed reference, read sparse metadata with the appropriate Figma Desktop MCP operation (`get_metadata` for the supported file, page, or node scope), then immediately call Project Atlas `map_figma_file` with the exact project root, confirmed reference, and returned metadata.",
-          "- Include `source_receipt` in `map_figma_file`: the matching source decision ID, adapter `figma-desktop-mcp-local`, actual MCP route/operation, observation time, and fallback only if exact identity was preserved.",
+          "- Call `map_figma_file` with the current `task_id` and matching `source_decision_id`; Atlas resolves the immutable confirmed reference from its source ledger. Include `source_receipt` with adapter `figma-desktop-mcp-local`, actual MCP route/operation, and observation time.",
+          "- A selected child frame is an observed scope contained by the confirmed Figma source, not a replacement source identity. Pass the selected scope and its page scope so Atlas can validate that relationship.",
           "- `map_figma_file` is required even for a direct node reference: it persists the sparse nodes and relationships in Design Atlas before code components are created or the task finishes.",
           "- Audit Variables separately with Project Atlas `sync_figma_variables`. Use `global` only if the active Figma Desktop MCP explicitly exposes and successfully returns a file-global Variables operation; do not infer global coverage from node context, selection, or `get_variable_defs`.",
           "- The documented Desktop `get_variable_defs` operation is node/selection scoped and is not equivalent to the global catalog. Record `selection-only` only when that fallback is actually exposed; record `permission-required` for an authorization/plan denial and `unavailable` when no confirmed Variables read is exposed. None of those states means the file contains no variables.",
           "- Keep the Variables sync at catalog detail by default (collection IDs/names, modes, counts, and resolved types). Request and persist expanded names, aliases, or exact values only when the task needs them and the same authorized global source returned them.",
           "- Codex/Figma skills are instructions or operation prerequisites only; they never replace or precede the Figma Desktop MCP route.",
-          "- Use another connector, manual selection, or supplied evidence only when Figma Desktop MCP is not connected, not authorized, or does not cover the operation. Report that condition explicitly and never fabricate metadata from the URL.",
+          "- Use another connector, manual selection, or supplied evidence only when the source ledger explicitly allows that adapter. A policy of `ask` is not authorization; stop before fallback. Report the condition and never fabricate metadata from the URL.",
+          "- Code Connect is optional enrichment. If no mapping exists, continue fidelity work from the confirmed Figma graph and repository reuse graph; do not pause, ask for mapping, or turn Code Connect into a prerequisite.",
           "- After mapping, refresh Project Atlas task/design context before continuing.",
           "",
         ]
@@ -451,6 +464,15 @@ function buildPrompt(request: AgentRunRequest): string {
   const answer = request.answer
     ? `\nMaterial answer supplied by the user:\n${request.answer}\n`
     : "";
+  const delegatedEvidence = request.delegation?.results.length
+    ? [
+        "Delegated compact evidence:",
+        compactDelegatedEvidence(request.delegation),
+        "- This evidence is already bounded and receipt-linked. Never request or reproduce the omitted raw bodies.",
+        "- Delegates do not confirm sources, resolve authority, change scope, authorize provider fallback, or implement. Those decisions remain with this coordinator and the task ledger.",
+        "",
+      ]
+    : [];
   if (figmaSourceSync) {
     return [
       "$frontend-task Synchronize the exact confirmed Figma target for Project Atlas.",
@@ -467,11 +489,12 @@ function buildPrompt(request: AgentRunRequest): string {
       "Source-gate rules:",
       `- Work only in ${request.rootPath}.`,
       "- This is a source bootstrap, not task preparation or implementation. Do not inspect the repository, compose Atlas task context, edit files, or explore unrelated connectors.",
-      "- Resolve only the single exact confirmed Figma fileKey+nodeId above through Figma Desktop MCP local.",
-      "- Never replace the confirmed target with an Atlas candidate, search result, current selection, nearby node, or similarly named frame.",
-      "- If requested and resolved identity differ, freshness cannot be established, or Figma Desktop MCP local is unavailable, stop and return a minimal needs-input result with the discrepancy and retry guidance.",
-      "- Read sparse metadata for that identity, then call Project Atlas `map_figma_file` only with the exact confirmed reference and returned metadata.",
+      "- Resolve only the exact confirmed Figma source above through the ledger-declared primary route. A child selection is allowed only as a proven contained scope.",
+      "- Never replace the confirmed source with an Atlas candidate, search result, current selection, nearby node, or similarly named frame.",
+      "- If source file identity differs, containment or freshness cannot be established, or the primary route is unavailable without an explicitly allowed fallback, stop and return a minimal needs-input result with the discrepancy and retry guidance.",
+      "- Read sparse metadata for that identity, then call Project Atlas `map_figma_file` with `task_id`, the immutable `source_decision_id`, the observed scope, and returned metadata.",
       "- Return a SourceReceipt bound to the confirmed source decision. Keep evidence compact and reference the receipt by ID.",
+      "- Missing Code Connect is advisory only and never blocks this fidelity bootstrap.",
       "- The successful next step is to return to Atlas and prepare bounded context; do not perform that step in this run.",
       ...MEMORY_CLOSEOUT_PROMPT_RULES,
       "- Return the requested compact structured result.",
@@ -496,16 +519,19 @@ function buildPrompt(request: AgentRunRequest): string {
     "Reviewed compact Project Atlas context:",
     request.compactContext || '{"status":"no-local-context"}',
     "",
+    ...delegatedEvidence,
     ...figmaIngestion,
     "Execution rules:",
     `- Work only in ${request.rootPath}.`,
     `- Checkout sandbox: ${request.sandbox}. This does not authorize any Project Memory write; only the exact shared memoryCloseout confirmation can do that.`,
     "- Preserve existing user changes and inspect the current diff before editing.",
     "- Use a connector only for an explicitly confirmed source above. Relevance alone is not authorization.",
+    "- Follow each source ledger route exactly: Figma Desktop MCP local is primary for Figma and Atlassian Rovo is primary for Jira/Confluence. Browser, Chrome, web, or another connector is forbidden when fallback is `deny`, and requires a recorded allow-list decision when fallback is `ask`.",
     "- An exact Jira issue, Confluence page, Figma node, or OpenAPI contract confirmed by the user is authoritative. Search results are Atlas candidates, never silent substitutes.",
     "- Linked or discovered secondary sources return to pending intake and cannot provide authoritative evidence until explicitly promoted and confirmed.",
     "- For every external evidence item, return a SourceReceipt bound to its confirmed source decision and reference that receipt by ID. If requested/resolved identity or version differs, stop with a minimal discrepancy instead of falling back silently.",
     "- Keep receipts out of narrative briefs: use receipt IDs and expand a receipt only when evidence is requested.",
+    "- Keep authority domains distinct: Jira/Confluence define requirements, Figma defines visual scope, OpenAPI defines the API contract, and repository evidence defines implementation/reuse. A source relation does not transfer identity or authority.",
     "- Use only the bounded `api` context extracted from confirmed OpenAPI/Swagger sources; do not inject or reproduce a full specification.",
     "- Do not follow, infer, or add transitive source references without a new user confirmation.",
     "- Omitted, unavailable, replaced, and unlisted sources are optional and must not block progress.",
@@ -513,6 +539,9 @@ function buildPrompt(request: AgentRunRequest): string {
     "- Do not perform external writes, commits, pushes, ticket changes, or documentation publication.",
     "- Ask only when a material decision or contradiction remains. Include evidence and a recommendation.",
     "- Keep task intake, exact references, hypotheses, and run state task-scoped. Propose durable project memory separately; never promote it implicitly.",
+    "- Reuse the task capsule's execution-manifest hashes and retrieval handles after continuation or compaction. Do not reread unchanged skill/reference/script bodies, run stable scripts with --help, or recompute reuse context without a named invalidation.",
+    "- Delegation is optional and never default. Use only a pre-approved delegation plan whose compact results pass the domain contract; keep source confirmation, authority, scope, provider fallback, and the single implementation in this coordinator.",
+    "- When active policy is `dev-mock-no-session`, implement only a development/test login-challenge adapter with the recorded guard: no real credentials or existing sessions, no token/session/cookie creation, no production activation, and no Profile flow changes.",
     ...MEMORY_CLOSEOUT_PROMPT_RULES,
     "- Return the requested compact structured result. Do not include raw source documents, code dumps, or transient localhost asset URLs.",
   ]

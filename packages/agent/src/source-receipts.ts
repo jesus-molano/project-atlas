@@ -24,6 +24,9 @@ const ADAPTERS = new Set<AgentSourceReceiptAdapter>([
   "openapi-public-http",
   "openapi-internal-connector",
   "github-connector",
+  "browser-in-app",
+  "chrome-browser",
+  "web-http",
   "atlas-cache",
   "manual-import",
   "other",
@@ -180,7 +183,7 @@ function identityMatches(
 }
 
 function receiptId(receipt: AgentSourceReceipt): string {
-  const value = [
+  const immutable = [
     receipt.sourceDecisionId,
     receipt.resolved.provider,
     receipt.resolved.canonicalId,
@@ -188,7 +191,30 @@ function receiptId(receipt: AgentSourceReceipt): string {
     receipt.operation,
     receipt.observedAt,
     receipt.contentHash ?? "",
-  ].join("\0");
+  ];
+  if (receipt.schemaVersion >= 2) {
+    immutable.push(
+      receipt.scope.kind,
+      receipt.scope.id,
+      receipt.scope.parentId ?? "",
+      receipt.scopeRelation?.kind ?? "",
+      receipt.scopeRelation?.sourceId ?? "",
+      receipt.scopeRelation?.targetId ?? "",
+      ...(receipt.scopeRelation?.ancestorIds ?? []),
+      receipt.scopeRelation?.proofHash ?? "",
+    );
+    if (receipt.derivation) {
+      immutable.push(
+        "derivation",
+        receipt.derivation.kind,
+        receipt.derivation.sourceId,
+        receipt.derivation.targetId,
+        receipt.derivation.evidenceHash,
+        ...(receipt.derivation.redirectChain ?? []),
+      );
+    }
+  }
+  const value = immutable.join("\0");
   let first = 0x811c9dc5;
   let second = 0x9e3779b9;
   for (let index = 0; index < value.length; index += 1) {
@@ -209,7 +235,7 @@ export function parseAgentSourceReceipt(value: unknown): AgentSourceReceipt {
   }
   const receipt = omitNullObjectFields(value) as AgentSourceReceipt;
   if (
-    receipt.schemaVersion !== 1 ||
+    ![1, 2].includes(receipt.schemaVersion) ||
     !RECEIPT_ID.test(String(receipt.id)) ||
     !PROVIDERS.has(receipt.provider) ||
     !ADAPTERS.has(receipt.adapter) ||
@@ -237,6 +263,33 @@ export function parseAgentSourceReceipt(value: unknown): AgentSourceReceipt {
   if (receipt.fallback && !receipt.fallback.identityPreserved) {
     throw new Error("SourceReceipt fallback changed identity.");
   }
+  if (
+    receipt.scopeRelation &&
+    (!["same-scope", "contained-scope"].includes(
+      receipt.scopeRelation.kind,
+    ) ||
+      receipt.scopeRelation.targetId !== receipt.scope.id ||
+      (receipt.scopeRelation.kind === "same-scope" &&
+        receipt.scopeRelation.sourceId !== receipt.scopeRelation.targetId) ||
+      (receipt.scopeRelation.kind === "contained-scope" &&
+        receipt.scopeRelation.sourceId === receipt.scopeRelation.targetId))
+  ) {
+    throw new Error("SourceReceipt scope relation is invalid.");
+  }
+  if (
+    receipt.derivation &&
+    (![
+      "same-origin-redirect",
+      "swagger-ui-config",
+      "swagger-ui-config-url",
+      "swagger-ui-initializer",
+    ].includes(receipt.derivation.kind) ||
+      receipt.derivation.sourceId !== receipt.requested.canonicalId ||
+      receipt.derivation.sourceId === receipt.derivation.targetId ||
+      !/^sha256:[a-f0-9]{64}$/u.test(receipt.derivation.evidenceHash))
+  ) {
+    throw new Error("SourceReceipt derivation is invalid.");
+  }
   if (receipt.id !== receiptId(receipt)) {
     throw new Error("SourceReceipt ID does not match immutable fields.");
   }
@@ -253,6 +306,23 @@ export function assertAgentSourceReceiptMatchesDecision(
     decision.kind !== receipt.provider
   ) {
     throw new Error("SourceReceipt is not bound to the confirmed source.");
+  }
+  const routePolicy = decision.routePolicy;
+  if (routePolicy && receipt.adapter !== routePolicy.primaryAdapter) {
+    const allowed =
+      routePolicy.fallback === "allow-list" &&
+      routePolicy.allowedFallbackAdapters?.includes(receipt.adapter);
+    if (!allowed) {
+      throw new Error("SourceReceipt provider fallback is not authorized.");
+    }
+    if (
+      !receipt.fallback ||
+      receipt.fallback.fromAdapter !== routePolicy.primaryAdapter
+    ) {
+      throw new Error(
+        "SourceReceipt fallback does not record its primary adapter.",
+      );
+    }
   }
   const expected = identityFromReference(decision.kind, decision.reference);
   if (

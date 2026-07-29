@@ -291,7 +291,7 @@ if (-not $SkipBuild) {
 if (-not $DryRun -and -not (Test-Path -LiteralPath $cliEntry)) {
   throw "Atlas CLI build is missing at $cliEntry."
 }
-Invoke-Native $node @($cliEntry, "setup") "globally ignore .component-atlas artifacts"
+Invoke-Native $node @($cliEntry, "setup") "confirm centralized Project Atlas storage"
 
 if ($Agent -in @("codex", "both")) {
   Install-Skill $frontendTask $CodexSkillsRoot

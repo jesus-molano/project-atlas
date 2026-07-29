@@ -16,6 +16,10 @@ the user explicitly says they are resuming the same prior task.
    focused diff, current branch, and relevant tests before retrieving external
    detail. Treat every existing change as user-owned unless the current task
    proves otherwise.
+   Load `resume_task_capsule` first. If its checkout/HEAD and
+   execution-manifest digests still match, reuse its confirmed decisions,
+   active policy, receipt IDs, and retrieval handles without rereading skill,
+   reference, or script bodies.
 2. Recover the previous objective from the current conversation, a supplied
    brief, and the nearest relevant Atlas outcome or decision. Do not search all
    history or paste a previous response.
@@ -30,6 +34,9 @@ the user explicitly says they are resuming the same prior task.
    Reuse the task-scoped source ledger and confirmed references when resuming
    the same thread. A correction that adds or replaces a reference returns only
    that source to `pending`; it does not invalidate unchanged confirmations.
+   A completed retrieval key remains valid. A second `get_reuse_context` call
+   must return its prior handle unless a named graph, scope, source-ledger, or
+   user-requested invalidation is recorded.
 5. Re-run a human gate only when the delta changes observable behavior, exposes
    a new contradiction, changes a shared API, or leaves a material decision
    unresolved. A previously confirmed decision remains valid when its evidence

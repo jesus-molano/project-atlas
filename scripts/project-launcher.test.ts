@@ -28,15 +28,14 @@ let previousDataHome: string | undefined;
 beforeEach(async () => {
   const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-launcher-data-"));
   temporaryRoots.push(dataHome);
-  previousDataHome = process.env.COMPONENT_ATLAS_HOME;
-  process.env.COMPONENT_ATLAS_HOME = dataHome;
+  previousDataHome = process.env.PROJECT_ATLAS_HOME;
+  process.env.PROJECT_ATLAS_HOME = dataHome;
 });
 afterEach(async () => {
-  delete process.env.ATLAS_RECENT_PROJECTS_PATH;
   delete process.env.ATLAS_PROJECT_ID;
   delete process.env.ATLAS_CHECKOUT_ID;
-  if (previousDataHome === undefined) delete process.env.COMPONENT_ATLAS_HOME;
-  else process.env.COMPONENT_ATLAS_HOME = previousDataHome;
+  if (previousDataHome === undefined) delete process.env.PROJECT_ATLAS_HOME;
+  else process.env.PROJECT_ATLAS_HOME = previousDataHome;
   await Promise.all(
     temporaryRoots.splice(0).map((root) =>
       rm(root, { recursive: true, force: true }),
@@ -57,12 +56,6 @@ async function projectFixture(name: string): Promise<string> {
 
 describe("local project launcher", () => {
   it("validates project directories and keeps recent entries idempotent", async () => {
-    const stateRoot = await mkdtemp(path.join(os.tmpdir(), "atlas-recents-"));
-    temporaryRoots.push(stateRoot);
-    process.env.ATLAS_RECENT_PROJECTS_PATH = path.join(
-      stateRoot,
-      "recent-projects.json",
-    );
     const first = await projectFixture("first-app");
     const second = await projectFixture("second-app");
 
@@ -83,7 +76,10 @@ describe("local project launcher", () => {
     expect(result.projects.every((project) => project.available)).toBe(true);
 
     const persisted = JSON.parse(
-      await readFile(process.env.ATLAS_RECENT_PROJECTS_PATH, "utf8"),
+      await readFile(
+        path.join(process.env.PROJECT_ATLAS_HOME!, "recent-projects.json"),
+        "utf8",
+      ),
     ) as { projects: Array<{ rootPath: string }> };
     expect(persisted.projects).toHaveLength(2);
   });

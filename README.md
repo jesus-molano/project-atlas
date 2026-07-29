@@ -153,16 +153,16 @@ block the task.
 | Location | Contents |
 | --- | --- |
 | Product repository | Product code; Atlas does not change it merely by being queried |
-| `<product-repo>/.component-atlas/` | Ignored local artifacts and local memory |
-| `<product-repo>/.component-atlas/task-state/` | Bounded task capsules, semantic milestone journal, and SourceReceipts; no transcript |
-| Windows LocalAppData | SQLite keyed by logical repository, with checkout-specific code/local memory and shared confirmed design/canonical memory |
-| `<product-repo>/project-memory/` | Optional team/canonical Markdown, only when policy allows and a user approves it |
+| `%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\` | SQLite, indexes, memory, decisions, capsules, journals, receipts, manifests, and bounded retrieval state |
+| `%LOCALAPPDATA%\ProjectAtlas\temp\` | Owned temporary assets/previews with TTL and explicit cleanup |
+| `%LOCALAPPDATA%\ProjectAtlas\recent-projects.json` | Minimal recent-project registry |
 | `~/.agents/skills/` | Global `frontend-task`, explicit `visual-direction`, and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |
 | `~/.codex/AGENTS.md` | Optional short routing block installed with `-InstallAgentsInstructions` |
 
 `component-atlas` remains the internal MCP/package identifier for compatibility.
-The product name is Project Atlas.
+The product name and single storage root are Project Atlas. Atlas reads legacy
+repository-local data compatibly but never creates or rewrites it.
 
 ## Update an existing installation
 
@@ -213,6 +213,7 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 - [Frontend framework support and acceptance matrix](docs/frontend-framework-support.md)
 - [Figma Design Index](docs/design-index.md)
 - [Project Memory and write policy](docs/project-memory.md)
+- [Centralized storage and diagnostics](docs/storage.md)
 - [Token budgets](docs/token-budgets.md)
 - [Security and validation boundary](docs/validation.md)
 - [Quality audit, stress tests, and performance baseline](docs/quality-audit.md)

@@ -82,6 +82,36 @@ flowchart LR
   versioned core schema, while the runtime validates persisted receipts again at
   the trust boundary.
 
+SourceReceipt v2 binds immutable source identity separately from observed
+scope. A contained Figma selection carries a validated `scopeRelation` while
+the complete task source ledger remains outside the checkout. Provider policy
+is evaluated against that ledger: `deny` forbids fallback, `ask` pauses before
+access, and `allow-list` permits only named adapters with a recorded condition.
+Legacy v1 receipts remain readable and are not rewritten automatically.
+
+A confirmed Swagger UI URL also remains immutable receipt identity. The public
+OpenAPI loader may derive a same-origin specification through bounded static
+HTML/config/initializer inspection and records the target and evidence hash as
+receipt derivation. It executes no JavaScript, rejects private or loopback DNS
+answers, pins the validated DNS result for the request, limits redirects to the
+exact origin, restricts ports and response sizes, and rejects ambiguous
+multi-contract pages. Cross-origin or authenticated contracts require their own
+explicit source route/decision.
+
+Code Atlas can project a `ChangeSurface` after reuse selection. It contains one
+primary component, at most two reference-only examples, bounded files/API/
+impact, and explicit exclusions. The projection has its own one-call task
+retrieval budget, so secondary references do not trigger another repository
+survey.
+
+Figma asset content is a separate ephemeral channel. The runtime accepts only
+the exact Desktop MCP loopback asset route linked to a current confirmed Figma
+receipt, pins the request to loopback, rejects redirects, validates size,
+signature/content type, and active/external SVG content, then stores bytes only
+under `ProjectAtlas\temp\assets\` behind a TTL handle. Context receives metadata
+only. Materialization is an explicit new-file operation confined to the
+checkout and never leaves a localhost URL in production code.
+
 ## Agent context contract
 
 `buildReuseContext` is the stable integration boundary. Given a repository graph,
@@ -165,18 +195,16 @@ matrix and honest degradation boundary.
 
 ## Storage
 
-Storage follows a strict source split:
-
-- reconstructed facts from code and Figma live in SQLite and can be regenerated;
-- declared, shareable knowledge lives in project Markdown;
-- local/personal knowledge and episodic outcomes live in ignored Markdown and
-  are indexed under the current checkout;
-- every hypothesis is marked `inferred` and never presented as verified fact.
+Storage follows a strict source and checkout split without writing into the
+analyzed repository. Reconstructed facts, declared memory, local outcomes,
+receipts, task state, journals, manifests, and decisions all live under one
+Project Atlas application-data root. Every hypothesis remains marked
+`inferred` and is never presented as verified fact.
 
 Machine state:
 
 ```text
-%LOCALAPPDATA%\ComponentAtlas\projects\<project-id>\atlas.sqlite
+%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\atlas.sqlite
 ```
 
 `<project-id>` is the logical repository identity, not the checkout path. Atlas
@@ -184,8 +212,9 @@ normalizes the `origin` remote (SSH and HTTPS forms resolve equally), hashes it,
 and keeps a separate checkout ID for every clone/worktree path and branch
 snapshot. Repositories without a remote use their Git common directory; a
 non-Git directory falls back to its canonical path. `PROJECT_ATLAS_PROJECT_KEY`
-or `scan --project-key` provides an explicit override. The ignored
-`project.json` pins that override for later queries.
+or `scan --project-key` provides an explicit override. The centralized
+`project.json` records that identity for diagnostics; a legacy repository-local
+artifact is read-only compatibility evidence.
 
 The same database contains checkout-specific code graph snapshots, a
 project-level component catalog whose sightings retain checkout provenance, one
@@ -200,9 +229,10 @@ logical scope unless an explicit override is used; Atlas does not silently merge
 the two repositories.
 
 Task intake, exact source references, confirmations, briefs, permissions,
-thread IDs, and execution state remain task-scoped. A bounded ignored local
-journal/capsule persists semantic checkpoints and IDs for compaction-safe
-resume without persisting a transcript or reloading indexes. Persisted run
+thread IDs, and execution state remain task-scoped. A bounded centralized
+journal/capsule persists semantic checkpoints, skill-manifest hashes and IDs
+for compaction-safe resume without persisting a transcript or reloading
+indexes. Persisted run
 audits retain only content-free counts and source kinds. Component decisions default to the
 current checkout; promoting one to the logical project requires explicit user
 confirmation. See [Task intake and persistence scopes](task-intake-and-scopes.md).
@@ -224,20 +254,22 @@ Version, `lastModified`, scope, and metadata hashes prevent unchanged page
 snapshots from being reprocessed. A changed file version invalidates the old
 map before new page snapshots are merged.
 
-Repository and local artifacts:
+Centralized artifacts:
 
 ```text
-.component-atlas/
-├── project.json
-├── catalog.md
-├── memory/                 # local/episodic, globally ignored
-└── decisions/
-
-project-memory/             # optional canonical team knowledge
-└── *.md                    # frontmatter + Markdown + wikilinks
+%LOCALAPPDATA%\ProjectAtlas\
+├── recent-projects.json
+├── projects\<project-id>\
+│   ├── atlas.sqlite
+│   ├── project.json
+│   ├── catalog.md
+│   ├── memory\
+│   ├── decisions\
+│   └── task-state\
+└── temp\                    # ephemeral, owned, TTL/purge managed
 ```
 
-See [project-memory.md](project-memory.md) for the memory schema and
+See [storage.md](storage.md) and [project-memory.md](project-memory.md) for the memory schema and
 [token-budgets.md](token-budgets.md) for response guarantees. The reproducible
 resource, termination, dependency and performance baseline is in
 [quality-audit.md](quality-audit.md).
@@ -279,6 +311,18 @@ server-side from reviewed parameters rather than accepting raw client context.
 The local audit stores only run state, source/selection kinds, budgets, counts,
 and status. It excludes task text, source URLs, code, documents, and raw model
 output.
+
+Optional retrieval delegation is governed by the compact contract in
+[delegation.md](delegation.md). It is disabled without explicit permission and
+measured coordinator-context savings. No delegate can confirm a source, change
+authority/scope, authorize fallback, or implement.
+
+Development authentication mocks use a separate fail-closed guard. A
+`dev-mock-no-session` policy is valid only for a development/test,
+challenge-only adapter that leaves the Profile flow untouched, accepts no real
+credentials or existing session, creates no session, token, or auth cookie, and
+cannot be enabled in production. Mock output validation rejects token/session/
+cookie/credential fields and JWT-like values.
 
 ## Compatibility
 

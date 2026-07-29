@@ -6,6 +6,7 @@ import {
 } from "./graph.js";
 import type {
   CompactComponentSearchResult,
+  ChangeSurfaceBundle,
   ComponentContextBundle,
   ComponentImpactContext,
   ComponentContextLink,
@@ -292,5 +293,164 @@ export function buildReuseContext(
     },
     candidates,
     nextActions,
+  };
+}
+
+export function buildChangeSurface(
+  graph: ComponentGraph,
+  intent: string,
+  options: {
+    primaryComponent?: string;
+    secondaryComponents?: string[];
+    outOfScope?: string[];
+  } = {},
+): ChangeSurfaceBundle {
+  const normalizedIntent = intent.trim();
+  if (!normalizedIntent) {
+    throw new Error("Change surface requires a non-empty implementation intent.");
+  }
+  const ranked = searchComponents(graph, normalizedIntent, 4);
+  const explicitPrimary = options.primaryComponent
+    ? findComponent(graph, options.primaryComponent)
+    : undefined;
+  if (options.primaryComponent && !explicitPrimary) {
+    throw new Error(
+      `Primary component "${options.primaryComponent}" was not found.`,
+    );
+  }
+  const primary = explicitPrimary ?? ranked[0]?.component;
+  const primaryContext = primary
+    ? candidateContext(
+        graph,
+        primary,
+        1,
+        explicitPrimary
+          ? ["Explicit primary implementation scope"]
+          : ranked[0]?.reasons ?? [],
+      )
+    : undefined;
+  const explicitSecondary = (options.secondaryComponents ?? [])
+    .slice(0, 2)
+    .map((selector) => {
+      const component = findComponent(graph, selector);
+      if (!component) {
+        throw new Error(`Secondary component "${selector}" was not found.`);
+      }
+      return component;
+    });
+  const secondaryIds = new Set(explicitSecondary.map((item) => item.id));
+  const excludedIds = new Set(
+    (options.outOfScope ?? [])
+      .map((selector) => findComponent(graph, selector)?.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const alternatives = ranked
+    .map((item) => item.component)
+    .filter(
+      (item) =>
+        item.id !== primary?.id &&
+        !secondaryIds.has(item.id) &&
+        !excludedIds.has(item.id),
+    )
+    .slice(0, explicitSecondary.length > 0 ? 0 : 2);
+  const references: ChangeSurfaceBundle["references"] = [
+    ...explicitSecondary.map((component) => ({
+      component: componentContextReference(component),
+      role: "secondary-reference" as const,
+      reasons: ["Explicit reference only; do not expand its feature scope."],
+    })),
+    ...alternatives.map((component) => ({
+      component: componentContextReference(component),
+      role: "alternative" as const,
+      reasons:
+        ranked.find((item) => item.component.id === component.id)?.reasons.slice(
+          0,
+          2,
+        ) ?? [],
+    })),
+  ];
+  const files: ChangeSurfaceBundle["files"] = [];
+  const addFile = (
+    filePath: string | undefined,
+    role: ChangeSurfaceBundle["files"][number]["role"],
+    componentId?: string,
+  ) => {
+    if (!filePath || files.some((item) => item.path === filePath)) return;
+    files.push({
+      path: filePath,
+      role,
+      ...(componentId ? { componentId } : {}),
+    });
+  };
+  if (primary && primaryContext) {
+    addFile(primary.relativePath, "implementation", primary.id);
+    for (const test of primaryContext.tests.slice(0, 4)) {
+      addFile(test, "test", primary.id);
+    }
+    for (const relation of primaryContext.relations.renders.slice(0, 4)) {
+      const dependency = graph.components.find(
+        (component) => component.id === relation.id,
+      );
+      addFile(dependency?.relativePath, "dependency-reference", relation.id);
+    }
+    for (const relation of primaryContext.impact.direct.slice(0, 3)) {
+      const consumer = graph.components.find(
+        (component) => component.id === relation.id,
+      );
+      addFile(consumer?.relativePath, "consumer-reference", relation.id);
+    }
+  }
+  const impact = primaryContext
+    ? {
+        level:
+          primaryContext.impact.transitiveConsumers > 10
+            ? ("high" as const)
+            : primaryContext.impact.transitiveConsumers > 2
+              ? ("shared" as const)
+              : ("contained" as const),
+        directConsumers: primaryContext.impact.directConsumers,
+        transitiveConsumers: primaryContext.impact.transitiveConsumers,
+      }
+    : undefined;
+  return {
+    schemaVersion: 1,
+    intent: normalizedIntent,
+    selection: explicitPrimary
+      ? "explicit"
+      : primary
+        ? "ranked"
+        : "unresolved",
+    ...(primary ? { primary: componentContextReference(primary) } : {}),
+    references,
+    files: files.slice(0, 12),
+    ...(primaryContext
+      ? {
+          publicApi: {
+            props: primaryContext.api.props.slice(0, 8),
+            events: primaryContext.api.events.slice(0, 6),
+            slots: primaryContext.api.slots.slice(0, 6),
+            models: primaryContext.api.models.slice(0, 4),
+          },
+        }
+      : {}),
+    ...(impact ? { impact } : {}),
+    outOfScope: [
+      ...new Set(
+        (options.outOfScope ?? [])
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    ].slice(0, 8),
+    nextActions: primary
+      ? [
+          "Inspect only the primary implementation and listed dependency references.",
+          "Keep secondary components reference-only unless scope is explicitly invalidated.",
+          ...(impact?.level === "high"
+            ? ["Run shared API impact analysis before editing."]
+            : []),
+        ]
+      : [
+          "Resolve one primary component before broadening repository search.",
+        ],
   };
 }

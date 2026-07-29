@@ -1,9 +1,12 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { taskSourceId, type TaskSourceDecision } from "@component-atlas/core";
-import { describe, expect, it, vi } from "vitest";
+import { projectStorageDirectory } from "@component-atlas/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveProjectIdentity } from "./identity.js";
 import {
+  loadConfirmedTaskSourceDecision,
   loadTaskResumeCapsule,
   loadTaskResumeTransport,
   pruneExpiredTaskState,
@@ -22,6 +25,21 @@ const sources: TaskSourceDecision[] = [
   },
 ];
 
+let dataHome: string;
+let previousDataHome: string | undefined;
+
+beforeEach(async () => {
+  previousDataHome = process.env.PROJECT_ATLAS_HOME;
+  dataHome = await mkdtemp(path.join(os.tmpdir(), "project-atlas-state-"));
+  process.env.PROJECT_ATLAS_HOME = dataHome;
+});
+
+afterEach(async () => {
+  if (previousDataHome === undefined) delete process.env.PROJECT_ATLAS_HOME;
+  else process.env.PROJECT_ATLAS_HOME = previousDataHome;
+  await rm(dataHome, { recursive: true, force: true });
+});
+
 describe("task checkpoint and resume", () => {
   it("derives only compact, unique and explicitly expandable context handles", () => {
     expect(
@@ -30,6 +48,7 @@ describe("task checkpoint and resume", () => {
           "design:FileKey::12:34",
           "visual:vd-task-42:0123456789abcdef",
           "visual:vd-task-42:0123456789abcdef",
+          "figma-asset:task-42:0123456789abcdef01234567",
           "visual:not-expandable",
           "invalid",
         ],
@@ -40,6 +59,7 @@ describe("task checkpoint and resume", () => {
     ).toEqual([
       "design:FileKey::12:34",
       "visual:vd-task-42:0123456789abcdef",
+      "figma-asset:task-42:0123456789abcdef01234567",
       "code:checkout-form",
       "memory:contract-rule",
       "design:12:34",
@@ -58,6 +78,7 @@ describe("task checkpoint and resume", () => {
       handles: [
         "code:checkout-form",
         "visual:vd-task-42:0123456789abcdef",
+        "figma-asset:task-42:0123456789abcdef01234567",
         "memory:contract-rule",
         "visual:not-expandable",
       ],
@@ -65,6 +86,32 @@ describe("task checkpoint and resume", () => {
       remaining: ["implementation", "validation"],
       budgetChars: 2_400,
       nextSafeAction: "Expand code:checkout-form only.",
+      executionManifest: {
+        handle: "manifest:task-42:0123456789abcdef",
+        hash: "0123456789abcdef0123456789abcdef",
+        sourceLedgerHash: "fedcba9876543210fedcba9876543210",
+        retrievalBudgetId: "retrieval-budget:task-42",
+      },
+      activePolicy: {
+        visualMode: "fidelity",
+        inventionBudget: 0,
+        excludedSurfaces: ["ProfileFingerprintModal"],
+        authMode: "dev-mock-no-session",
+        authMockGuard: {
+          schemaVersion: 1,
+          mode: "dev-mock-no-session",
+          adapterId: "login-challenge-dev",
+          environment: "development",
+          challengeOnly: true,
+          profileFlowUntouched: true,
+          acceptsRealCredentials: false,
+          readsExistingSession: false,
+          createsSession: false,
+          issuesTokens: false,
+          writesAuthCookies: false,
+          productionEnabled: false,
+        },
+      },
       head: "abc123",
       at: "2026-07-29T12:00:00.000Z",
     });
@@ -73,8 +120,21 @@ describe("task checkpoint and resume", () => {
     expect(capsule?.handles).toEqual([
       "code:checkout-form",
       "visual:vd-task-42:0123456789abcdef",
+      "figma-asset:task-42:0123456789abcdef01234567",
       "memory:contract-rule",
     ]);
+    expect(capsule?.schemaVersion).toBe(2);
+    expect(capsule?.activePolicy).toMatchObject({
+      visualMode: "fidelity",
+      inventionBudget: 0,
+      authMode: "dev-mock-no-session",
+      authMockGuard: expect.objectContaining({
+        adapterId: "login-challenge-dev",
+        profileFlowUntouched: true,
+        createsSession: false,
+        productionEnabled: false,
+      }),
+    });
     expect(expand).not.toHaveBeenCalled();
     const transport = await loadTaskResumeTransport(root, "task-42");
     expect(transport?.bytes).toBeLessThanOrEqual(4_096);
@@ -82,6 +142,93 @@ describe("task checkpoint and resume", () => {
     expect(transport?.body).toContain("nextSafeAction");
     expect(transport?.fallbackAvailable).toBe(true);
     expect(transport).not.toHaveProperty("fallbackJson");
+  });
+
+  it("retains confirmed source authority and route policy across later checkpoints", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-ledger-"));
+    const exactReference =
+      "https://example.atlassian.net/wiki/spaces/HH/pages/470516116/Two-factor-authentication?source=confirmed-short-link-resolution-and-version";
+    const decisions: TaskSourceDecision[] = [
+      {
+        id: taskSourceId("confluence", exactReference),
+        kind: "confluence",
+        reference: exactReference,
+        origin: "explicit",
+        state: "confirmed",
+        required: true,
+        authorityRole: "requirement",
+        routePolicy: {
+          primaryAdapter: "atlassian-rovo",
+          fallback: "deny",
+        },
+      },
+    ];
+    await writeTaskCheckpoint(root, {
+      taskId: "task-ledger",
+      milestone: "decision-confirmed",
+      objective: "Implement the confirmed requirement",
+      objectiveApproved: true,
+      decisions,
+      sourceReceiptIds: [],
+      handles: [],
+      covered: ["intake"],
+      remaining: ["implementation"],
+      budgetChars: 2_400,
+      nextSafeAction: "Resolve the confirmed issue.",
+    });
+    await writeTaskCheckpoint(root, {
+      taskId: "task-ledger",
+      milestone: "batch-completed",
+      objective: "Implement the confirmed requirement",
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      handles: [],
+      covered: ["intake", "requirements"],
+      remaining: ["implementation"],
+      budgetChars: 2_400,
+      nextSafeAction: "Implement without asking for the source again.",
+    });
+
+    await expect(
+      loadConfirmedTaskSourceDecision(
+        root,
+        "task-ledger",
+        decisions[0]!.id,
+      ),
+    ).resolves.toMatchObject({
+      reference: exactReference,
+      authorityRole: "requirement",
+      routePolicy: {
+        primaryAdapter: "atlassian-rovo",
+        fallback: "deny",
+      },
+    });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("requires the full production-disabled guard for a new auth mock policy", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-auth-guard-"));
+    await expect(
+      writeTaskCheckpoint(root, {
+        taskId: "task-auth-guard",
+        milestone: "risk-boundary",
+        objective: "Mock only the login OTP challenge",
+        objectiveApproved: true,
+        decisions: [],
+        sourceReceiptIds: [],
+        handles: [],
+        covered: ["scope"],
+        remaining: ["implementation"],
+        budgetChars: 2_400,
+        nextSafeAction: "Create a dev-only sessionless adapter.",
+        activePolicy: {
+          authMode: "dev-mock-no-session",
+          excludedSurfaces: ["ProfileFingerprintModal"],
+        },
+      }),
+    ).rejects.toThrow(/sessionless production guard/i);
+    await rm(root, { recursive: true, force: true });
   });
 
   it("keeps a minimal final receipt and removes expired capsule/journal state", async () => {
@@ -106,10 +253,10 @@ describe("task checkpoint and resume", () => {
       await pruneExpiredTaskState(root, new Date("2026-07-29T00:00:00.000Z")),
     ).toBe(1);
     expect(await loadTaskResumeCapsule(root, "task-closed")).toBeUndefined();
+    const identity = await resolveProjectIdentity(root);
     const finalReceipt = await readFile(
       path.join(
-        root,
-        ".component-atlas",
+        projectStorageDirectory(identity.logicalId),
         "task-state",
         "final",
         "task-closed.json",

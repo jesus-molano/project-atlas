@@ -1,15 +1,11 @@
 #!/usr/bin/env node
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   access,
-  appendFile,
-  mkdir,
   readFile,
   readdir,
-  writeFile,
 } from "node:fs/promises";
-import os from "node:os";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +37,7 @@ import {
   graphSummary,
   indexProjectMemory,
   inspectFigmaDesignNode,
+  inspectProjectAtlasStorage,
   listFigmaDesignIndexes,
   loadProjectGraph,
   mapFigmaDesign,
@@ -470,35 +467,6 @@ function parseBudget(value: string): number {
   return Math.min(parsed, 12_000);
 }
 
-export async function configureGlobalIgnore(): Promise<string> {
-  const configured = spawnSync(
-    "git",
-    ["config", "--global", "--get", "core.excludesFile"],
-    { encoding: "utf8" },
-  ).stdout.trim();
-  const filePath = configured
-    ? path.resolve(configured.replace(/^~(?=$|[\\/])/, os.homedir()))
-    : path.join(os.homedir(), ".gitignore_global");
-  await mkdir(path.dirname(filePath), { recursive: true });
-  const current = (await fileExists(filePath)) ? await readFile(filePath, "utf8") : "";
-  const lines = current.split(/\r?\n/).map((line) => line.trim());
-  if (!lines.includes(".component-atlas/")) {
-    if (current && !current.endsWith("\n")) await appendFile(filePath, "\n", "utf8");
-    await appendFile(filePath, ".component-atlas/\n", "utf8");
-  }
-  if (!configured) {
-    const result = spawnSync(
-      "git",
-      ["config", "--global", "core.excludesFile", filePath],
-      { encoding: "utf8" },
-    );
-    if (result.status !== 0) {
-      throw new Error(result.stderr || "Failed to configure Git global excludes.");
-    }
-  }
-  return filePath;
-}
-
 function requireFound<T>(value: T | undefined, selector: string): T {
   if (!value) throw new Error(`Component "${selector}" was not found.`);
   return value;
@@ -793,10 +761,41 @@ export function createProgram(): Command {
 
   program
     .command("setup")
-    .description("Globally ignore per-project .component-atlas artifacts.")
+    .description("Show the centralized Project Atlas storage location.")
     .action(async () => {
-      const filePath = await configureGlobalIgnore();
-      process.stdout.write(`Configured .component-atlas/ in ${filePath}\n`);
+      const diagnostic = await inspectProjectAtlasStorage();
+      process.stdout.write(
+        `Project Atlas stores all project data under ${diagnostic.rootPath}\n`,
+      );
+    });
+
+  program
+    .command("storage")
+    .description(
+      "Show centralized storage paths, category sizes, legacy roots, and ephemeral data.",
+    )
+    .option("--json", "print machine-readable diagnostics")
+    .action(async (options: { json?: boolean }) => {
+      const diagnostic = await inspectProjectAtlasStorage();
+      if (options.json) {
+        printJson(diagnostic);
+        return;
+      }
+      process.stdout.write(`Project Atlas storage: ${diagnostic.rootPath}\n`);
+      for (const category of diagnostic.categories) {
+        process.stdout.write(
+          `- ${category.name}: ${category.bytes} bytes${
+            category.ephemeral ? " (ephemeral, TTL/purge managed)" : ""
+          } · ${category.path}\n`,
+        );
+      }
+      for (const legacy of diagnostic.legacyRoots.filter(
+        (candidate) => candidate.exists,
+      )) {
+        process.stdout.write(
+          `- legacy read-only data detected: ${legacy.path}\n`,
+        );
+      }
     });
 
   program

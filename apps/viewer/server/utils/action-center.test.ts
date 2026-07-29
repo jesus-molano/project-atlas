@@ -140,16 +140,16 @@ function center() {
 }
 
 beforeEach(async () => {
-  previousDataRoot = process.env.COMPONENT_ATLAS_HOME;
+  previousDataRoot = process.env.PROJECT_ATLAS_HOME;
   dataRoot = await mkdtemp(path.join(os.tmpdir(), "atlas-action-center-"));
-  process.env.COMPONENT_ATLAS_HOME = dataRoot;
+  process.env.PROJECT_ATLAS_HOME = dataRoot;
 });
 
 afterEach(async () => {
   if (previousDataRoot === undefined) {
-    delete process.env.COMPONENT_ATLAS_HOME;
+    delete process.env.PROJECT_ATLAS_HOME;
   } else {
-    process.env.COMPONENT_ATLAS_HOME = previousDataRoot;
+    process.env.PROJECT_ATLAS_HOME = previousDataRoot;
   }
   await rm(dataRoot, { recursive: true, force: true });
 });

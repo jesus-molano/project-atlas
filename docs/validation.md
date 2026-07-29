@@ -28,6 +28,10 @@ Validated locally on 2026-07-29 without corporate data:
 - OpenAPI source isolation, per-contract/operation provenance, and explicit
   conflict handling without allowing one unavailable source to erase another
   valid contract;
+- safe Swagger UI canonicalization that preserves requested identity, statically
+  derives only one same-origin contract, pins public DNS, bounds redirects and
+  response sizes, and rejects private-network, credentialed, nonstandard-port,
+  cross-origin, and ambiguous targets without executing JavaScript;
 - bounded semantic task journals and strict 4 KB resume capsules, including
   TOON round-trip validation, readable JSON fallback, worktree/HEAD state,
   risk-boundary checkpoints, and completed-state TTL cleanup;
@@ -38,6 +42,19 @@ Validated locally on 2026-07-29 without corporate data:
   unavailable metadata as `none`;
 - page/frame status preservation, scoped-page provenance, idempotent forced
   reindexing, transient-asset filtering, and staged subtree inspection;
+- one-call ChangeSurface locking for a primary login challenge, a
+  reference-only Backoffice flow, and explicit profile exclusions;
+- Figma asset capture with current Desktop receipt/scope provenance, hard
+  format/size/SVG checks, body-free transport, external temp TTL/purge,
+  checkout-contained explicit materialization, overwrite refusal, and no
+  localhost endpoint leakage;
+- delegation disabled by default, cost/context activation thresholds,
+  two-worker concurrency, coordinator-only authority/scope/fallback/
+  implementation, four compact domain contracts, and recursive raw-body/local
+  endpoint rejection before coordinator injection;
+- development auth-mock guards that require a challenge-only, Profile-isolated,
+  credential-free, sessionless, tokenless, cookie-free, production-disabled
+  adapter and reject unsafe runtime evidence/results;
 - responsive/storyboard family grouping, naming findings, and small-breakpoint
   coverage warnings without false duplicate claims;
 - route/layout consumers and task-aware code retrieval for dialogs, security,

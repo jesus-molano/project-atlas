@@ -1402,8 +1402,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     'La propuesta de memoria "{id}" tiene hallazgos sin resolver que requieren una decisión y no puede aplicarse.',
   "Memory proposal item {index} is invalid.":
     "El elemento {index} de la propuesta de memoria no es válido.",
-  "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the versionable project-memory paths.":
-    "Las escrituras canónicas de Project Memory requieren canonicalConfirmed=true después de revisar las rutas versionables de project-memory.",
+  "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the centralized Atlas storage paths.":
+    "Las escrituras canónicas de Project Memory requieren canonicalConfirmed=true después de revisar las rutas del almacenamiento centralizado de Atlas.",
   "{command} is not bulk-safe.":
     "{command} no se puede aplicar de forma segura por lotes.",
   "{command} is not allowed for {type}.":
@@ -1444,6 +1444,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "La memoria del proyecto requiere una identidad de checkout resuelta.",
   "Refusing to write memory outside the project root.":
     "Se rechazó escribir memoria fuera de la raíz del proyecto.",
+  "Refusing to write memory outside Project Atlas storage.":
+    "Se rechazó escribir memoria fuera del almacenamiento de Project Atlas.",
   "A task outcome requires a task, a summary, and a valid result.":
     "El resultado de una tarea requiere una tarea, un resumen y un resultado válido.",
   "{count} cached design files; live session state is not assumed.":

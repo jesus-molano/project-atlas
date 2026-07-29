@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildChangeSurface,
   buildComponentContext,
   buildImpactContext,
   buildReuseContext,
@@ -173,5 +174,62 @@ describe("reuse context", () => {
     };
 
     expect(() => buildReuseContext(graph, "   ")).toThrow("non-empty");
+  });
+
+  it("keeps one login challenge primary and Backoffice reference-only", () => {
+    const otp = component("OtpInput", "public", []);
+    const login = component(
+      "LoginChallenge",
+      "feature",
+      ["challengeId"],
+      ["OtpInput"],
+    );
+    const backoffice = component("BackofficeLogin", "feature", []);
+    const profile = component("ProfileFingerprintModal", "feature", []);
+    const graph: ComponentGraph = {
+      schemaVersion: GRAPH_SCHEMA_VERSION,
+      project: {
+        id: "auth-fixture",
+        name: "auth-fixture",
+        rootPath: "/fixture",
+        framework: "vue",
+        scannedAt: new Date(0).toISOString(),
+        sourceFiles: 4,
+      },
+      components: [otp, login, backoffice, profile],
+      edges: buildGraphEdges([otp, login, backoffice, profile]),
+      tokens: [],
+    };
+
+    const surface = buildChangeSurface(graph, "login OTP challenge", {
+      primaryComponent: "LoginChallenge",
+      secondaryComponents: ["BackofficeLogin"],
+      outOfScope: ["ProfileFingerprintModal", "profile flow"],
+    });
+
+    expect(surface).toMatchObject({
+      selection: "explicit",
+      primary: { name: "LoginChallenge" },
+      references: [
+        {
+          component: { name: "BackofficeLogin" },
+          role: "secondary-reference",
+        },
+      ],
+      outOfScope: ["ProfileFingerprintModal", "profile flow"],
+    });
+    expect(surface.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "components/LoginChallenge.vue",
+          role: "implementation",
+        }),
+        expect.objectContaining({
+          path: "components/OtpInput.vue",
+          role: "dependency-reference",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(surface)).not.toContain("classTokens");
   });
 });

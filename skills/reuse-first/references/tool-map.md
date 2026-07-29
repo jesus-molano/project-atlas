@@ -4,6 +4,7 @@
 | --- | --- | --- |
 | Refresh repository | `scan_repository` | `component-atlas scan <root>` |
 | Get compact task context | `get_reuse_context` | `component-atlas context <root> <intent>` |
+| Lock one implementation surface | `get_change_surface` | Keep one primary, at most two reference-only components, bounded files, and explicit exclusions |
 | Find extra candidates | `search_components` | `component-atlas search <root> <query>` |
 | Inspect component | `get_component` | `component-atlas show <root> <selector>` |
 | Explain similarity | `find_similar_components` | `component-atlas similar <root> <selector>` |

@@ -1,17 +1,18 @@
 # Project Memory
 
 Project Memory gives Codex and Claude the same durable, project-scoped context
-without loading an encyclopedia at session start. Markdown is the human source;
-SQLite is the searchable local index.
+without loading an encyclopedia at session start. Markdown and its searchable
+SQLite index both live in centralized Project Atlas storage, outside the
+analyzed checkout.
 
 ## Knowledge classes
 
 | Class | Authority | Source of truth | Examples |
 | --- | --- | --- | --- |
 | Derived fact | Reconstructible | Code/Figma index in SQLite | dependencies, component uses, Figma hierarchy |
-| Canonical knowledge | Declared or verified | `project-memory/*.md` | domain rules, conventions, decisions |
-| Local knowledge | Observed/inferred/decided | `.component-atlas/memory/*.md` | personal notes, unshared constraints |
-| Episodic memory | Observed or verified | `.component-atlas/memory/*.md` | attempt, failure, fix, outcome |
+| Canonical knowledge | Declared or verified | `ProjectAtlas/projects/<id>/memory/canonical/*.md` | domain rules, conventions, decisions |
+| Local knowledge | Observed/inferred/decided | `ProjectAtlas/projects/<id>/memory/local/*.md` | personal notes, unshared constraints |
+| Episodic memory | Observed or verified | `ProjectAtlas/projects/<id>/memory/local/*.md` | attempt, failure, fix, outcome |
 | Hypothesis | Inferred | either Markdown scope | suspected cause, unverified convention |
 
 `inferred` is always shown as a hypothesis. It never silently becomes a fact.
@@ -48,8 +49,8 @@ important is overwritten invisibly.
   evidence, confidence, relations, and any item it supersedes.
 - `apply_memory_update` requires explicit `confirmed: true`, refuses proposals
   with unresolved `decision-required` findings, and requires a second
-  `canonical_confirmed: true` acknowledgement before writing versionable
-  `project-memory/*.md` files.
+  `canonical_confirmed: true` acknowledgement before writing canonical Atlas
+  storage.
 - `record_outcome` may append a local observed/verified episode only after the
   user asks to retain that local result. It does not promote the episode to a
   team rule.
@@ -64,17 +65,14 @@ gate, so decisions and constraints use those existing contracts.
 
 ## Locations and portability
 
-Teams may version `project-memory/` when policy allows. Personal or sensitive
-episodes belong in `.component-atlas/memory/`, which the installer places in
-the global Git ignore. Both are regular Markdown with frontmatter and wikilinks,
-so the folders remain readable without Atlas.
+New canonical and local memory is written only below the single Project Atlas
+application-data root. Legacy repository-local `project-memory/` and
+`.component-atlas/memory/` Markdown remains readable for compatibility but is
+never rewritten or deleted automatically.
 
-The SQLite database lives under local application data and is isolated by the
-repository's stable project ID. It can be rebuilt from Markdown and source
-indexes. On another computer, clone the allowed Markdown and install Atlas.
-The first `$frontend-task` run scans code and indexes existing allowed memory
-when needed. `memory index` remains available for explicit diagnostics or
-automation.
+The SQLite database is isolated by the repository's stable project ID. Use
+`pnpm atlas storage` to inspect its location and sizes. `memory index` remains
+available for explicit diagnostics or automation.
 
 Invoking `$frontend-task` permits it to read relevant indexed memory. It does
 not authorize recording an outcome, creating a proposal, or applying canonical

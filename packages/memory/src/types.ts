@@ -176,7 +176,11 @@ export interface MemoryProposalReview {
     warningFindingIds: string[];
   };
   impact: {
-    directory: ".component-atlas/memory" | "project-memory";
+    directory:
+      | "atlas-storage/memory/local"
+      | "atlas-storage/memory/canonical"
+      | ".component-atlas/memory"
+      | "project-memory";
     itemCount: number;
     supersededIds: string[];
     items: MemoryProposalReviewItem[];

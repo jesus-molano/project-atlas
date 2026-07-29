@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -28,6 +27,27 @@ import type {
   MemoryStatus,
   MemoryType,
 } from "@component-atlas/memory";
+import {
+  projectStoragePath,
+} from "./storage.js";
+
+export {
+  PROJECT_ATLAS_HOME_ENV,
+  PROJECT_ATLAS_STORAGE_VERSION,
+  inspectProjectAtlasStorage,
+  legacyProjectAtlasStorageRoots,
+  projectAtlasStorageRoot,
+  projectAtlasTempRoot,
+  projectStorageDirectory,
+  projectStoragePath,
+  readRecentProjects,
+  recentProjectsPath,
+  rememberRecentProject,
+  type ProjectAtlasStorageDiagnostic,
+  type RecentProjectRecord,
+  type StorageCategoryDiagnostic,
+  type StorageRootOptions,
+} from "./storage.js";
 
 interface ProjectRow {
   id: string;
@@ -67,24 +87,8 @@ export interface AtlasStoredSnapshot {
   componentDecisions: ComponentDecision[];
 }
 
-function applicationDataRoot(): string {
-  if (process.env.COMPONENT_ATLAS_HOME) {
-    return path.resolve(process.env.COMPONENT_ATLAS_HOME);
-  }
-  if (process.platform === "win32" && process.env.LOCALAPPDATA) {
-    return path.join(process.env.LOCALAPPDATA, "ComponentAtlas");
-  }
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support", "ComponentAtlas");
-  }
-  return path.join(
-    process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"),
-    "component-atlas",
-  );
-}
-
 export function databasePath(projectId: string): string {
-  return path.join(applicationDataRoot(), "projects", projectId, "atlas.sqlite");
+  return projectStoragePath(projectId, "atlas.sqlite");
 }
 
 export function databaseExists(projectId: string): boolean {

@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   assessTaskRisk,
+  assertSourceReceiptMatchesDecision,
+  buildChangeSurface,
   buildComponentContext,
   buildImpactContext,
   buildReuseContext,
@@ -13,16 +15,17 @@ import {
   createSourceReceipt,
   findComponent,
   normalizeTaskSourceDecisions,
+  normalizeTaskSourceRelations,
   searchComponentContext,
   searchComponents,
   sourceIdentityFromReference,
-  taskSourceId,
   similarComponents,
   type ComponentGraph,
   type ComponentNode,
   type DecisionKind,
 } from "@component-atlas/core";
 import {
+  captureFigmaAsset,
   findTaskDesignCandidates,
   fitBudgetedResponse,
   getFigmaDesignVariables,
@@ -34,28 +37,117 @@ import {
   indexProjectMemory,
   inspectFigmaDesignNode,
   listFigmaDesignIndexes,
+  loadFigmaAssetMetadata,
+  loadTaskRetrievalResult,
   loadProjectGraph,
   mapFigmaDesign,
+  materializeFigmaAsset,
   applyMemoryUpdate,
   checkBeforeChange,
   orientProject,
   prepareTaskContext,
   proposeMemoryUpdate,
+  purgeExpiredFigmaAssets,
   recordDecision,
   recordProjectOutcome,
   recordTaskEvaluation,
   loadTaskResumeTransport,
+  loadConfirmedTaskSourceDecision,
+  claimTaskRetrieval,
+  changeSurfaceRetrievalKey,
+  completeTaskRetrieval,
+  reuseRetrievalKey,
   reportProjectCapabilities,
   scanProject,
   searchProjectMemory,
   syncFigmaDesignVariables,
   taskContextResumeHandles,
+  writeTaskExecutionManifest,
   writeTaskCheckpoint,
   type MapFigmaDesignInput,
 } from "@component-atlas/runtime";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+
+const taskSourceDecisionSchema = z.object({
+  id: z.string().optional(),
+  kind: z.enum([
+    "jira",
+    "confluence",
+    "figma",
+    "github",
+    "openapi",
+    "other",
+  ]),
+  reference: z.string(),
+  origin: z.enum(["explicit", "inferred", "manual"]),
+  state: z.enum([
+    "pending",
+    "confirmed",
+    "omitted",
+    "unavailable",
+    "replaced",
+  ]),
+  required: z.boolean(),
+  replacementFor: z.string().optional(),
+  parentSourceId: z.string().optional(),
+  relationship: z
+    .enum(["primary", "search-candidate", "linked-secondary"])
+    .optional(),
+  authorityRole: z
+    .enum([
+      "requirement",
+      "visual",
+      "contract",
+      "implementation-reference",
+    ])
+    .optional(),
+  routePolicy: z
+    .object({
+      primaryAdapter: z.string().regex(/^[a-z0-9][a-z0-9-]{1,79}$/u),
+      fallback: z.enum(["deny", "ask", "allow-list"]),
+      allowedFallbackAdapters: z
+        .array(z.string().regex(/^[a-z0-9][a-z0-9-]{1,79}$/u))
+        .max(8)
+        .optional(),
+    })
+    .optional(),
+  decidedAt: z.string().optional(),
+});
+
+const taskSourceRelationSchema = z.object({
+  id: z.string().optional(),
+  fromSourceId: z.string().max(160),
+  toSourceId: z.string().max(160),
+  kind: z.enum([
+    "references-design",
+    "constrains-contract",
+    "secondary-implementation-reference",
+  ]),
+  targetScope: z
+    .object({
+      provider: z.enum([
+        "jira",
+        "confluence",
+        "figma",
+        "github",
+        "openapi",
+        "other",
+      ]),
+      kind: z.enum([
+        "file",
+        "page",
+        "node",
+        "selection",
+        "operation",
+        "unknown",
+      ]),
+      id: z.string().min(1).max(500),
+    })
+    .optional(),
+  confirmedAt: z.string().datetime().optional(),
+});
 
 function text(value: unknown) {
   const serialized = JSON.stringify(value) ?? "null";
@@ -314,21 +406,180 @@ export function createMcpServer(): McpServer {
     {
       root_path: z.string(),
       intent: z.string().min(1),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u).optional(),
       limit: z.number().int().min(1).max(5).optional(),
       budget_chars: z.number().int().min(800).max(12000).optional(),
+      invalidation_reason: z
+        .enum([
+          "graph-changed",
+          "scope-changed",
+          "source-ledger-changed",
+          "user-requested",
+        ])
+        .optional(),
     },
-    async ({ root_path, intent, limit, budget_chars }) => {
+    async ({
+      root_path,
+      intent,
+      task_id,
+      limit,
+      budget_chars,
+      invalidation_reason,
+    }) => {
       const graph = await loadProjectGraph(root_path);
+      const claim = task_id
+        ? await claimTaskRetrieval(root_path, {
+            taskId: task_id,
+            kind: "reuse",
+            key: reuseRetrievalKey({
+              projectId: graph.project.id,
+              intent,
+              ...(graph.project.identity?.checkoutId
+                ? { checkoutId: graph.project.identity.checkoutId }
+                : {}),
+              ...(graph.project.scan?.fingerprint
+                ? { graphFingerprint: graph.project.scan.fingerprint }
+                : {}),
+            }),
+            ...(invalidation_reason
+              ? { invalidationReason: invalidation_reason }
+              : {}),
+          })
+        : undefined;
+      if (claim?.status === "cached") {
+        return text({
+          status: "cached",
+          handle: claim.handle,
+          budgetId: claim.budgetId,
+          contextInjected: false,
+          nextSafeAction:
+            "Reuse the prior compact selection; expand a named component only if required.",
+        });
+      }
       const context = buildReuseContext(graph, intent, limit ?? 3);
-      return text(
-        fitBudgetedResponse(context as unknown as Record<string, unknown>, {
+      const response = fitBudgetedResponse(
+        context as unknown as Record<string, unknown>,
+        {
           budgetChars: budget_chars,
           totalMatches: context.candidates.length,
           expandableIds: context.candidates.map(
             (candidate) => candidate.component.id,
           ),
-        }),
+        },
       );
+      if (claim) {
+        await completeTaskRetrieval(root_path, claim.handle, context);
+      }
+      return text({
+        ...response,
+        ...(claim
+          ? {
+              retrieval: {
+                handle: claim.handle,
+                budgetId: claim.budgetId,
+                contextInjected: true,
+              },
+            }
+          : {}),
+      });
+    },
+  );
+
+  server.tool(
+    "get_change_surface",
+    "Lock one compact implementation surface after reuse selection: one primary component, at most two reference-only components, bounded files/API/impact, and explicit exclusions. Repeated scope returns only its retrieval handle.",
+    {
+      root_path: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
+      intent: z.string().min(1),
+      primary_component: z.string().min(1).optional(),
+      secondary_components: z.array(z.string().min(1)).max(2).optional(),
+      out_of_scope: z.array(z.string().min(1)).max(8).optional(),
+      source_ledger_hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+      budget_chars: z.number().int().min(800).max(6000).optional(),
+      invalidation_reason: z
+        .enum([
+          "graph-changed",
+          "scope-changed",
+          "source-ledger-changed",
+          "user-requested",
+        ])
+        .optional(),
+    },
+    async ({
+      root_path,
+      task_id,
+      intent,
+      primary_component,
+      secondary_components,
+      out_of_scope,
+      source_ledger_hash,
+      budget_chars,
+      invalidation_reason,
+    }) => {
+      const graph = await loadProjectGraph(root_path);
+      const claim = await claimTaskRetrieval(root_path, {
+        taskId: task_id,
+        kind: "change-surface",
+        key: changeSurfaceRetrievalKey({
+          projectId: graph.project.id,
+          intent,
+          ...(graph.project.identity?.checkoutId
+            ? { checkoutId: graph.project.identity.checkoutId }
+            : {}),
+          ...(graph.project.scan?.fingerprint
+            ? { graphFingerprint: graph.project.scan.fingerprint }
+            : {}),
+          ...(primary_component
+            ? { primaryComponent: primary_component }
+            : {}),
+          ...(secondary_components
+            ? { secondaryComponents: secondary_components }
+            : {}),
+          ...(out_of_scope ? { outOfScope: out_of_scope } : {}),
+          sourceLedgerHash: source_ledger_hash,
+        }),
+        ...(invalidation_reason
+          ? { invalidationReason: invalidation_reason }
+          : {}),
+      });
+      if (claim.status === "cached") {
+        return text({
+          status: "cached",
+          handle: claim.handle,
+          budgetId: claim.budgetId,
+          contextInjected: false,
+          nextSafeAction:
+            "Keep the previously locked primary, references, files, and exclusions.",
+        });
+      }
+      const surface = buildChangeSurface(graph, intent, {
+        ...(primary_component ? { primaryComponent: primary_component } : {}),
+        ...(secondary_components
+          ? { secondaryComponents: secondary_components }
+          : {}),
+        ...(out_of_scope ? { outOfScope: out_of_scope } : {}),
+      });
+      await completeTaskRetrieval(root_path, claim.handle, surface);
+      const response = fitBudgetedResponse(
+        surface as unknown as Record<string, unknown>,
+        {
+          budgetChars: budget_chars ?? 2_800,
+          totalMatches: surface.references.length + (surface.primary ? 1 : 0),
+          expandableIds: [
+            ...(surface.primary ? [surface.primary.id] : []),
+            ...surface.references.map((item) => item.component.id),
+          ],
+        },
+      );
+      return text({
+        ...response,
+        retrieval: {
+          handle: claim.handle,
+          budgetId: claim.budgetId,
+          contextInjected: true,
+        },
+      });
     },
   );
 
@@ -483,6 +734,8 @@ export function createMcpServer(): McpServer {
     {
       root_path: z.string(),
       figma_url: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u).optional(),
+      source_decision_id: z.string().max(160).optional(),
       metadata: z.union([z.string(), z.record(z.unknown())]),
       format: z
         .enum(["auto", "figma-mcp-xml", "figma-rest"])
@@ -545,6 +798,8 @@ export function createMcpServer(): McpServer {
     async ({
       root_path,
       figma_url,
+      task_id,
+      source_decision_id,
       metadata,
       format,
       file_name,
@@ -558,13 +813,64 @@ export function createMcpServer(): McpServer {
       force,
       budget_chars,
     }) => {
-      const identity = sourceIdentityFromReference("figma", figma_url);
-      const exactNodeId = scope_node_id ?? identity.nodeId;
+      if (Boolean(task_id) !== Boolean(source_decision_id)) {
+        throw new Error(
+          "Authoritative Figma mapping requires both task_id and source_decision_id.",
+        );
+      }
+      const observedIdentity = sourceIdentityFromReference("figma", figma_url);
+      const authoritativeDecision =
+        task_id && source_decision_id
+          ? await loadConfirmedTaskSourceDecision(
+              root_path,
+              task_id,
+              source_decision_id,
+            )
+          : undefined;
+      if (authoritativeDecision && authoritativeDecision.kind !== "figma") {
+        throw new Error("The task source decision is not a Figma source.");
+      }
+      if (authoritativeDecision && !source_receipt) {
+        throw new Error(
+          "Authoritative Figma mapping requires route evidence in source_receipt.",
+        );
+      }
+      const confirmedReference =
+        authoritativeDecision?.reference ?? figma_url;
+      const identity = sourceIdentityFromReference(
+        "figma",
+        confirmedReference,
+      );
+      if (
+        identity.fileKey !== observedIdentity.fileKey ||
+        (identity.host &&
+          observedIdentity.host &&
+          identity.host !== observedIdentity.host)
+      ) {
+        throw new Error(
+          "The observed Figma scope belongs to a different confirmed file.",
+        );
+      }
+      const exactNodeId =
+        scope_node_id ?? observedIdentity.nodeId ?? identity.nodeId;
+      const sourceScopeId = identity.nodeId ?? identity.fileKey!;
+      const scopeRelation =
+        exactNodeId
+          ? {
+              kind:
+                sourceScopeId === exactNodeId
+                  ? ("same-scope" as const)
+                  : ("contained-scope" as const),
+              sourceId: sourceScopeId,
+              targetId: exactNodeId,
+            }
+          : undefined;
       const receipt = source_receipt
         ? createSourceReceipt({
             sourceDecisionId:
+              authoritativeDecision?.id ??
               source_receipt.source_decision_id ??
-              taskSourceId("figma", figma_url),
+              "unbound-figma-observation",
             provider: "figma",
             requested: identity,
             resolved: {
@@ -583,6 +889,7 @@ export function createMcpServer(): McpServer {
                     : {}),
                 }
               : { kind: "file", id: identity.fileKey! },
+            ...(scopeRelation ? { scopeRelation } : {}),
             observedAt:
               source_receipt.observed_at ?? new Date().toISOString(),
             ...(source_receipt.fallback
@@ -595,13 +902,30 @@ export function createMcpServer(): McpServer {
                   },
                 }
               : {}),
-            coverage: "exact",
+            coverage: authoritativeDecision ? "exact" : "candidate",
             freshness: source_receipt.freshness ?? "current",
           })
         : undefined;
+      if (authoritativeDecision && receipt) {
+        assertSourceReceiptMatchesDecision(
+          {
+            id: authoritativeDecision.id,
+            kind: authoritativeDecision.kind,
+            reference: authoritativeDecision.reference,
+            state: authoritativeDecision.state,
+            ...(authoritativeDecision.routePolicy
+              ? { routePolicy: authoritativeDecision.routePolicy }
+              : {}),
+          },
+          receipt,
+        );
+      }
       const result = await mapFigmaDesign({
           rootPath: root_path,
           figmaUrl: figma_url,
+          ...(authoritativeDecision
+            ? { confirmedSourceReference: authoritativeDecision.reference }
+            : {}),
           metadata,
           ...(format ? { format } : {}),
           ...(file_name ? { fileName: file_name } : {}),
@@ -633,6 +957,138 @@ export function createMcpServer(): McpServer {
         }),
       );
     },
+  );
+
+  server.tool(
+    "capture_figma_asset",
+    "Capture one selected Figma Desktop MCP localhost asset into ProjectAtlas temp storage. Returns only a handle, hash, format, size, provenance, and expiry; never returns SVG or binary bodies and never persists the localhost URL.",
+    {
+      root_path: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
+      source_receipt_id: z.string().regex(/^receipt-[a-f0-9]{16}$/u),
+      asset_url: z.string().url(),
+      scope_node_id: z.string().min(1).max(160),
+      asset_node_id: z.string().min(1).max(160).optional(),
+      file_name: z.string().min(1).max(160).optional(),
+      ttl_minutes: z.number().int().min(1).max(1440).optional(),
+      invalidation_reason: z
+        .enum([
+          "graph-changed",
+          "scope-changed",
+          "source-ledger-changed",
+          "user-requested",
+        ])
+        .optional(),
+    },
+    async ({
+      root_path,
+      task_id,
+      source_receipt_id,
+      asset_url,
+      scope_node_id,
+      asset_node_id,
+      file_name,
+      ttl_minutes,
+      invalidation_reason,
+    }) => {
+      const claim = await claimTaskRetrieval(root_path, {
+        taskId: task_id,
+        kind: "figma-asset",
+        key: JSON.stringify({
+          sourceReceiptId: source_receipt_id,
+          sourceUrl: asset_url,
+          scopeNodeId: scope_node_id,
+          assetNodeId: asset_node_id ?? "",
+        }),
+        ...(invalidation_reason
+          ? { invalidationReason: invalidation_reason }
+          : {}),
+      });
+      if (claim.status === "cached") {
+        const cached = (await loadTaskRetrievalResult(
+          root_path,
+          claim.handle,
+        )) as { handle?: unknown };
+        if (typeof cached.handle !== "string") {
+          throw new Error("Cached Figma asset handle is invalid.");
+        }
+        const asset = await loadFigmaAssetMetadata(cached.handle).catch(() => {
+          throw new Error(
+            "Cached Figma asset handle is unavailable. Retry with an explicit invalidation reason.",
+          );
+        });
+        if (Date.parse(asset.expiresAt) <= Date.now()) {
+          throw new Error(
+            "Cached Figma asset handle expired. Purge it and retry with an explicit invalidation reason.",
+          );
+        }
+        return text({
+          status: "cached",
+          asset,
+          retrieval: {
+            handle: claim.handle,
+            budgetId: claim.budgetId,
+            contextInjected: false,
+          },
+        });
+      }
+      const asset = await captureFigmaAsset({
+        rootPath: root_path,
+        taskId: task_id,
+        sourceReceiptId: source_receipt_id,
+        sourceUrl: asset_url,
+        scopeNodeId: scope_node_id,
+        ...(asset_node_id ? { assetNodeId: asset_node_id } : {}),
+        ...(file_name ? { fileName: file_name } : {}),
+        ...(ttl_minutes ? { ttlMs: ttl_minutes * 60_000 } : {}),
+      });
+      await completeTaskRetrieval(root_path, claim.handle, asset);
+      return text({
+        asset,
+        retrieval: {
+          handle: claim.handle,
+          budgetId: claim.budgetId,
+          contextInjected: true,
+        },
+      });
+    },
+  );
+
+  server.tool(
+    "materialize_figma_asset",
+    "Write one explicitly selected, validated Figma asset handle to a new checkout-relative production asset path. Refuses overwrite, path escape, active/external SVG content, expired or tampered handles, and Atlas/Codex state paths.",
+    {
+      root_path: z.string(),
+      asset_handle: z
+        .string()
+        .regex(/^figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}$/u),
+      destination_path: z.string().min(1).max(500),
+    },
+    async ({ root_path, asset_handle, destination_path }) =>
+      text(
+        await materializeFigmaAsset({
+          rootPath: root_path,
+          handle: asset_handle,
+          destinationPath: destination_path,
+        }),
+      ),
+  );
+
+  server.tool(
+    "purge_expired_figma_assets",
+    "Purge only expired ProjectAtlas-owned Figma temp assets. Never scans or deletes checkout files.",
+    {
+      task_id: z
+        .string()
+        .regex(/^[A-Za-z0-9_.:-]{1,160}$/u)
+        .optional(),
+    },
+    async ({ task_id }) =>
+      text(
+        await purgeExpiredFigmaAssets({
+          ...(task_id ? { taskId: task_id } : {}),
+        }),
+      ),
   );
 
   server.tool(
@@ -903,38 +1359,8 @@ export function createMcpServer(): McpServer {
         .max(8)
         .optional(),
       objective_confirmed: z.boolean().optional(),
-      source_decisions: z
-        .array(
-          z.object({
-            id: z.string().optional(),
-            kind: z.enum([
-              "jira",
-              "confluence",
-              "figma",
-              "github",
-              "openapi",
-              "other",
-            ]),
-            reference: z.string(),
-            origin: z.enum(["explicit", "inferred", "manual"]),
-            state: z.enum([
-              "pending",
-              "confirmed",
-              "omitted",
-              "unavailable",
-              "replaced",
-            ]),
-            required: z.boolean(),
-            replacementFor: z.string().optional(),
-            parentSourceId: z.string().optional(),
-            relationship: z
-              .enum(["primary", "search-candidate", "linked-secondary"])
-              .optional(),
-            decidedAt: z.string().optional(),
-          }),
-        )
-        .max(12)
-        .optional(),
+      source_decisions: z.array(taskSourceDecisionSchema).max(12).optional(),
+      source_relations: z.array(taskSourceRelationSchema).max(12).optional(),
     },
     async ({
       root_path,
@@ -947,9 +1373,14 @@ export function createMcpServer(): McpServer {
       selected_handles,
       objective_confirmed,
       source_decisions,
+      source_relations,
     }) => {
       const resolvedTaskId = task_id ?? `task-${randomUUID()}`;
       const decisions = normalizeTaskSourceDecisions(source_decisions ?? []);
+      const relations = normalizeTaskSourceRelations(
+        source_relations ?? [],
+        decisions,
+      );
       const budgetChars = budget_chars ?? 4_200;
       await writeTaskCheckpoint(root_path, {
         taskId: resolvedTaskId,
@@ -957,6 +1388,7 @@ export function createMcpServer(): McpServer {
         objective: task,
         objectiveApproved: objective_confirmed ?? false,
         decisions,
+        sourceRelations: relations,
         sourceReceiptIds: [],
         handles: selected_handles ?? [],
         covered: ["task intake"],
@@ -975,6 +1407,7 @@ export function createMcpServer(): McpServer {
             objectiveConfirmed: objective_confirmed ?? false,
             risk: assessTaskRisk(task),
             sources: decisions,
+            relations,
           },
           {
             ...(figma_file ? { figmaFile: figma_file } : {}),
@@ -982,6 +1415,17 @@ export function createMcpServer(): McpServer {
             ...(top_k ? { topK: top_k } : {}),
             ...(refresh_memory ? { refreshMemory: true } : {}),
             ...(selected_handles ? { selectedHandles: selected_handles } : {}),
+            taskId: resolvedTaskId,
+            sourceLedgerHash: JSON.stringify({
+              decisions: decisions.map((decision) => [
+                decision.id,
+                decision.state,
+                decision.reference,
+                decision.authorityRole,
+                decision.routePolicy,
+              ]),
+              relations,
+            }),
           },
         );
         await writeTaskCheckpoint(root_path, {
@@ -993,6 +1437,7 @@ export function createMcpServer(): McpServer {
           objective: task,
           objectiveApproved: objective_confirmed ?? false,
           decisions,
+          sourceRelations: relations,
           sourceReceiptIds: context.sourceReceiptIds,
           handles: taskContextResumeHandles(context),
           covered: ["task intake", "source preflight", "bounded context"],
@@ -1011,6 +1456,7 @@ export function createMcpServer(): McpServer {
           objective: task,
           objectiveApproved: objective_confirmed ?? false,
           decisions,
+          sourceRelations: relations,
           sourceReceiptIds: [],
           handles: selected_handles ?? [],
           covered: ["task intake"],
@@ -1036,6 +1482,90 @@ export function createMcpServer(): McpServer {
     },
     async ({ root_path, receipt_id, budget_chars }) =>
       text(await expandSourceReceipt(root_path, receipt_id, budget_chars)),
+  );
+
+  server.tool(
+    "register_task_manifest",
+    "Register skill/reference/script digests and retrieval keys once for a task. Bodies stay out of the manifest and resumed context.",
+    {
+      root_path: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
+      objective_hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+      source_ledger_hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+      skills: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(120),
+            digest: z.string().regex(/^[a-f0-9]{16,64}$/u),
+            phase: z.enum([
+              "intake",
+              "design",
+              "implementation",
+              "validation",
+              "closeout",
+            ]),
+          }),
+        )
+        .max(12),
+      references: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(160),
+            digest: z.string().regex(/^[a-f0-9]{16,64}$/u),
+            phase: z.enum([
+              "intake",
+              "design",
+              "implementation",
+              "validation",
+              "closeout",
+            ]),
+          }),
+        )
+        .max(24)
+        .optional(),
+      scripts: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(160),
+            interface_version: z.string().min(1).max(40),
+            digest: z.string().regex(/^[a-f0-9]{16,64}$/u),
+          }),
+        )
+        .max(12)
+        .optional(),
+      retrieval_keys: z.array(z.string().max(160)).max(24).optional(),
+    },
+    async ({
+      root_path,
+      task_id,
+      objective_hash,
+      source_ledger_hash,
+      skills,
+      references,
+      scripts,
+      retrieval_keys,
+    }) =>
+      text(
+        await writeTaskExecutionManifest(root_path, {
+          taskId: task_id,
+          objectiveHash: objective_hash,
+          sourceLedgerHash: source_ledger_hash,
+          skills,
+          references: references ?? [],
+          scripts: (scripts ?? []).map((script) => ({
+            id: script.id,
+            interfaceVersion: script.interface_version,
+            digest: script.digest,
+          })),
+          retrievalKeys: retrieval_keys ?? [],
+          invalidatesOn: [
+            "checkout-change",
+            "head-change",
+            "objective-change",
+            "source-ledger-change",
+          ],
+        }),
+      ),
   );
 
   server.tool(
@@ -1072,45 +1602,60 @@ export function createMcpServer(): McpServer {
       ]),
       objective: z.string().min(1).max(6_000),
       objective_approved: z.boolean(),
-      source_decisions: z
-        .array(
-          z.object({
-            id: z.string().optional(),
-            kind: z.enum([
-              "jira",
-              "confluence",
-              "figma",
-              "github",
-              "openapi",
-              "other",
-            ]),
-            reference: z.string(),
-            origin: z.enum(["explicit", "inferred", "manual"]),
-            state: z.enum([
-              "pending",
-              "confirmed",
-              "omitted",
-              "unavailable",
-              "replaced",
-            ]),
-            required: z.boolean(),
-            replacementFor: z.string().optional(),
-            parentSourceId: z.string().optional(),
-            relationship: z
-              .enum(["primary", "search-candidate", "linked-secondary"])
-              .optional(),
-            decidedAt: z.string().optional(),
-          }),
-        )
-        .max(12)
-        .optional(),
+      source_decisions: z.array(taskSourceDecisionSchema).max(12).optional(),
+      source_relations: z.array(taskSourceRelationSchema).max(12).optional(),
       source_receipt_ids: z
         .array(z.string().regex(/^receipt-[a-f0-9]{16}$/u))
         .max(20)
         .optional(),
       handles: z
-        .array(z.string().regex(/^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/u))
+        .array(
+          z.string().regex(
+            /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16})$/u,
+          ),
+        )
         .max(8)
+        .optional(),
+      execution_manifest: z
+        .object({
+          handle: z
+            .string()
+            .regex(/^manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}$/u),
+          hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+          source_ledger_hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+          retrieval_budget_id: z
+            .string()
+            .regex(/^retrieval-budget:[A-Za-z0-9_.:-]{1,160}$/u),
+        })
+        .optional(),
+      active_policy: z
+        .object({
+          visual_mode: z.enum(["fidelity", "inherit", "explore"]).optional(),
+          invention_budget: z.union([
+            z.literal(0),
+            z.literal(1),
+            z.literal(2),
+            z.literal(3),
+          ]).optional(),
+          excluded_surfaces: z.array(z.string().max(80)).max(6).optional(),
+          auth_mode: z.enum(["real", "dev-mock-no-session"]).optional(),
+          auth_mock_guard: z
+            .object({
+              schema_version: z.literal(1),
+              mode: z.literal("dev-mock-no-session"),
+              adapter_id: z.string().regex(/^[A-Za-z0-9._-]{1,120}$/u),
+              environment: z.enum(["development", "test"]),
+              challenge_only: z.literal(true),
+              profile_flow_untouched: z.literal(true),
+              accepts_real_credentials: z.literal(false),
+              reads_existing_session: z.literal(false),
+              creates_session: z.literal(false),
+              issues_tokens: z.literal(false),
+              writes_auth_cookies: z.literal(false),
+              production_enabled: z.literal(false),
+            })
+            .optional(),
+        })
         .optional(),
       covered: z.array(z.string().max(240)).max(8).optional(),
       remaining: z.array(z.string().max(240)).max(8).optional(),
@@ -1126,23 +1671,92 @@ export function createMcpServer(): McpServer {
       objective,
       objective_approved,
       source_decisions,
+      source_relations,
       source_receipt_ids,
       handles,
+      execution_manifest,
+      active_policy,
       covered,
       remaining,
       budget_chars,
       estimated_tokens,
       next_safe_action,
     }) => {
+      const decisions = normalizeTaskSourceDecisions(source_decisions ?? []);
       const capsule = await writeTaskCheckpoint(root_path, {
         taskId: task_id,
         ...(status ? { status } : {}),
         milestone,
         objective,
         objectiveApproved: objective_approved,
-        decisions: normalizeTaskSourceDecisions(source_decisions ?? []),
+        decisions,
+        sourceRelations: normalizeTaskSourceRelations(
+          source_relations ?? [],
+          decisions,
+        ),
         sourceReceiptIds: source_receipt_ids ?? [],
         handles: handles ?? [],
+        ...(execution_manifest
+          ? {
+              executionManifest: {
+                handle: execution_manifest.handle,
+                hash: execution_manifest.hash,
+                sourceLedgerHash: execution_manifest.source_ledger_hash,
+                retrievalBudgetId: execution_manifest.retrieval_budget_id,
+              },
+            }
+          : {}),
+        ...(active_policy
+          ? {
+              activePolicy: {
+                ...(active_policy.visual_mode
+                  ? { visualMode: active_policy.visual_mode }
+                  : {}),
+                ...(active_policy.invention_budget !== undefined
+                  ? { inventionBudget: active_policy.invention_budget }
+                  : {}),
+                ...(active_policy.excluded_surfaces
+                  ? { excludedSurfaces: active_policy.excluded_surfaces }
+                  : {}),
+                ...(active_policy.auth_mode
+                  ? { authMode: active_policy.auth_mode }
+                  : {}),
+                ...(active_policy.auth_mock_guard
+                  ? {
+                      authMockGuard: {
+                        schemaVersion:
+                          active_policy.auth_mock_guard.schema_version,
+                        mode: active_policy.auth_mock_guard.mode,
+                        adapterId: active_policy.auth_mock_guard.adapter_id,
+                        environment:
+                          active_policy.auth_mock_guard.environment,
+                        challengeOnly:
+                          active_policy.auth_mock_guard.challenge_only,
+                        profileFlowUntouched:
+                          active_policy.auth_mock_guard
+                            .profile_flow_untouched,
+                        acceptsRealCredentials:
+                          active_policy.auth_mock_guard
+                            .accepts_real_credentials,
+                        readsExistingSession:
+                          active_policy.auth_mock_guard
+                            .reads_existing_session,
+                        createsSession:
+                          active_policy.auth_mock_guard.creates_session,
+                        issuesTokens:
+                          active_policy.auth_mock_guard.issues_tokens,
+                        writesAuthCookies:
+                          active_policy.auth_mock_guard
+                            .writes_auth_cookies,
+                        productionEnabled:
+                          active_policy.auth_mock_guard
+                            .production_enabled,
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
         covered: covered ?? [],
         remaining: remaining ?? [],
         budgetChars: budget_chars,

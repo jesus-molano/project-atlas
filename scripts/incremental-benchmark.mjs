@@ -6,8 +6,8 @@ import { scanProject } from "../packages/runtime/dist/index.js";
 
 const root = await mkdtemp(path.join(os.tmpdir(), "atlas-incremental-bench-"));
 const dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-bench-data-"));
-const previousHome = process.env.COMPONENT_ATLAS_HOME;
-process.env.COMPONENT_ATLAS_HOME = dataHome;
+const previousHome = process.env.PROJECT_ATLAS_HOME;
+process.env.PROJECT_ATLAS_HOME = dataHome;
 
 try {
   const templateBody = Array.from(
@@ -67,8 +67,8 @@ try {
     })}\n`,
   );
 } finally {
-  if (previousHome === undefined) delete process.env.COMPONENT_ATLAS_HOME;
-  else process.env.COMPONENT_ATLAS_HOME = previousHome;
+  if (previousHome === undefined) delete process.env.PROJECT_ATLAS_HOME;
+  else process.env.PROJECT_ATLAS_HOME = previousHome;
   await Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(dataHome, { recursive: true, force: true }),

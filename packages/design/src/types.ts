@@ -270,6 +270,7 @@ export interface DesignIndexEnrichment {
 
 export interface BuildFigmaDesignIndexInput {
   figmaUrl: string;
+  confirmedSourceReference?: string;
   metadata: string | Record<string, unknown>;
   format?: DesignMetadataFormat;
   fileName?: string;
@@ -416,6 +417,12 @@ export interface DesignNodeInspection {
     candidateSubtreeIds: string[];
     requiredTools: string[];
     recommendedTools: string[];
+    optionalEnrichmentTools: string[];
+    codeConnect: {
+      status: "mapped" | "unmapped";
+      policy: "advisory";
+      blocksFidelity: false;
+    };
     budgetPolicy: {
       preserveTargetFirst: true;
       omitFirst: string[];

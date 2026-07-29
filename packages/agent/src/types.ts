@@ -1,4 +1,8 @@
 import type { MemoryCloseout } from "./memory-closeout.js";
+import type {
+  AgentDelegationPlan,
+  AgentDelegationResult,
+} from "./delegation.js";
 
 export type AgentSourceReceiptProvider =
   | "figma"
@@ -17,6 +21,9 @@ export type AgentSourceReceiptAdapter =
   | "openapi-public-http"
   | "openapi-internal-connector"
   | "github-connector"
+  | "browser-in-app"
+  | "chrome-browser"
+  | "web-http"
   | "atlas-cache"
   | "manual-import"
   | "other";
@@ -37,7 +44,7 @@ export interface AgentSourceIdentity {
 }
 
 export interface AgentSourceReceipt {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   sourceDecisionId: string;
   provider: AgentSourceReceiptProvider;
@@ -59,6 +66,24 @@ export interface AgentSourceReceipt {
       | "unknown";
     id: string;
     parentId?: string;
+  };
+  scopeRelation?: {
+    kind: "same-scope" | "contained-scope";
+    sourceId: string;
+    targetId: string;
+    ancestorIds?: string[];
+    proofHash?: string;
+  };
+  derivation?: {
+    kind:
+      | "same-origin-redirect"
+      | "swagger-ui-config"
+      | "swagger-ui-config-url"
+      | "swagger-ui-initializer";
+    sourceId: string;
+    targetId: string;
+    evidenceHash: string;
+    redirectChain?: string[];
   };
   contentHash?: string;
   observedAt: string;
@@ -119,6 +144,16 @@ export interface AgentSourceDecision {
   replacementFor?: string;
   parentSourceId?: string;
   relationship?: "primary" | "search-candidate" | "linked-secondary";
+  authorityRole?:
+    | "requirement"
+    | "visual"
+    | "contract"
+    | "implementation-reference";
+  routePolicy?: {
+    primaryAdapter: string;
+    fallback: "deny" | "ask" | "allow-list";
+    allowedFallbackAdapters?: string[];
+  };
   decidedAt?: string;
 }
 
@@ -149,6 +184,10 @@ export interface AgentRunRequest {
   threadId?: string;
   answer?: string;
   timeoutMs?: number;
+  delegation?: {
+    plan: AgentDelegationPlan;
+    results: AgentDelegationResult[];
+  };
 }
 
 export interface AgentCompactResult {

@@ -12,22 +12,34 @@ import {
 import path from "node:path";
 import { promisify } from "node:util";
 import {
+  defaultTaskSourceAuthorityRole,
+  defaultTaskSourceRoutePolicy,
+  normalizeTaskSourceDecisions,
+  normalizeTaskSourceRelations,
   parseSourceReceipt,
   type SourceReceipt,
   type TaskSourceDecision,
+  type TaskSourceRelation,
 } from "@component-atlas/core";
 import { fitBudgetedResponse } from "@component-atlas/memory";
+import { projectStorageDirectory } from "@component-atlas/store";
 import { decode, encode } from "@toon-format/toon";
+import { resolveProjectIdentity } from "./identity.js";
+import {
+  assertDevelopmentAuthMockGuard,
+  type DevelopmentAuthMockGuard,
+} from "./auth-mocks.js";
 
 const execFileAsync = promisify(execFile);
-const CAPSULE_SCHEMA_VERSION = 1 as const;
+const CAPSULE_SCHEMA_VERSION = 2 as const;
+const LEGACY_CAPSULE_SCHEMA_VERSION = 1 as const;
 const MAX_CAPSULE_BYTES = 4_096;
 const MAX_JOURNAL_EVENT_BYTES = 2_048;
 const CLOSED_TTL_MS = 24 * 60 * 60 * 1_000;
 const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const RECEIPT_ID = /^receipt-[a-f0-9]{16}$/u;
 const EXPANDABLE_HANDLE =
-  /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16})$/u;
+  /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16})$/u;
 
 export type TaskJournalMilestone =
   | "objective-approved"
@@ -40,7 +52,9 @@ export type TaskJournalMilestone =
   | "completed";
 
 export interface TaskResumeCapsule {
-  schemaVersion: typeof CAPSULE_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof LEGACY_CAPSULE_SCHEMA_VERSION
+    | typeof CAPSULE_SCHEMA_VERSION;
   taskId: string;
   status: "active" | "blocked" | "completed";
   createdAt: string;
@@ -53,7 +67,10 @@ export interface TaskResumeCapsule {
     state: TaskSourceDecision["state"];
     required: boolean;
     reference: string;
+    authorityRole?: TaskSourceDecision["authorityRole"];
+    routePolicy?: TaskSourceDecision["routePolicy"];
   }>;
+  sourceRelations?: TaskSourceRelation[];
   sourceReceiptIds: string[];
   handles: string[];
   scope: {
@@ -68,6 +85,19 @@ export interface TaskResumeCapsule {
     contextChars: number;
     estimatedTokens: number;
   };
+  executionManifest?: {
+    handle: string;
+    hash: string;
+    sourceLedgerHash: string;
+    retrievalBudgetId: string;
+  };
+  activePolicy?: {
+    visualMode?: "fidelity" | "inherit" | "explore";
+    inventionBudget?: 0 | 1 | 2 | 3;
+    excludedSurfaces?: string[];
+    authMode?: "real" | "dev-mock-no-session";
+    authMockGuard?: DevelopmentAuthMockGuard;
+  };
   nextSafeAction: string;
 }
 
@@ -78,15 +108,26 @@ export interface TaskCheckpointInput {
   objective: string;
   objectiveApproved: boolean;
   decisions: TaskSourceDecision[];
+  sourceRelations?: TaskSourceRelation[];
   sourceReceiptIds: string[];
   handles: string[];
   covered: string[];
   remaining: string[];
   budgetChars: number;
   estimatedTokens?: number;
+  executionManifest?: TaskResumeCapsule["executionManifest"];
+  activePolicy?: TaskResumeCapsule["activePolicy"];
   nextSafeAction: string;
   head?: string;
   at?: string;
+}
+
+export interface TaskSourceLedger {
+  schemaVersion: 1;
+  taskId: string;
+  updatedAt: string;
+  decisions: TaskSourceDecision[];
+  relations: TaskSourceRelation[];
 }
 
 export interface ResumeCapsuleTransport {
@@ -111,7 +152,15 @@ function short(value: string, maximum: number): string {
     .slice(0, maximum);
 }
 
-function taskStateRoot(rootPath: string): string {
+async function taskStateRoot(rootPath: string): Promise<string> {
+  const identity = await resolveProjectIdentity(rootPath);
+  return path.join(
+    projectStorageDirectory(identity.logicalId),
+    "task-state",
+  );
+}
+
+function legacyTaskStateRoot(rootPath: string): string {
   return path.join(rootPath, ".component-atlas", "task-state");
 }
 
@@ -145,7 +194,10 @@ function validateCapsule(value: unknown): TaskResumeCapsule {
   }
   const capsule = value as TaskResumeCapsule;
   if (
-    capsule.schemaVersion !== CAPSULE_SCHEMA_VERSION ||
+    ![
+      LEGACY_CAPSULE_SCHEMA_VERSION,
+      CAPSULE_SCHEMA_VERSION,
+    ].includes(capsule.schemaVersion) ||
     !TASK_ID.test(capsule.taskId) ||
     !["active", "blocked", "completed"].includes(capsule.status) ||
     !capsule.objective?.text ||
@@ -164,6 +216,9 @@ function validateCapsule(value: unknown): TaskResumeCapsule {
   }
   if (Buffer.byteLength(JSON.stringify(capsule), "utf8") > MAX_CAPSULE_BYTES) {
     throw new Error("Task resume capsule exceeds its 4 KB storage budget.");
+  }
+  if (capsule.activePolicy?.authMockGuard) {
+    assertDevelopmentAuthMockGuard(capsule.activePolicy.authMockGuard);
   }
   return capsule;
 }
@@ -203,6 +258,9 @@ function fitCapsuleStorageBudget(
       id: short(decision.id, 120),
       reference: short(decision.reference, 80),
     })),
+    ...(capsule.sourceRelations
+      ? { sourceRelations: capsule.sourceRelations.slice(0, 8) }
+      : {}),
     sourceReceiptIds: capsule.sourceReceiptIds.slice(0, 12),
     handles: capsule.handles.slice(0, 4),
     scope: {
@@ -213,6 +271,20 @@ function fitCapsuleStorageBudget(
         .slice(0, 4)
         .map((item) => short(item, 96)),
     },
+    ...(capsule.activePolicy
+      ? {
+          activePolicy: {
+            ...capsule.activePolicy,
+            ...(capsule.activePolicy.excludedSurfaces
+              ? {
+                  excludedSurfaces: capsule.activePolicy.excludedSurfaces
+                    .slice(0, 6)
+                    .map((item) => short(item, 80)),
+                }
+              : {}),
+          },
+        }
+      : {}),
     nextSafeAction: short(capsule.nextSafeAction, 180),
   };
   if (Buffer.byteLength(JSON.stringify(compact), "utf8") <= MAX_CAPSULE_BYTES) {
@@ -268,7 +340,7 @@ export async function appendTaskJournalMilestone(
   at = new Date().toISOString(),
 ): Promise<void> {
   checkedId(taskId, TASK_ID, "Task ID");
-  const directory = path.join(taskStateRoot(rootPath), "journals");
+  const directory = path.join(await taskStateRoot(rootPath), "journals");
   await mkdir(directory, { recursive: true });
   const event = {
     schemaVersion: 1,
@@ -293,17 +365,94 @@ export async function writeTaskCheckpoint(
 ): Promise<TaskResumeCapsule> {
   checkedId(input.taskId, TASK_ID, "Task ID");
   const now = input.at ?? new Date().toISOString();
-  const directory = path.join(taskStateRoot(rootPath), "capsules");
+  const directory = path.join(await taskStateRoot(rootPath), "capsules");
   await mkdir(directory, { recursive: true });
   const filePath = path.join(directory, `${input.taskId}.json`);
   let createdAt = now;
+  let existingCapsule: TaskResumeCapsule | undefined;
   try {
-    const existing = validateCapsule(JSON.parse(await readFile(filePath, "utf8")));
-    createdAt = existing.createdAt;
+    existingCapsule = validateCapsule(
+      JSON.parse(await readFile(filePath, "utf8")),
+    );
+    createdAt = existingCapsule.createdAt;
   } catch {
-    // A missing or invalid prior capsule is replaced by the validated checkpoint.
+    try {
+      existingCapsule = validateCapsule(
+        JSON.parse(
+          await readFile(
+            path.join(
+              legacyTaskStateRoot(rootPath),
+              "capsules",
+              `${input.taskId}.json`,
+            ),
+            "utf8",
+          ),
+        ),
+      );
+      createdAt = existingCapsule.createdAt;
+    } catch {
+      // Missing or invalid legacy state is left untouched.
+    }
   }
   const status = input.status ?? "active";
+  const executionManifest =
+    input.executionManifest ?? existingCapsule?.executionManifest;
+  const activePolicy = input.activePolicy ?? existingCapsule?.activePolicy;
+  if (input.activePolicy?.authMode === "dev-mock-no-session") {
+    if (!input.activePolicy.authMockGuard) {
+      throw new Error(
+        "A new development auth mock policy requires an explicit sessionless production guard.",
+      );
+    }
+    assertDevelopmentAuthMockGuard(input.activePolicy.authMockGuard);
+  }
+  if (
+    input.activePolicy?.authMode === "real" &&
+    input.activePolicy.authMockGuard
+  ) {
+    throw new Error("Real authentication cannot carry a development mock guard.");
+  }
+  const existingLedger = await loadTaskSourceLedger(
+    rootPath,
+    input.taskId,
+  );
+  const effectiveDecisions =
+    input.decisions.length > 0
+      ? normalizeTaskSourceDecisions(input.decisions)
+      : existingLedger?.decisions ??
+        (existingCapsule?.decisions.map((decision) => ({
+            id: decision.id,
+            kind: decision.kind,
+            state: decision.state,
+            required: decision.required,
+            reference: decision.reference,
+            origin: "manual" as const,
+            relationship: "primary" as const,
+            authorityRole:
+              decision.authorityRole ??
+              defaultTaskSourceAuthorityRole(decision.kind),
+            routePolicy:
+              decision.routePolicy ??
+              defaultTaskSourceRoutePolicy(decision.kind, decision.reference),
+          })) ?? []);
+  const normalizedRelations = normalizeTaskSourceRelations(
+    input.sourceRelations ??
+      existingLedger?.relations ??
+      existingCapsule?.sourceRelations ??
+      [],
+    effectiveDecisions,
+  );
+  if (effectiveDecisions.length > 0) {
+    const ledgerDirectory = path.join(await taskStateRoot(rootPath), "ledgers");
+    await mkdir(ledgerDirectory, { recursive: true });
+    await atomicJson(path.join(ledgerDirectory, `${input.taskId}.json`), {
+      schemaVersion: 1,
+      taskId: input.taskId,
+      updatedAt: now,
+      decisions: effectiveDecisions,
+      relations: normalizedRelations,
+    } satisfies TaskSourceLedger);
+  }
   const capsule = fitCapsuleStorageBudget({
     schemaVersion: CAPSULE_SCHEMA_VERSION,
     taskId: input.taskId,
@@ -317,13 +466,22 @@ export async function writeTaskCheckpoint(
       text: short(input.objective, 480),
       approved: input.objectiveApproved,
     },
-    decisions: input.decisions.slice(0, 12).map((decision) => ({
+    decisions: effectiveDecisions.slice(0, 12).map((decision) => ({
       id: short(decision.id, 160),
       kind: decision.kind,
       state: decision.state,
       required: decision.required,
       reference: short(decision.reference, 120),
+      authorityRole:
+        decision.authorityRole ??
+        defaultTaskSourceAuthorityRole(decision.kind),
+      routePolicy:
+        decision.routePolicy ??
+        defaultTaskSourceRoutePolicy(decision.kind, decision.reference),
     })),
+    ...(normalizedRelations.length > 0
+      ? { sourceRelations: normalizedRelations }
+      : {}),
     sourceReceiptIds: [
       ...new Set(
         input.sourceReceiptIds
@@ -354,6 +512,8 @@ export async function writeTaskCheckpoint(
       estimatedTokens:
         input.estimatedTokens ?? Math.ceil(input.budgetChars / 4),
     },
+    ...(executionManifest ? { executionManifest } : {}),
+    ...(activePolicy ? { activePolicy } : {}),
     nextSafeAction: short(input.nextSafeAction, 240),
   });
   validateCapsule(capsule);
@@ -382,19 +542,109 @@ export async function loadTaskResumeCapsule(
 ): Promise<TaskResumeCapsule | undefined> {
   checkedId(taskId, TASK_ID, "Task ID");
   await pruneExpiredTaskState(rootPath);
+  const stateRoot = await taskStateRoot(rootPath);
   try {
     return validateCapsule(
       JSON.parse(
         await readFile(
-          path.join(taskStateRoot(rootPath), "capsules", `${taskId}.json`),
+          path.join(stateRoot, "capsules", `${taskId}.json`),
           "utf8",
         ),
       ),
     );
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      try {
+        return validateCapsule(
+          JSON.parse(
+            await readFile(
+              path.join(
+                legacyTaskStateRoot(rootPath),
+                "capsules",
+                `${taskId}.json`,
+              ),
+              "utf8",
+            ),
+          ),
+        );
+      } catch (legacyError) {
+        if ((legacyError as NodeJS.ErrnoException).code === "ENOENT") {
+          return undefined;
+        }
+        throw legacyError;
+      }
+    }
+    throw error;
+  }
+}
+
+function validateSourceLedger(value: unknown): TaskSourceLedger {
+  if (!value || typeof value !== "object") {
+    throw new Error("Task source ledger is invalid.");
+  }
+  const ledger = value as TaskSourceLedger;
+  if (
+    ledger.schemaVersion !== 1 ||
+    !TASK_ID.test(ledger.taskId) ||
+    !Number.isFinite(Date.parse(ledger.updatedAt))
+  ) {
+    throw new Error("Task source ledger is invalid.");
+  }
+  const decisions = normalizeTaskSourceDecisions(ledger.decisions);
+  return {
+    ...ledger,
+    decisions,
+    relations: normalizeTaskSourceRelations(ledger.relations, decisions),
+  };
+}
+
+async function loadTaskSourceLedger(
+  rootPath: string,
+  taskId: string,
+): Promise<TaskSourceLedger | undefined> {
+  const stateRoot = await taskStateRoot(rootPath);
+  try {
+    const ledger = validateSourceLedger(
+      JSON.parse(
+        await readFile(
+          path.join(stateRoot, "ledgers", `${taskId}.json`),
+          "utf8",
+        ),
+      ),
+    );
+    if (ledger.taskId !== taskId) {
+      throw new Error("Task source ledger identity is invalid.");
+    }
+    return ledger;
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
   }
+}
+
+export async function loadConfirmedTaskSourceDecision(
+  rootPath: string,
+  taskId: string,
+  sourceDecisionId: string,
+): Promise<TaskSourceDecision | TaskResumeCapsule["decisions"][number]> {
+  const ledger = await loadTaskSourceLedger(rootPath, taskId);
+  const capsule = ledger
+    ? undefined
+    : await loadTaskResumeCapsule(rootPath, taskId);
+  if (!ledger && !capsule) {
+    throw new Error(
+      "The task source ledger is unavailable. Checkpoint confirmed sources before authoritative retrieval.",
+    );
+  }
+  const decision = (ledger?.decisions ?? capsule!.decisions).find(
+    (candidate) => candidate.id === sourceDecisionId,
+  );
+  if (!decision || decision.state !== "confirmed") {
+    throw new Error(
+      "The source decision is not confirmed in the task source ledger.",
+    );
+  }
+  return decision;
 }
 
 export async function loadTaskResumeTransport(
@@ -410,7 +660,7 @@ export async function persistSourceReceipts(
   receipts: SourceReceipt[],
 ): Promise<void> {
   if (receipts.length === 0) return;
-  const directory = path.join(taskStateRoot(rootPath), "receipts");
+  const directory = path.join(await taskStateRoot(rootPath), "receipts");
   await mkdir(directory, { recursive: true });
   for (const receipt of receipts) {
     const validated = parseSourceReceipt(receipt);
@@ -422,19 +672,40 @@ export async function persistSourceReceipts(
   }
 }
 
+export async function loadPersistedSourceReceipt(
+  rootPath: string,
+  receiptId: string,
+): Promise<SourceReceipt> {
+  checkedId(receiptId, RECEIPT_ID, "Source receipt ID");
+  const stateRoot = await taskStateRoot(rootPath);
+  let source: string;
+  try {
+    source = await readFile(
+      path.join(stateRoot, "receipts", `${receiptId}.json`),
+      "utf8",
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    source = await readFile(
+      path.join(
+        legacyTaskStateRoot(rootPath),
+        "receipts",
+        `${receiptId}.json`,
+      ),
+      "utf8",
+    );
+  }
+  const receipt = parseSourceReceipt(JSON.parse(source));
+  if (receipt.id !== receiptId) throw new Error("Source receipt identity is invalid.");
+  return receipt;
+}
+
 export async function expandSourceReceipt(
   rootPath: string,
   receiptId: string,
   budgetChars = 1_600,
 ) {
-  checkedId(receiptId, RECEIPT_ID, "Source receipt ID");
-  const receipt = parseSourceReceipt(JSON.parse(
-    await readFile(
-      path.join(taskStateRoot(rootPath), "receipts", `${receiptId}.json`),
-      "utf8",
-    ),
-  ));
-  if (receipt.id !== receiptId) throw new Error("Source receipt identity is invalid.");
+  const receipt = await loadPersistedSourceReceipt(rootPath, receiptId);
   return fitBudgetedResponse(
     { receipt },
     {
@@ -457,7 +728,8 @@ export async function pruneExpiredTaskState(
   rootPath: string,
   now = new Date(),
 ): Promise<number> {
-  const capsules = path.join(taskStateRoot(rootPath), "capsules");
+  const stateRoot = await taskStateRoot(rootPath);
+  const capsules = path.join(stateRoot, "capsules");
   let names: string[];
   try {
     names = await readdir(capsules);
@@ -479,7 +751,7 @@ export async function pruneExpiredTaskState(
       ) {
         continue;
       }
-      const finalDirectory = path.join(taskStateRoot(rootPath), "final");
+      const finalDirectory = path.join(stateRoot, "final");
       await mkdir(finalDirectory, { recursive: true });
       await atomicJson(path.join(finalDirectory, name), {
         schemaVersion: 1,
@@ -490,7 +762,7 @@ export async function pruneExpiredTaskState(
       });
       await rm(capsulePath, { force: true });
       await rm(
-        path.join(taskStateRoot(rootPath), "journals", `${capsule.taskId}.ndjson`),
+        path.join(stateRoot, "journals", `${capsule.taskId}.ndjson`),
         { force: true },
       );
       removed += 1;

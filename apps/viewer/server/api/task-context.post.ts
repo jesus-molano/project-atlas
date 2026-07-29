@@ -85,6 +85,14 @@ export default defineEventHandler(async (event) => {
       ...(body.budgetChars ? { budgetChars: body.budgetChars } : {}),
       ...(body.topK ? { topK: body.topK } : {}),
       ...(body.selectedHandles ? { selectedHandles: body.selectedHandles } : {}),
+      taskId,
+      sourceLedgerHash: JSON.stringify(
+        sources.map((source) => [
+          source.id,
+          source.state,
+          source.reference,
+        ]),
+      ),
     });
     const checkpoint = await writeTaskCheckpoint(projectRootPath(), {
       taskId,

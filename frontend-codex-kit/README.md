@@ -19,7 +19,7 @@ The command:
 - installs `frontend-task`, explicit-only `visual-direction`, and `reuse-first`;
 - adds/updates the optional marked routing block in Codex `AGENTS.md`;
 - adds the local Project Atlas MCP server to Codex;
-- adds `.component-atlas/` to the global Git ignore.
+- confirms the centralized `%LOCALAPPDATA%\ProjectAtlas\` storage root.
 
 It does not install plugins, request credentials, connect accounts, or copy
 corporate data.
@@ -32,11 +32,11 @@ corporate data.
 | Claude skills | `~/.claude/skills/frontend-task`, `visual-direction`, and `reuse-first` |
 | Codex MCP entry | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` |
 | Optional routing block | `~/.codex/AGENTS.md` |
-| Reconstructible indexes | Windows LocalAppData |
-| Product-local artifacts | `<product-repo>/.component-atlas/` |
+| All durable Atlas project data | `%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\` |
+| Ephemeral assets/previews | `%LOCALAPPDATA%\ProjectAtlas\temp\` |
 
 The product repository is not modified merely by installing or querying Atlas.
-Canonical `project-memory/` is opt-in and policy-dependent.
+Legacy repository-local memory remains read-only compatibility evidence.
 
 ## Installer flags
 

@@ -140,26 +140,56 @@ When Project Atlas is available:
    clear before indexing, source resolution, or connector access. The result
    contains only relevant summaries, handles, SourceReceipt IDs, and compact
    retrieval telemetry; it never injects persistent indexes or receipt bodies.
+   Register one `register_task_manifest` projection for the skills,
+   references, and stable script interfaces already loaded. Record only IDs
+   and content digests, never their bodies.
 5. Follow the retrieval ladder only when needed: `orient_project`, then
    `search_project_memory`, then `get_memory_item` for a confirmed ID. Do not
    expand every result.
-6. If Project Memory is not available, call `get_reuse_context` once and use
+6. If Project Memory is not available, call `get_reuse_context` once with the
+   same `task_id` and use
    its compact candidates, scopes, APIs, consumers, tests, and impact.
    Expand a handle or receipt ID only when the decision needs it. Never expand
    all results or receipts by default.
-7. Before editing, call `check_before_change` with the intended files or area.
+7. Once the target is chosen, call `get_change_surface` once with the manifest
+   projection's `source_ledger_hash`, one primary component, at most two
+   reference-only components, and explicit `out_of_scope` entries. Treat its bounded files/API/impact as the repository
+   exploration boundary. A repeated identical scope reuses its handle; broaden
+   it only after a named scope, graph, or source-ledger invalidation.
+8. Before editing, call `check_before_change` with the intended files or area.
    Stop only for `decision-required`; report warnings with their evidence and
    recommendation.
-8. Use focused Atlas tools only for a concrete ambiguity. Never request `raw`
+9. Use focused Atlas tools only for a concrete ambiguity. Never request `raw`
    unless diagnosing an incorrect index.
-9. Before editing a shared API, call `analyze_prop_change_impact`.
-10. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`.
-11. Record the choice with `record_component_decision`; a `create` rationale
+10. Before editing a shared API, call `analyze_prop_change_impact`.
+11. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`.
+12. Record the choice with `record_component_decision`; a `create` rationale
    must name the nearest rejected candidates.
 
 If Atlas is unavailable, perform the equivalent repository search manually and
 still make the five-way decision. Load `references/capability-routing.md` when
 exact MCP/CLI routes or fallbacks are needed.
+
+### Delegate retrieval only under measured context pressure
+
+Do not use subagents by default. Consider the agent delegation contract only
+when the user/host explicitly allows delegation, at least two independent
+confirmed retrieval domains (or one exceptionally large domain) exceed the
+coordinator-context threshold, and compact outputs save at least 8,000
+coordinator characters. Compare total work cost as well: delegation adds raw
+delegate reads, compact output, and coordination overhead even when it saves
+the coordinator context.
+
+Run at most two retrieval delegates concurrently. Give each only its confirmed
+source-decision IDs, ledger primary adapter, immutable scope, and output budget.
+The coordinator alone confirms sources, resolves authority/contradictions,
+changes scope, authorizes provider fallback, and performs the single
+implementation. A blocked delegate returns a compact blocker; it never changes
+provider. Accept only the typed Figma, Atlassian, OpenAPI, or Code/ChangeSurface
+result contract. Reject raw bodies, SVG/XML/HTML, code dumps, local asset URLs,
+oversized strings, or results without receipt IDs. If delegation is unavailable
+or not cost-effective, the coordinator runs the same confirmed route within
+the existing retrieval budget.
 
 ## Use Figma proportionally
 
@@ -178,14 +208,16 @@ Use another connector, manual selection, cached Atlas evidence, screenshots,
 supplied exports, or other alternatives only when the local Desktop MCP is not
 connected, rejects or times out on the request, does not respond, is not
 authorized, or does not expose the required operation. When falling back,
-include one brief explanation naming the local failure condition and the
-alternative used.
+the task ledger must explicitly allow the exact alternative adapter. `ask`
+means stop for permission; it is not permission. Include one brief explanation
+naming the local failure condition and the alternative used.
 
 At the start of preparation, before investigating code, ingest every confirmed
 Figma source through that route: retrieve sparse metadata from Figma Desktop
 MCP and immediately call Project Atlas `map_figma_file` with the exact project
-root and confirmed reference. Include a `source_receipt` bound to the exact
-source-decision ID, adapter/route/operation, observed time, scope, freshness,
+root, stable `task_id`, immutable `source_decision_id`, observed scope, and
+metadata. Atlas resolves the confirmed reference from its task ledger. Include
+a `source_receipt` with adapter/route/operation, observed time, scope, freshness,
 coverage, and any identity-preserving fallback. Do this for file, page, and direct-node links so
 Design Atlas persists the available nodes and relationships while preparation
 is still running. Refresh the task/design snapshot after mapping. Never probe
@@ -259,10 +291,21 @@ coverage. Treat storyboard states as a flow family, not automatic duplicates.
 Surface missing breakpoint/state evidence and suspicious design naming without
 inventing behavior or silently rewriting copy. Never persist session-local
 asset URLs; retain file/node identity and resolve relevant assets on demand.
+For a selected icon/image, pass its Desktop MCP localhost URL directly to
+`capture_figma_asset` with the current receipt and selected scope. The result is
+an expiring handle/hash/format record under ProjectAtlas temp storage; never
+print, paste, shell-read, or checkpoint the SVG/binary body or the localhost
+URL. Call `materialize_figma_asset` only for an explicitly selected new
+checkout-relative production asset path. It must validate provenance, size,
+signature/content type, SVG safety, expiry, and path containment, and it must
+refuse overwrite. Purge expired handles with `purge_expired_figma_assets`.
 
 Use global Variables collection/mode summaries only when read access exists.
 Otherwise retrieve `get_variable_defs` for the confirmed node. Code Connect,
-global Variables, and library data improve evidence but are optional.
+global Variables, and library data improve evidence but are optional. Missing
+Code Connect never pauses fidelity, never requires a mapping decision, and
+never blocks continued use of the confirmed Figma graph plus Code Atlas reuse
+evidence.
 
 ## Preserve source identity and resumability
 
@@ -270,16 +313,28 @@ global Variables, and library data improve evidence but are optional.
   OpenAPI/Swagger contract is authoritative. Search results are candidates, not
   substitutes. A linked secondary source returns to `pending` until explicitly
   promoted to a primary source and confirmed.
+- Keep authority domains explicit: Jira/Confluence constrain requirements,
+  Figma constrains visual scope, OpenAPI constrains the contract, and repository
+  evidence constrains implementation/reuse. Record a requirement-to-Figma
+  selected-scope relation separately; never say Confluence fixes a Figma node
+  or let that relation replace either source identity.
 - Every external evidence item must reference a SourceReceipt ID bound to its
   confirmed source decision. Requested/resolved identity, adapter route,
   operation, exact scope, observation/version/hash, fallback condition,
   coverage, and freshness live in the receipt. Expand it with
   `expand_source_receipt` only when evidence is inspected.
-- OpenAPI may come from a confirmed local file, pasted content, public URL, or
-  authenticated/internal connector. Keep per-contract and per-operation
-  receipt IDs. Do not auto-confirm task wording, silently merge incompatible
-  operations, or let one unreadable corporate contract discard other valid
-  confirmed contracts.
+- OpenAPI may come from a confirmed local file, pasted content, public URL,
+  Swagger UI URL, or authenticated/internal connector. A confirmed Swagger UI
+  URL remains the immutable source identity. Atlas may derive a same-origin
+  specification with a bounded static config/initializer read and records the
+  derived target, redirect chain, and evidence hash in the receipt; it never
+  executes page JavaScript. Cross-origin targets, ambiguous `urls` lists, and
+  unsafe network destinations fail closed and require a separately confirmed
+  source decision. Do not ask the user to replace a confirmed UI URL with its
+  JSON URL when this safe derivation succeeds. Keep per-contract and
+  per-operation receipt IDs. Do not auto-confirm task wording, silently merge
+  incompatible operations, or let one unreadable corporate contract discard
+  other valid confirmed contracts.
 - Long tasks call `checkpoint_task` with the same `task_id` only at semantic
   milestones and before a risk boundary: approved objective, confirmed
   decision, source resolution, completed batch, validated change/test, block,
@@ -288,12 +343,16 @@ global Variables, and library data improve evidence but are optional.
 - After Codex context compaction or task resume, call `resume_task_capsule`.
   Rehydrate only its strict bounded transport (TOON when a validated round trip
   is smaller, otherwise JSON), then expand its handles/receipt IDs on demand.
-  Do not replay a transcript, repository/design index, or source document.
+  Honor its execution-manifest hash: do not reread unchanged skill,
+  reference, or script bodies and do not run a stable script's `--help`.
+  Reload only an entry invalidated by a changed digest, checkout/HEAD,
+  objective, or source ledger. Do not replay a transcript,
+  repository/design index, or source document.
 - The task capsule contains only the approved objective, source decisions,
-  receipt/Atlas IDs, covered and remaining scope, worktree/HEAD, budget, and
-  next safe action. Closed capsules have a short TTL. If the capsule has
-  expired or a material decision is absent, ask the user again instead of
-  inferring it from chat fragments.
+  receipt/Atlas IDs, manifest projection, active visual/auth policy, covered
+  and remaining scope, worktree/HEAD, budget, and next safe action. Closed
+  capsules have a short TTL. If the capsule has expired or a material decision
+  is absent, ask the user again instead of inferring it from chat fragments.
 
 ## Resolve visual direction before UI code
 
@@ -333,15 +392,23 @@ review guard without option generation.
 ## Implement and verify
 
 1. State the selected target, reuse decision, and any non-blocking assumptions.
-2. Implement the smallest cohesive change consistent with the repository.
-3. Verify relevant tests, type checking, linting, build, responsive states, and
+2. If login-challenge development mocks are approved, record
+   `dev-mock-no-session` plus the full auth-mock guard before editing. The
+   adapter must be development/test-only and challenge-only, leave the Profile
+   flow untouched, reject real credentials and existing sessions, issue no
+   token, create no session, write no auth cookie, and be impossible to enable
+   in a production build. Reject mock responses containing token/session/
+   cookie/credential fields.
+3. Implement the smallest cohesive change consistent with the repository.
+4. Verify relevant tests, type checking, linting, build, responsive states, and
    accessibility in proportion to risk. For material visual work, capture only
    the relevant viewports/states after this single implementation, compare them
    with the locked DesignContract (and exact Figma target in `fidelity`), then
    fix and recapture the same implementation rather than reviving variants.
-4. Rescan Atlas after component changes and confirm the graph reflects them.
-5. Finish every completed task with the compact **Memory candidates** closeout
-   in `references/memory-closeout.md`, even when there is no candidate. This is
+5. Rescan Atlas after component changes and confirm the graph reflects them.
+6. At closeout, load `references/memory-closeout.md` only if its manifest
+   digest was not already loaded for this phase. Finish every completed task with the compact **Memory candidates** closeout, even when there is no
+   candidate. This is
    the shared structured `memoryCloseout` result: produce it once, present it in
    chat, and let the GUI render the same object without reclassification. It is
    a status, not a generic follow-up interview:
@@ -363,10 +430,10 @@ review guard without option generation.
    changes, and episodic validation remain checkout-scoped. Only confirmed
    durable semantics, product/architecture decisions, design metadata, and
    approved memory may be promoted to the logical project; preserve provenance.
-6. Report outcome, evidence, validation, warnings, remaining external checks,
+7. Report outcome, evidence, validation, warnings, remaining external checks,
    and visual artifact cleanup. Do not claim that missing corporate data was
    validated or that cleanup succeeded while it is `cleanup-pending`.
-7. Only when the user or local project policy explicitly opts in to evaluation,
+8. Only when the user or local project policy explicitly opts in to evaluation,
    call `record_task_evaluation`. Store counts, timings, budget, and correctness
    flags; Atlas hashes the task and never persists its text.
 

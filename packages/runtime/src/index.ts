@@ -52,12 +52,30 @@ import {
 import {
   AtlasStore,
   databaseExists,
+  projectStorageDirectory,
+  rememberRecentProject,
 } from "@component-atlas/store";
 import { resolveProjectIdentity } from "./identity.js";
 import { filesystemPathsEquivalent } from "./path-identity.js";
 import { detectProjectProfile } from "./profile.js";
 
 export { detectProjectProfile } from "./profile.js";
+export {
+  normalizeRepositoryRemote,
+  resolveProjectIdentity,
+  type ResolveProjectIdentityOptions,
+  type ResolvedProjectIdentity,
+} from "./identity.js";
+export {
+  inspectProjectAtlasStorage,
+  legacyProjectAtlasStorageRoots,
+  projectAtlasStorageRoot,
+  projectAtlasTempRoot,
+  projectStorageDirectory,
+  readRecentProjects,
+  recentProjectsPath,
+  type ProjectAtlasStorageDiagnostic,
+} from "@component-atlas/store";
 
 export {
   canonicalFilesystemPath,
@@ -72,6 +90,37 @@ export {
   type OpenApiSourceResolver,
 } from "./openapi.js";
 export {
+  assertDevelopmentAuthMockGuard,
+  assertDevelopmentAuthMockRuntime,
+  assertSessionlessAuthMockResult,
+  type DevelopmentAuthMockGuard,
+  type DevelopmentAuthMockRuntimeEvidence,
+} from "./auth-mocks.js";
+export {
+  assertFigmaDesktopAssetUrl,
+  captureFigmaAsset,
+  loadFigmaAssetMetadata,
+  materializeFigmaAsset,
+  purgeExpiredFigmaAssets,
+  type FigmaAssetFormat,
+  type FigmaAssetLoader,
+  type FigmaAssetMetadata,
+  type LoadedFigmaAsset,
+} from "./figma-assets.js";
+export {
+  assertPublicRemoteUrl,
+  assertSameOriginTransition,
+  canonicalizePublicOpenApiReference,
+  isOpenApiDocument,
+  privateNetworkAddress,
+  readPublicDocument,
+  type CanonicalOpenApiDocument,
+  type PublicAddress,
+  type PublicAddressResolver,
+  type PublicDocument,
+  type PublicDocumentLoader,
+} from "./openapi-source.js";
+export {
   prepareTaskContext,
   TaskPreparationBlockedError,
   type GuardedTaskContextDependencies,
@@ -81,6 +130,8 @@ export {
   appendTaskJournalMilestone,
   encodeResumeCapsule,
   expandSourceReceipt,
+  loadConfirmedTaskSourceDecision,
+  loadPersistedSourceReceipt,
   loadTaskResumeCapsule,
   loadTaskResumeTransport,
   persistSourceReceipts,
@@ -91,8 +142,25 @@ export {
   type TaskCheckpointInput,
   type TaskJournalMilestone,
   type TaskResumeCapsule,
+  type TaskSourceLedger,
   type TaskContextHandleSource,
 } from "./task-state.js";
+export {
+  changeSurfaceRetrievalKey,
+  claimTaskRetrieval,
+  completeTaskRetrieval,
+  loadTaskExecutionManifest,
+  loadTaskRetrievalResult,
+  reuseRetrievalKey,
+  writeTaskExecutionManifest,
+  type TaskExecutionManifest,
+  type TaskExecutionManifestInput,
+  type TaskExecutionManifestProjection,
+  type TaskExecutionPhase,
+  type TaskRetrievalClaim,
+  type TaskRetrievalInvalidationReason,
+  type TaskRetrievalKind,
+} from "./task-execution.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -275,7 +343,7 @@ ${rows}
 }
 
 async function writeProjectArtifacts(graph: ComponentGraph): Promise<void> {
-  const directory = path.join(graph.project.rootPath, ".component-atlas");
+  const directory = projectStorageDirectory(graph.project.id);
   await mkdir(directory, { recursive: true });
   await Promise.all([
     writeFile(
@@ -961,6 +1029,13 @@ export async function scanProject(
   } finally {
     nextStore.close();
   }
+  await rememberRecentProject({
+    id: graph.project.id,
+    name: graph.project.name,
+    rootPath: graph.project.rootPath,
+    ...(identity.checkoutId ? { checkoutId: identity.checkoutId } : {}),
+    lastOpenedAt: checkedAt,
+  });
   if (options.writeArtifacts !== false) await writeProjectArtifacts(graph);
   return graph;
 }
@@ -1065,7 +1140,10 @@ export async function recordDecision(
   } finally {
     store.close();
   }
-  const directory = path.join(rootPath, ".component-atlas", "decisions");
+  const directory = path.join(
+    projectStorageDirectory(graph.project.id),
+    "decisions",
+  );
   await mkdir(directory, { recursive: true });
   const slug = slash(input.intent)
     .toLowerCase()

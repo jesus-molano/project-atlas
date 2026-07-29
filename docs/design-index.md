@@ -15,7 +15,9 @@ Direct route:
 1. The user provides or selects one concrete frame or component.
 2. At the start of preparation, read sparse metadata for the confirmed scope
    through Figma Desktop MCP at `http://127.0.0.1:3845/mcp` and pass it to
-   `map_figma_file` with a SourceReceipt for the exact source decision,
+   `map_figma_file` with the stable task ID and source-decision ID. Atlas
+   resolves the confirmed identity from its task ledger, then creates a
+   SourceReceipt with the actual
    adapter/route/operation, node scope, observation, coverage, and freshness.
    A direct link skips candidate ranking, not Design Atlas persistence.
    `fileKey+nodeId` remains an immutable pin: a missing, mismatched, or stale
@@ -70,9 +72,10 @@ General route:
 
 If the local Desktop MCP is not connected, rejects/times out, does not respond,
 is unauthorized, or lacks the required operation, another connector or
-supplied evidence may be used. The agent records one brief explanation naming
-the local failure and fallback. A healthy local server is never bypassed in
-favor of a global MCP registration or remote connector.
+supplied evidence may be considered only when the task ledger explicitly
+allows that adapter. `ask` records a decision still needed; it is not fallback
+authorization. A healthy local server is never bypassed in favor of a global
+MCP registration or remote connector.
 
 The REST alternative is a file response limited with `depth=2`; it includes
 pages and their top-level objects plus file `version` and `lastModified`.
@@ -88,6 +91,14 @@ never requests or stores the access token.
 - optional file version, modification date, and scope node;
 - optional parent page ID/name for section or frame-only snapshots;
 - optional enrichment for dev status/resources, libraries, and Code Connect.
+
+For authoritative ingestion, also pass `task_id` and `source_decision_id`.
+The caller-provided URL may identify a selected child scope, while
+`requested`/`resolved` retain the immutable confirmed page or parent identity.
+Atlas validates and records `scopeRelation: contained-scope`; it does not turn
+the child into a replacement source. A separate task relation can connect
+Jira/Confluence requirement authority to the selected Figma scope without
+confusing either source's identity or provenance.
 
 Variables can arrive with the initial map for backwards compatibility, but the
 normal route is the independent `sync_figma_variables` operation. This prevents
@@ -109,7 +120,14 @@ annotations, resource links, component and variant names, and optional code
 connections. Screenshots, generated code, style dumps, and full vector trees
 are excluded. Session-local asset URLs such as `localhost` resources are also
 excluded because they cannot be resolved durably; Atlas keeps the file/node ID
-and resolves relevant assets on demand.
+and resolves relevant assets on demand. Selected assets use a separate bounded
+pipeline: Desktop MCP bytes are validated and stored only under
+`%LOCALAPPDATA%\ProjectAtlas\temp\assets\` behind an expiring handle containing
+hash, format, size, selected scope, and receipt provenance. Neither response
+bodies nor localhost URLs enter context, ledgers, capsules, or code. An
+explicit materialization step may write one validated new production asset
+inside the checkout; it refuses overwrite, path escape, unsafe SVG content,
+format mismatch, tampering, and expired handles.
 
 ## Ready for Dev provenance
 
@@ -246,7 +264,9 @@ optional enrichments. A missing integration lowers confidence; it does not
 block repository analysis or cause Atlas to invent a relationship. Without
 Code Connect, Atlas still crosses semantic task terms with component names,
 paths, rendered children, imports/composables, tests, and graph consumers, and
-reports the resulting confidence.
+reports the resulting confidence. The inspection contract exposes missing Code
+Connect only as `optionalEnrichmentTools`; it is never a required/recommended
+step, never pauses fidelity, and never asks the user to map components first.
 
 ## Advanced CLI diagnostics
 

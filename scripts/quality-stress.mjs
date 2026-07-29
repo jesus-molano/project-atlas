@@ -17,7 +17,7 @@ const repositoryRoot = path.resolve(
 const temporaryRoot = await mkdtemp(
   path.join(os.tmpdir(), "project-atlas-quality-"),
 );
-process.env.COMPONENT_ATLAS_HOME = path.join(temporaryRoot, "atlas-home");
+process.env.PROJECT_ATLAS_HOME = path.join(temporaryRoot, "atlas-home");
 
 const runtime = await import(
   pathToFileURL(

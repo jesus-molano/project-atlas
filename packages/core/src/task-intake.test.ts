@@ -5,6 +5,8 @@ import {
   detectTaskSources,
   ensureTaskSourceDecisions,
   normalizeTaskSourceDecisions,
+  normalizeTaskSourceRelations,
+  taskContextSourcePolicy,
   taskSourceId,
   type TaskIntakeState,
 } from "./task-intake.js";
@@ -196,5 +198,71 @@ describe("task intake", () => {
         },
       ]),
     ).toThrow(/promoted to an explicit primary/i);
+  });
+
+  it("records authority, primary provider, and explicit source-to-scope relations", () => {
+    const decisions = normalizeTaskSourceDecisions([
+      {
+        kind: "confluence",
+        reference: "confluence:470516116",
+        origin: "explicit",
+        state: "confirmed",
+        required: true,
+        routePolicy: {
+          primaryAdapter: "atlassian-rovo",
+          fallback: "deny",
+        },
+      },
+      {
+        kind: "figma",
+        reference:
+          "https://www.figma.com/design/FileKey/Login?node-id=39-2731",
+        origin: "explicit",
+        state: "confirmed",
+        required: true,
+        routePolicy: {
+          primaryAdapter: "figma-desktop-mcp-local",
+          fallback: "deny",
+        },
+      },
+    ]);
+    const relations = normalizeTaskSourceRelations(
+      [
+        {
+          fromSourceId: decisions[0]!.id,
+          toSourceId: decisions[1]!.id,
+          kind: "references-design",
+          targetScope: {
+            provider: "figma",
+            kind: "selection",
+            id: "2064:5554",
+          },
+        },
+      ],
+      decisions,
+    );
+
+    expect(decisions.map((source) => source.authorityRole)).toEqual([
+      "requirement",
+      "visual",
+    ]);
+    expect(taskContextSourcePolicy(decisions, relations)).toMatchObject({
+      routes: [
+        {
+          primaryAdapter: "atlassian-rovo",
+          fallback: "deny",
+        },
+        {
+          primaryAdapter: "figma-desktop-mcp-local",
+          fallback: "deny",
+        },
+      ],
+      relations: [
+        {
+          kind: "references-design",
+          targetScope: { id: "2064:5554" },
+        },
+      ],
+    });
   });
 });
