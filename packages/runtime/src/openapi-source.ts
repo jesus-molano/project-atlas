@@ -83,7 +83,7 @@ function ipv4NetworkAddress(address: string): boolean {
   );
 }
 
-function ipv6Value(address: string): bigint | undefined {
+function ipv6Words(address: string): number[] | undefined {
   const halves = address.toLowerCase().split("::");
   if (halves.length > 2) return undefined;
   const parseHalf = (half: string): number[] | undefined => {
@@ -92,7 +92,9 @@ function ipv6Value(address: string): bigint | undefined {
     const parsed: number[] = [];
     for (const piece of pieces) {
       if (piece.includes(".")) {
-        if (piece !== pieces.at(-1) || isIP(piece) !== 4) return undefined;
+        if (piece !== pieces[pieces.length - 1] || isIP(piece) !== 4) {
+          return undefined;
+        }
         const octets = piece.split(".").map(Number);
         parsed.push(
           (octets[0]! << 8) | octets[1]!,
@@ -116,19 +118,19 @@ function ipv6Value(address: string): bigint | undefined {
   ) {
     return undefined;
   }
-  return [...left, ...Array<number>(missing).fill(0), ...right].reduce(
-    (value, piece) => (value << 16n) | BigInt(piece),
-    0n,
-  );
+  return [...left, ...Array<number>(missing).fill(0), ...right];
 }
 
 export function privateNetworkAddress(address: string): boolean {
   const normalized = address.replace(/^\[|\]$/gu, "").toLowerCase();
   if (isIP(normalized) === 4) return ipv4NetworkAddress(normalized);
-  const value = ipv6Value(normalized);
-  if (value === undefined) return true;
-  if ((value >> 32n) === 0xffffn) {
-    const mapped = Number(value & 0xffff_ffffn);
+  const words = ipv6Words(normalized);
+  if (!words) return true;
+  if (
+    words.slice(0, 5).every((word) => word === 0) &&
+    words[5] === 0xffff
+  ) {
+    const mapped = words[6]! * 65_536 + words[7]!;
     return ipv4NetworkAddress(
       [
         (mapped >>> 24) & 255,
@@ -138,14 +140,16 @@ export function privateNetworkAddress(address: string): boolean {
       ].join("."),
     );
   }
-  const isGlobalUnicast = value >> 125n === 1n;
-  const high32 = value >> 96n;
+  const firstWord = words[0]!;
+  const high32 = firstWord * 65_536 + words[1]!;
+  const high28 = firstWord * 4_096 + (words[1]! >>> 4);
+  const isGlobalUnicast = (firstWord & 0xe000) === 0x2000;
   const isTransitionOrDocumentation =
-    high32 === 0x2001_0000n ||
-    high32 === 0x2001_0db8n ||
-    value >> 100n === 0x2001_001n ||
-    value >> 100n === 0x2001_002n ||
-    value >> 112n === 0x2002n;
+    high32 === 0x2001_0000 ||
+    high32 === 0x2001_0db8 ||
+    high28 === 0x2001_001 ||
+    high28 === 0x2001_002 ||
+    firstWord === 0x2002;
   return !isGlobalUnicast || isTransitionOrDocumentation;
 }
 

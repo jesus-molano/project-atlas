@@ -126,7 +126,14 @@ describe("secure Swagger UI canonicalization", () => {
     expect(privateNetworkAddress("169.254.169.254")).toBe(true);
     expect(privateNetworkAddress("203.0.113.10")).toBe(true);
     expect(privateNetworkAddress("::ffff:10.0.0.1")).toBe(true);
+    expect(privateNetworkAddress("::1")).toBe(true);
+    expect(privateNetworkAddress("fc00::1")).toBe(true);
+    expect(privateNetworkAddress("fe80::1")).toBe(true);
+    expect(privateNetworkAddress("2001::1")).toBe(true);
     expect(privateNetworkAddress("2001:db8::1")).toBe(true);
+    expect(privateNetworkAddress("2001:10::1")).toBe(true);
+    expect(privateNetworkAddress("2001:20::1")).toBe(true);
+    expect(privateNetworkAddress("2002:c000:204::1")).toBe(true);
     expect(privateNetworkAddress("93.184.216.34")).toBe(false);
     expect(privateNetworkAddress("2606:2800:220:1:248:1893:25c8:1946")).toBe(
       false,
