@@ -90,6 +90,17 @@ export {
   type OpenApiSourceResolver,
 } from "./openapi.js";
 export {
+  assertFigmaDesktopAssetUrl,
+  captureFigmaAsset,
+  loadFigmaAssetMetadata,
+  materializeFigmaAsset,
+  purgeExpiredFigmaAssets,
+  type FigmaAssetFormat,
+  type FigmaAssetLoader,
+  type FigmaAssetMetadata,
+  type LoadedFigmaAsset,
+} from "./figma-assets.js";
+export {
   assertPublicRemoteUrl,
   assertSameOriginTransition,
   canonicalizePublicOpenApiReference,
@@ -113,6 +124,7 @@ export {
   encodeResumeCapsule,
   expandSourceReceipt,
   loadConfirmedTaskSourceDecision,
+  loadPersistedSourceReceipt,
   loadTaskResumeCapsule,
   loadTaskResumeTransport,
   persistSourceReceipts,
@@ -127,6 +139,7 @@ export {
   type TaskContextHandleSource,
 } from "./task-state.js";
 export {
+  changeSurfaceRetrievalKey,
   claimTaskRetrieval,
   completeTaskRetrieval,
   loadTaskExecutionManifest,

@@ -21,6 +21,7 @@ sources reduce evidence; they do not invalidate the workflow.
 | Record task episode | `record_outcome` | `component-atlas memory outcome <root> <json>` |
 | Opt-in private task metrics | `record_task_evaluation` | `component-atlas evaluation record <root> --input <json>` |
 | Compact reuse candidates | `get_reuse_context` | `component-atlas context <root> <intent>` |
+| Lock implementation boundary | `get_change_surface` with one primary, at most two reference-only components, and explicit exclusions | Keep the same compact boundary manually; do not broaden search without a named invalidation |
 | Inspect code candidate | `get_component` | `component-atlas show <root> <selector>` |
 | Similarity or usages | `find_similar_components`, `list_component_usages` | `component-atlas similar` or `impact` |
 | Shared API impact | `analyze_prop_change_impact` | `component-atlas impact` plus source/test inspection |
@@ -29,6 +30,8 @@ sources reduce evidence; they do not invalidate the workflow.
 | Map Figma file/page | Use Figma Desktop MCP at `http://127.0.0.1:3845/mcp`; discover pages and read relevant sparse `get_metadata`, then call `map_figma_file` | Use another connector or `component-atlas figma map` with saved XML/JSON metadata only for a stated local connection, response, authorization, or operation failure |
 | Rank design candidates | `find_design_candidates` | `component-atlas figma find` |
 | Inspect cached node | `inspect_design_node` | `component-atlas figma inspect` |
+| Capture selected Figma asset | `capture_figma_asset` from Desktop MCP localhost URL to an expiring external handle; never emit the body | Explicit supplied export only when the provider fallback policy permits it |
+| Materialize selected asset | `materialize_figma_asset` to one new checkout-relative production asset path | Manual copy only after the same provenance/format/size/local-endpoint checks |
 | Exact node variables | Figma Desktop MCP `get_variable_defs` after confirmation, with the applicable Codex/Figma skill used only as instructions/prerequisite | Repository tokens and screenshot evidence only when Figma Desktop MCP is not connected, not authorized, or lacks the operation |
 | Global variable modes | Figma Desktop MCP read-only Variables catalog when permitted, with Codex/Figma skill prerequisites followed | Collection/mode hints or selection-only variables only when Figma Desktop MCP is not connected, not authorized, or lacks the operation |
 
@@ -99,7 +102,10 @@ sources reduce evidence; they do not invalidate the workflow.
   links, evidence, and a recommendation.
 - When no node matches, offer proceeding without Figma or accepting a direct
   link. Do not fabricate a match.
-- Do not retain `localhost` asset URLs from a Figma session as durable evidence.
+- Do not retain `localhost` asset URLs from a Figma session as durable evidence,
+  print their SVG bodies, or place those URLs in code. Capture selected assets
+  as expiring ProjectAtlas handles, materialize only the chosen files, and
+  purge expired handles.
 - Group related viewport/storyboard nodes before reporting duplication, and do
   not infer small breakpoints that are absent from metadata.
 

@@ -98,6 +98,20 @@ exact origin, restricts ports and response sizes, and rejects ambiguous
 multi-contract pages. Cross-origin or authenticated contracts require their own
 explicit source route/decision.
 
+Code Atlas can project a `ChangeSurface` after reuse selection. It contains one
+primary component, at most two reference-only examples, bounded files/API/
+impact, and explicit exclusions. The projection has its own one-call task
+retrieval budget, so secondary references do not trigger another repository
+survey.
+
+Figma asset content is a separate ephemeral channel. The runtime accepts only
+the exact Desktop MCP loopback asset route linked to a current confirmed Figma
+receipt, pins the request to loopback, rejects redirects, validates size,
+signature/content type, and active/external SVG content, then stores bytes only
+under `ProjectAtlas\temp\assets\` behind a TTL handle. Context receives metadata
+only. Materialization is an explicit new-file operation confined to the
+checkout and never leaves a localhost URL in production code.
+
 ## Agent context contract
 
 `buildReuseContext` is the stable integration boundary. Given a repository graph,

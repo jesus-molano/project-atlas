@@ -46,6 +46,12 @@ ProjectAtlas/
 expiry plus explicit close/cancel cleanup. Cleanup verifies ownership and
 never recursively deletes an unverified path.
 
+`temp/assets/` contains only validated Figma bytes plus small ownership/expiry
+metadata addressed by opaque handles. It stores no Desktop MCP localhost URL.
+Expired entries are purged individually after schema/handle verification;
+selected assets enter a checkout only through the explicit production-asset
+materialization command.
+
 `ledgers/` holds the complete immutable source decisions, provider policies,
 and cross-source scope relations. Capsules contain only a bounded resume
 projection, so a long confirmed URL is never truncated at the trust boundary

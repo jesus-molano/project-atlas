@@ -35,7 +35,13 @@ create a component until the discovery and decision gate is complete.
    - `create`: no candidate has the same responsibility or can evolve cleanly.
 9. Call `record_component_decision`. A `create` rationale must name the nearest
    rejected candidates and explain why extension or composition is harmful.
-10. Implement, validate with the target repository's own checks, refresh the
+10. Lock the implementation boundary with one `get_change_surface` call:
+    exactly one primary component, no more than two reference-only components,
+    explicit exclusions, the parent task's stable `task_id`, and its current
+    source-ledger hash. Do not reopen
+    broad repository search unless graph, scope, or source-ledger invalidation
+    is recorded.
+11. Implement, validate with the target repository's own checks, refresh the
     index, and verify that the graph reflects the result.
 
 ## Apply scope rules

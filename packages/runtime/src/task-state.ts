@@ -35,7 +35,7 @@ const CLOSED_TTL_MS = 24 * 60 * 60 * 1_000;
 const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const RECEIPT_ID = /^receipt-[a-f0-9]{16}$/u;
 const EXPANDABLE_HANDLE =
-  /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16})$/u;
+  /^(?:(?:code|design|memory):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16})$/u;
 
 export type TaskJournalMilestone =
   | "objective-approved"
@@ -650,11 +650,10 @@ export async function persistSourceReceipts(
   }
 }
 
-export async function expandSourceReceipt(
+export async function loadPersistedSourceReceipt(
   rootPath: string,
   receiptId: string,
-  budgetChars = 1_600,
-) {
+): Promise<SourceReceipt> {
   checkedId(receiptId, RECEIPT_ID, "Source receipt ID");
   const stateRoot = await taskStateRoot(rootPath);
   let source: string;
@@ -676,6 +675,15 @@ export async function expandSourceReceipt(
   }
   const receipt = parseSourceReceipt(JSON.parse(source));
   if (receipt.id !== receiptId) throw new Error("Source receipt identity is invalid.");
+  return receipt;
+}
+
+export async function expandSourceReceipt(
+  rootPath: string,
+  receiptId: string,
+  budgetChars = 1_600,
+) {
+  const receipt = await loadPersistedSourceReceipt(rootPath, receiptId);
   return fitBudgetedResponse(
     { receipt },
     {

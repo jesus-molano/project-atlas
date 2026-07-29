@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   assessTaskRisk,
   assertSourceReceiptMatchesDecision,
+  buildChangeSurface,
   buildComponentContext,
   buildImpactContext,
   buildReuseContext,
@@ -24,6 +25,7 @@ import {
   type DecisionKind,
 } from "@component-atlas/core";
 import {
+  captureFigmaAsset,
   findTaskDesignCandidates,
   fitBudgetedResponse,
   getFigmaDesignVariables,
@@ -35,19 +37,24 @@ import {
   indexProjectMemory,
   inspectFigmaDesignNode,
   listFigmaDesignIndexes,
+  loadFigmaAssetMetadata,
+  loadTaskRetrievalResult,
   loadProjectGraph,
   mapFigmaDesign,
+  materializeFigmaAsset,
   applyMemoryUpdate,
   checkBeforeChange,
   orientProject,
   prepareTaskContext,
   proposeMemoryUpdate,
+  purgeExpiredFigmaAssets,
   recordDecision,
   recordProjectOutcome,
   recordTaskEvaluation,
   loadTaskResumeTransport,
   loadConfirmedTaskSourceDecision,
   claimTaskRetrieval,
+  changeSurfaceRetrievalKey,
   completeTaskRetrieval,
   reuseRetrievalKey,
   reportProjectCapabilities,
@@ -479,6 +486,104 @@ export function createMcpServer(): McpServer {
   );
 
   server.tool(
+    "get_change_surface",
+    "Lock one compact implementation surface after reuse selection: one primary component, at most two reference-only components, bounded files/API/impact, and explicit exclusions. Repeated scope returns only its retrieval handle.",
+    {
+      root_path: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
+      intent: z.string().min(1),
+      primary_component: z.string().min(1).optional(),
+      secondary_components: z.array(z.string().min(1)).max(2).optional(),
+      out_of_scope: z.array(z.string().min(1)).max(8).optional(),
+      source_ledger_hash: z.string().regex(/^[a-f0-9]{16,64}$/u),
+      budget_chars: z.number().int().min(800).max(6000).optional(),
+      invalidation_reason: z
+        .enum([
+          "graph-changed",
+          "scope-changed",
+          "source-ledger-changed",
+          "user-requested",
+        ])
+        .optional(),
+    },
+    async ({
+      root_path,
+      task_id,
+      intent,
+      primary_component,
+      secondary_components,
+      out_of_scope,
+      source_ledger_hash,
+      budget_chars,
+      invalidation_reason,
+    }) => {
+      const graph = await loadProjectGraph(root_path);
+      const claim = await claimTaskRetrieval(root_path, {
+        taskId: task_id,
+        kind: "change-surface",
+        key: changeSurfaceRetrievalKey({
+          projectId: graph.project.id,
+          intent,
+          ...(graph.project.identity?.checkoutId
+            ? { checkoutId: graph.project.identity.checkoutId }
+            : {}),
+          ...(graph.project.scan?.fingerprint
+            ? { graphFingerprint: graph.project.scan.fingerprint }
+            : {}),
+          ...(primary_component
+            ? { primaryComponent: primary_component }
+            : {}),
+          ...(secondary_components
+            ? { secondaryComponents: secondary_components }
+            : {}),
+          ...(out_of_scope ? { outOfScope: out_of_scope } : {}),
+          sourceLedgerHash: source_ledger_hash,
+        }),
+        ...(invalidation_reason
+          ? { invalidationReason: invalidation_reason }
+          : {}),
+      });
+      if (claim.status === "cached") {
+        return text({
+          status: "cached",
+          handle: claim.handle,
+          budgetId: claim.budgetId,
+          contextInjected: false,
+          nextSafeAction:
+            "Keep the previously locked primary, references, files, and exclusions.",
+        });
+      }
+      const surface = buildChangeSurface(graph, intent, {
+        ...(primary_component ? { primaryComponent: primary_component } : {}),
+        ...(secondary_components
+          ? { secondaryComponents: secondary_components }
+          : {}),
+        ...(out_of_scope ? { outOfScope: out_of_scope } : {}),
+      });
+      await completeTaskRetrieval(root_path, claim.handle, surface);
+      const response = fitBudgetedResponse(
+        surface as unknown as Record<string, unknown>,
+        {
+          budgetChars: budget_chars ?? 2_800,
+          totalMatches: surface.references.length + (surface.primary ? 1 : 0),
+          expandableIds: [
+            ...(surface.primary ? [surface.primary.id] : []),
+            ...surface.references.map((item) => item.component.id),
+          ],
+        },
+      );
+      return text({
+        ...response,
+        retrieval: {
+          handle: claim.handle,
+          budgetId: claim.budgetId,
+          contextInjected: true,
+        },
+      });
+    },
+  );
+
+  server.tool(
     "get_component",
     "Get compact API, scope, tests, relationships, similarity, and impact for one component. Set raw only for low-level index diagnostics.",
     {
@@ -852,6 +957,138 @@ export function createMcpServer(): McpServer {
         }),
       );
     },
+  );
+
+  server.tool(
+    "capture_figma_asset",
+    "Capture one selected Figma Desktop MCP localhost asset into ProjectAtlas temp storage. Returns only a handle, hash, format, size, provenance, and expiry; never returns SVG or binary bodies and never persists the localhost URL.",
+    {
+      root_path: z.string(),
+      task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
+      source_receipt_id: z.string().regex(/^receipt-[a-f0-9]{16}$/u),
+      asset_url: z.string().url(),
+      scope_node_id: z.string().min(1).max(160),
+      asset_node_id: z.string().min(1).max(160).optional(),
+      file_name: z.string().min(1).max(160).optional(),
+      ttl_minutes: z.number().int().min(1).max(1440).optional(),
+      invalidation_reason: z
+        .enum([
+          "graph-changed",
+          "scope-changed",
+          "source-ledger-changed",
+          "user-requested",
+        ])
+        .optional(),
+    },
+    async ({
+      root_path,
+      task_id,
+      source_receipt_id,
+      asset_url,
+      scope_node_id,
+      asset_node_id,
+      file_name,
+      ttl_minutes,
+      invalidation_reason,
+    }) => {
+      const claim = await claimTaskRetrieval(root_path, {
+        taskId: task_id,
+        kind: "figma-asset",
+        key: JSON.stringify({
+          sourceReceiptId: source_receipt_id,
+          sourceUrl: asset_url,
+          scopeNodeId: scope_node_id,
+          assetNodeId: asset_node_id ?? "",
+        }),
+        ...(invalidation_reason
+          ? { invalidationReason: invalidation_reason }
+          : {}),
+      });
+      if (claim.status === "cached") {
+        const cached = (await loadTaskRetrievalResult(
+          root_path,
+          claim.handle,
+        )) as { handle?: unknown };
+        if (typeof cached.handle !== "string") {
+          throw new Error("Cached Figma asset handle is invalid.");
+        }
+        const asset = await loadFigmaAssetMetadata(cached.handle).catch(() => {
+          throw new Error(
+            "Cached Figma asset handle is unavailable. Retry with an explicit invalidation reason.",
+          );
+        });
+        if (Date.parse(asset.expiresAt) <= Date.now()) {
+          throw new Error(
+            "Cached Figma asset handle expired. Purge it and retry with an explicit invalidation reason.",
+          );
+        }
+        return text({
+          status: "cached",
+          asset,
+          retrieval: {
+            handle: claim.handle,
+            budgetId: claim.budgetId,
+            contextInjected: false,
+          },
+        });
+      }
+      const asset = await captureFigmaAsset({
+        rootPath: root_path,
+        taskId: task_id,
+        sourceReceiptId: source_receipt_id,
+        sourceUrl: asset_url,
+        scopeNodeId: scope_node_id,
+        ...(asset_node_id ? { assetNodeId: asset_node_id } : {}),
+        ...(file_name ? { fileName: file_name } : {}),
+        ...(ttl_minutes ? { ttlMs: ttl_minutes * 60_000 } : {}),
+      });
+      await completeTaskRetrieval(root_path, claim.handle, asset);
+      return text({
+        asset,
+        retrieval: {
+          handle: claim.handle,
+          budgetId: claim.budgetId,
+          contextInjected: true,
+        },
+      });
+    },
+  );
+
+  server.tool(
+    "materialize_figma_asset",
+    "Write one explicitly selected, validated Figma asset handle to a new checkout-relative production asset path. Refuses overwrite, path escape, active/external SVG content, expired or tampered handles, and Atlas/Codex state paths.",
+    {
+      root_path: z.string(),
+      asset_handle: z
+        .string()
+        .regex(/^figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}$/u),
+      destination_path: z.string().min(1).max(500),
+    },
+    async ({ root_path, asset_handle, destination_path }) =>
+      text(
+        await materializeFigmaAsset({
+          rootPath: root_path,
+          handle: asset_handle,
+          destinationPath: destination_path,
+        }),
+      ),
+  );
+
+  server.tool(
+    "purge_expired_figma_assets",
+    "Purge only expired ProjectAtlas-owned Figma temp assets. Never scans or deletes checkout files.",
+    {
+      task_id: z
+        .string()
+        .regex(/^[A-Za-z0-9_.:-]{1,160}$/u)
+        .optional(),
+    },
+    async ({ task_id }) =>
+      text(
+        await purgeExpiredFigmaAssets({
+          ...(task_id ? { taskId: task_id } : {}),
+        }),
+      ),
   );
 
   server.tool(

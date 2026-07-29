@@ -48,6 +48,7 @@ describe("task checkpoint and resume", () => {
           "design:FileKey::12:34",
           "visual:vd-task-42:0123456789abcdef",
           "visual:vd-task-42:0123456789abcdef",
+          "figma-asset:task-42:0123456789abcdef01234567",
           "visual:not-expandable",
           "invalid",
         ],
@@ -58,6 +59,7 @@ describe("task checkpoint and resume", () => {
     ).toEqual([
       "design:FileKey::12:34",
       "visual:vd-task-42:0123456789abcdef",
+      "figma-asset:task-42:0123456789abcdef01234567",
       "code:checkout-form",
       "memory:contract-rule",
       "design:12:34",
@@ -76,6 +78,7 @@ describe("task checkpoint and resume", () => {
       handles: [
         "code:checkout-form",
         "visual:vd-task-42:0123456789abcdef",
+        "figma-asset:task-42:0123456789abcdef01234567",
         "memory:contract-rule",
         "visual:not-expandable",
       ],
@@ -103,6 +106,7 @@ describe("task checkpoint and resume", () => {
     expect(capsule?.handles).toEqual([
       "code:checkout-form",
       "visual:vd-task-42:0123456789abcdef",
+      "figma-asset:task-42:0123456789abcdef01234567",
       "memory:contract-rule",
     ]);
     expect(capsule?.schemaVersion).toBe(2);

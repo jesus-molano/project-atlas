@@ -42,6 +42,12 @@ Validated locally on 2026-07-29 without corporate data:
   unavailable metadata as `none`;
 - page/frame status preservation, scoped-page provenance, idempotent forced
   reindexing, transient-asset filtering, and staged subtree inspection;
+- one-call ChangeSurface locking for a primary login challenge, a
+  reference-only Backoffice flow, and explicit profile exclusions;
+- Figma asset capture with current Desktop receipt/scope provenance, hard
+  format/size/SVG checks, body-free transport, external temp TTL/purge,
+  checkout-contained explicit materialization, overwrite refusal, and no
+  localhost endpoint leakage;
 - responsive/storyboard family grouping, naming findings, and small-breakpoint
   coverage warnings without false duplicate claims;
 - route/layout consumers and task-aware code retrieval for dialogs, security,

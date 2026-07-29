@@ -170,6 +170,13 @@ limits fail clearly rather than being silently accepted or clamped. When the
 budget trims candidate detail, metrics report truncation and preserve component
 IDs for focused expansion.
 
+After the reuse decision, `get_change_surface` freezes one primary component,
+at most two reference-only components, bounded implementation/test/dependency/
+consumer paths, compact API/impact, and explicit exclusions. Its task-scoped
+retrieval budget permits one computation unless a graph, scope, or source
+ledger change is named. This keeps a secondary Backoffice example useful
+without expanding that feature into the primary login challenge scope.
+
 The Figma handoff is also portable. The agent owns its approved Figma
 connection; Atlas accepts sparse metadata and serves cached queries. Missing
 Figma, Ready for dev, global Variables access, Code Connect, Jira, or Confluence

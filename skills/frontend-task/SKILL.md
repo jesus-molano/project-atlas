@@ -151,14 +151,19 @@ When Project Atlas is available:
    its compact candidates, scopes, APIs, consumers, tests, and impact.
    Expand a handle or receipt ID only when the decision needs it. Never expand
    all results or receipts by default.
-7. Before editing, call `check_before_change` with the intended files or area.
+7. Once the target is chosen, call `get_change_surface` once with the manifest
+   projection's `source_ledger_hash`, one primary component, at most two
+   reference-only components, and explicit `out_of_scope` entries. Treat its bounded files/API/impact as the repository
+   exploration boundary. A repeated identical scope reuses its handle; broaden
+   it only after a named scope, graph, or source-ledger invalidation.
+8. Before editing, call `check_before_change` with the intended files or area.
    Stop only for `decision-required`; report warnings with their evidence and
    recommendation.
-8. Use focused Atlas tools only for a concrete ambiguity. Never request `raw`
+9. Use focused Atlas tools only for a concrete ambiguity. Never request `raw`
    unless diagnosing an incorrect index.
-9. Before editing a shared API, call `analyze_prop_change_impact`.
-10. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`.
-11. Record the choice with `record_component_decision`; a `create` rationale
+10. Before editing a shared API, call `analyze_prop_change_impact`.
+11. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, or `create`.
+12. Record the choice with `record_component_decision`; a `create` rationale
    must name the nearest rejected candidates.
 
 If Atlas is unavailable, perform the equivalent repository search manually and
@@ -265,6 +270,14 @@ coverage. Treat storyboard states as a flow family, not automatic duplicates.
 Surface missing breakpoint/state evidence and suspicious design naming without
 inventing behavior or silently rewriting copy. Never persist session-local
 asset URLs; retain file/node identity and resolve relevant assets on demand.
+For a selected icon/image, pass its Desktop MCP localhost URL directly to
+`capture_figma_asset` with the current receipt and selected scope. The result is
+an expiring handle/hash/format record under ProjectAtlas temp storage; never
+print, paste, shell-read, or checkpoint the SVG/binary body or the localhost
+URL. Call `materialize_figma_asset` only for an explicitly selected new
+checkout-relative production asset path. It must validate provenance, size,
+signature/content type, SVG safety, expiry, and path containment, and it must
+refuse overwrite. Purge expired handles with `purge_expired_figma_assets`.
 
 Use global Variables collection/mode summaries only when read access exists.
 Otherwise retrieve `get_variable_defs` for the confirmed node. Code Connect,

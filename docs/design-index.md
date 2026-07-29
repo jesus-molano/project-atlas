@@ -120,7 +120,14 @@ annotations, resource links, component and variant names, and optional code
 connections. Screenshots, generated code, style dumps, and full vector trees
 are excluded. Session-local asset URLs such as `localhost` resources are also
 excluded because they cannot be resolved durably; Atlas keeps the file/node ID
-and resolves relevant assets on demand.
+and resolves relevant assets on demand. Selected assets use a separate bounded
+pipeline: Desktop MCP bytes are validated and stored only under
+`%LOCALAPPDATA%\ProjectAtlas\temp\assets\` behind an expiring handle containing
+hash, format, size, selected scope, and receipt provenance. Neither response
+bodies nor localhost URLs enter context, ledgers, capsules, or code. An
+explicit materialization step may write one validated new production asset
+inside the checkout; it refuses overwrite, path escape, unsafe SVG content,
+format mismatch, tampering, and expired handles.
 
 ## Ready for Dev provenance
 

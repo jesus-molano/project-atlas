@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  changeSurfaceRetrievalKey,
   claimTaskRetrieval,
   completeTaskRetrieval,
   loadTaskExecutionManifest,
@@ -124,5 +125,68 @@ describe("task execution manifest and retrieval budget", () => {
       invalidationReason: "graph-changed",
     });
     expect(invalidated.status).toBe("granted");
+  });
+
+  it("allows one compact ChangeSurface per stable task scope", async () => {
+    const key = changeSurfaceRetrievalKey({
+      projectId: "auth",
+      checkoutId: "checkout-a",
+      graphFingerprint: "graph-a",
+      intent: "login OTP challenge",
+      primaryComponent: "LoginChallenge",
+      secondaryComponents: ["BackofficeLogin"],
+      outOfScope: ["ProfileFingerprintModal"],
+    });
+    const first = await claimTaskRetrieval(rootPath, {
+      taskId: "task-42",
+      kind: "change-surface",
+      key,
+    });
+    await completeTaskRetrieval(rootPath, first.handle, {
+      primary: "LoginChallenge",
+      secondary: ["BackofficeLogin"],
+    });
+    const repeated = await claimTaskRetrieval(rootPath, {
+      taskId: "task-42",
+      kind: "change-surface",
+      key,
+    });
+
+    expect(repeated).toMatchObject({
+      status: "cached",
+      handle: first.handle,
+      priorResultAvailable: true,
+    });
+    await expect(
+      claimTaskRetrieval(rootPath, {
+        taskId: "task-42",
+        kind: "change-surface",
+        key: `${key}:expanded`,
+      }),
+    ).rejects.toThrow(/budget.*exhausted/i);
+  });
+
+  it("caps Figma asset retrieval at eight body-free handle results", async () => {
+    for (let index = 0; index < 8; index += 1) {
+      const claim = await claimTaskRetrieval(rootPath, {
+        taskId: "task-assets",
+        kind: "figma-asset",
+        key: `receipt:scope:asset-${index}`,
+      });
+      await completeTaskRetrieval(rootPath, claim.handle, {
+        handle: `figma-asset:task-assets:${index.toString(16).padStart(24, "0")}`,
+        bytes: 128,
+        contentHash: `sha256:${index.toString(16).padStart(64, "0")}`,
+      });
+    }
+    await expect(
+      claimTaskRetrieval(rootPath, {
+        taskId: "task-assets",
+        kind: "figma-asset",
+        key: "receipt:scope:asset-8",
+      }),
+    ).rejects.toThrow(/budget.*exhausted/i);
+    const entries = await readdir(rootPath);
+    expect(entries).toEqual([]);
   });
 });

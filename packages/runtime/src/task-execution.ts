@@ -73,6 +73,7 @@ export interface TaskExecutionManifestProjection {
 
 export type TaskRetrievalKind =
   | "reuse"
+  | "change-surface"
   | "task-context"
   | "figma-metadata"
   | "figma-subtree"
@@ -129,8 +130,31 @@ export function reuseRetrievalKey(input: {
   });
 }
 
+export function changeSurfaceRetrievalKey(input: {
+  projectId: string;
+  checkoutId?: string;
+  graphFingerprint?: string;
+  intent: string;
+  primaryComponent?: string;
+  secondaryComponents?: string[];
+  outOfScope?: string[];
+  sourceLedgerHash?: string;
+}): string {
+  return JSON.stringify({
+    projectId: input.projectId,
+    checkoutId: input.checkoutId ?? "",
+    graphFingerprint: input.graphFingerprint ?? "",
+    intent: input.intent.trim().replace(/\s+/gu, " ").toLowerCase(),
+    primaryComponent: input.primaryComponent ?? "",
+    secondaryComponents: input.secondaryComponents ?? [],
+    outOfScope: input.outOfScope ?? [],
+    sourceLedgerHash: input.sourceLedgerHash ?? "",
+  });
+}
+
 const RETRIEVAL_LIMITS: Record<TaskRetrievalKind, number> = {
   reuse: 1,
+  "change-surface": 1,
   "task-context": 2,
   "figma-metadata": 1,
   "figma-subtree": 5,

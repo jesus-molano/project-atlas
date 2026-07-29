@@ -25,8 +25,23 @@ describe("Project Atlas MCP surface", () => {
       const tools = await client.listTools();
       const names = tools.tools.map((tool) => tool.name);
       expect(names).toContain("get_reuse_context");
+      expect(names).toContain("get_change_surface");
       expect(names).toContain("scan_repository");
       expect(names).toContain("map_figma_file");
+      expect(names).toContain("capture_figma_asset");
+      expect(names).toContain("materialize_figma_asset");
+      expect(names).toContain("purge_expired_figma_assets");
+      expect(
+        tools.tools.find((tool) => tool.name === "get_change_surface")
+          ?.inputSchema,
+      ).toMatchObject({
+        required: expect.arrayContaining([
+          "root_path",
+          "task_id",
+          "intent",
+          "source_ledger_hash",
+        ]),
+      });
       expect(names).toContain("sync_figma_variables");
       expect(names).toContain("get_figma_variables");
       expect(names).toContain("find_design_candidates");
@@ -226,6 +241,26 @@ describe("Project Atlas MCP surface", () => {
       ).toMatchObject({
         totalMatches: expect.any(Number),
         expandableIds: expect.any(Array),
+      });
+
+      const changeSurface = await client.callTool({
+        name: "get_change_surface",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-change-surface",
+          intent: "confirmation dialog for a destructive async action",
+          out_of_scope: ["account profile"],
+          source_ledger_hash: "0123456789abcdef0123456789abcdef",
+        },
+      });
+      expect(changeSurface.structuredContent).toMatchObject({
+        schemaVersion: 1,
+        intent: "confirmation dialog for a destructive async action",
+        files: expect.any(Array),
+        outOfScope: ["account profile"],
+        retrieval: {
+          contextInjected: true,
+        },
       });
 
       const invalidReuseLimit = await client.callTool({

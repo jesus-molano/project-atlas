@@ -15,6 +15,13 @@ response has a measured character hard cap.
   findings before fitting the response;
 - `get_reuse_context` returns at most five candidates and exposes their IDs for
   deliberate expansion;
+- `get_change_surface` returns one primary component, at most two
+  reference-only components, twelve bounded file entries, compact API/impact,
+  and explicit exclusions under a 2,800-character default;
+- one stable task may compute reuse once and ChangeSurface once unless an
+  explicit graph, scope, or source-ledger invalidation is recorded;
+- Figma asset retrieval is capped at eight selected handles per task budget;
+  only metadata enters context and SVG/binary bodies never do;
 - explicit `raw` remains a diagnostic action for older Code Atlas queries.
 
 Every compact response reports:
@@ -52,7 +59,9 @@ The serialized response is tested never to exceed `budgetChars`.
 4. `get_task_context`: one shared budget across memory, code, design, and a
    bounded API operation subset; returns handles and receipt IDs.
 5. `expand_source_receipt`: expand one immutable evidence receipt by ID.
-6. `checkpoint_task`: persist one explicit semantic milestone under the stable
+6. `get_change_surface`: lock the primary code path, reference-only examples,
+   files, and exclusions after reuse is decided.
+7. `checkpoint_task`: persist one explicit semantic milestone under the stable
    task ID; never call it per action or by polling context percentage.
 7. `resume_task_capsule`: rehydrate one strict task checkpoint after context
    compaction; expand its handles/receipt IDs separately.

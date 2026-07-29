@@ -414,6 +414,40 @@ export interface ReuseContextBundle {
   nextActions: string[];
 }
 
+export interface ChangeSurfaceBundle {
+  schemaVersion: 1;
+  intent: string;
+  selection: "explicit" | "ranked" | "unresolved";
+  primary?: ComponentContextReference;
+  references: Array<{
+    component: ComponentContextReference;
+    role: "secondary-reference" | "alternative";
+    reasons: string[];
+  }>;
+  files: Array<{
+    path: string;
+    role:
+      | "implementation"
+      | "test"
+      | "dependency-reference"
+      | "consumer-reference";
+    componentId?: string;
+  }>;
+  publicApi?: {
+    props: ComponentProp[];
+    events: ComponentEvent[];
+    slots: string[];
+    models: string[];
+  };
+  impact?: {
+    level: "contained" | "shared" | "high";
+    directConsumers: number;
+    transitiveConsumers: number;
+  };
+  outOfScope: string[];
+  nextActions: string[];
+}
+
 export interface ComponentContextBundle {
   schemaVersion: 1;
   project: {
