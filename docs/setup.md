@@ -30,7 +30,7 @@ No manual Atlas bootstrap is required for the normal task flow.
 
 The installer:
 
-- installs workspace dependencies and builds the CLI/MCP packages;
+- installs workspace dependencies and builds the CLI, MCP, and local GUI product;
 - globally ignores `.component-atlas/` artifacts;
 - links or copies `frontend-task` and `reuse-first` into the selected agent's
   skill folder;
@@ -105,7 +105,7 @@ path.
 Other recovery/development flags:
 
 - `-SkipDependencies`: do not run `pnpm install`;
-- `-SkipBuild`: use an existing package build;
+- `-SkipBuild`: use existing package and GUI builds;
 - `-CodexSkillsRoot`, `-ClaudeSkillsRoot`: override skill destinations;
 - `-CodexAgentsPath`: override the opt-in `AGENTS.md` target.
 

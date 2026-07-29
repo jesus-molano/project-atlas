@@ -12,7 +12,7 @@
     "build:packages": "pnpm --filter \"./packages/*\" -r build",
     "prepare:viewer": "pnpm --filter @component-atlas/viewer exec nuxt prepare",
     "dev:viewer": "pnpm --filter @component-atlas/viewer dev",
-    "test": "pnpm build:packages && pnpm prepare:viewer && vitest run",
+    "test": "pnpm build:packages && pnpm prepare:viewer && vitest run --exclude scripts/product-launcher.test.ts",
     "test:watch": "vitest",
     "typecheck": "pnpm build:packages && pnpm -r typecheck",
     "audit:product": "node scripts/audit-product-surface.mjs",
@@ -21,7 +21,9 @@
     "test:quality": "pnpm build && node --expose-gc scripts/quality-stress.mjs",
     "benchmark:incremental": "pnpm build:packages && node scripts/incremental-benchmark.mjs",
     "test:kit": "node --test frontend-codex-kit/test-codex-mcp-config.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File frontend-codex-kit/test-installer-mcp.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File frontend-codex-kit/test-agents-instructions.ps1",
-    "atlas": "tsx packages/cli/src/index.ts"
+    "atlas": "node scripts/project-atlas.mjs",
+    "atlas:cli": "tsx packages/cli/src/index.ts",
+    "test:launcher": "pnpm build && vitest run scripts/product-launcher.test.ts"
   },
   "devDependencies": {
     "@typescript/native": "npm:typescript@^7.0.2",

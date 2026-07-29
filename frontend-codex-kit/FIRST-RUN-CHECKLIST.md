@@ -36,7 +36,7 @@
 - [ ] Task context reports its hard budget and does not dump every source.
 - [ ] `check_before_change` surfaces only evidence-backed conflicts/warnings.
 - [ ] A durable memory lesson is proposed, not silently applied.
-- [ ] `atlas open <repo>` exposes all nine GUI sections and Task Context shows
+- [ ] `pnpm atlas -- "<repo>"` exposes all nine GUI sections and Task Context shows
       the budget used before copying a package.
 
 ## Optional GUI check
@@ -44,10 +44,12 @@
 From the Project Atlas clone:
 
 ```powershell
-node .\packages\cli\dist\index.js open "C:\path\to\product-repository"
+pnpm atlas
+pnpm atlas -- "C:\path\to\product-repository"
 ```
 
-- [ ] [http://127.0.0.1:4173](http://127.0.0.1:4173) opens.
+- [ ] The browser opens the free loopback URL printed by the launcher.
+- [ ] Starting without a path shows the project selector.
 - [ ] Code Atlas relationships and impact match one known component.
 - [ ] Design Atlas provenance/status matches an approved Figma source, if used.
 - [ ] One Task Context package stays within its displayed hard cap.

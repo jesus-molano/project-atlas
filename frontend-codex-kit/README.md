@@ -15,7 +15,7 @@ From a stable Project Atlas clone:
 
 The command:
 
-- installs dependencies and builds Atlas;
+- installs dependencies and builds the complete local Atlas product;
 - installs `frontend-task` and `reuse-first`;
 - adds/updates the optional marked routing block in Codex `AGENTS.md`;
 - adds the local Project Atlas MCP server to Codex;
@@ -50,7 +50,7 @@ Canonical `project-memory/` is opt-in and policy-dependent.
 | `-SkipMcp` | Install without MCP registration |
 | `-DryRun` | Resolve and print exact actions without writing |
 | `-SkipDependencies` | Reuse installed workspace dependencies |
-| `-SkipBuild` | Reuse existing package builds |
+| `-SkipBuild` | Reuse existing package and GUI builds |
 | `-CodexSkillsRoot` | Override Codex skill destination |
 | `-ClaudeSkillsRoot` | Override Claude skill destination |
 | `-CodexAgentsPath` | Override the managed Codex instruction file |

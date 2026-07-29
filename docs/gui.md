@@ -5,13 +5,28 @@ indexes, and Markdown used by CLI and MCP. It is designed for repeated daily
 work: orient, select evidence, prepare or continue a task, review decisions, and
 recover from stale or incorrect results. Browsing never invokes an LLM.
 
-Start it from the Project Atlas clone:
+After `pnpm install --frozen-lockfile` in the Project Atlas clone, start the
+local product. With no path, Atlas opens its project selector; with a path, it
+scans and opens that project directly:
 
 ```powershell
-node .\packages\cli\dist\index.js open "C:\path\to\product-repository"
+pnpm atlas
+pnpm atlas -- "C:\path\to\product-repository"
 ```
 
-The server binds only to `127.0.0.1:4173` by default.
+The launcher checks whether the production build is current, builds it when
+needed, ensures `.component-atlas/` is globally ignored by Git, selects a free
+loopback port and verifies the exact launched session, starts the viewer, and
+opens the default browser. It binds only
+to `127.0.0.1` and does not use a fixed port, so it can run beside the selected
+project's development server. Keep the launcher terminal open and press Ctrl+C
+there to stop Atlas and clean up its viewer process. Use `--port <port>` only
+when a fixed port is intentionally needed, or `--no-browser` to suppress
+browser opening.
+
+The compiled CLI contract is `project-atlas open [path]`. In a personal clone,
+`pnpm atlas` is the public wrapper that keeps that build current; both
+`pnpm atlas -- "<path>"` and `pnpm atlas -- open "<path>"` are accepted.
 
 ## Desktop shell
 
