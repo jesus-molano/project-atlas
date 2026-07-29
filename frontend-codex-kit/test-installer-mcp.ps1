@@ -15,7 +15,7 @@ try {
     -CodexSkillsRoot $skillsRoot `
     -SkipDependencies `
     -SkipBuild `
-    -DryRun 2>&1 | Out-String
+    -DryRun *>&1 | Out-String
   if ($LASTEXITCODE -ne 0) {
     throw "Installer dry run failed: $output"
   }
