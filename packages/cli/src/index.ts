@@ -71,22 +71,90 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-interface ViewerReadiness {
+export interface ViewerReadiness {
   sessionToken: string;
   expectedProjectId?: string;
+}
+
+export interface ViewerWaitOptions {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+}
+
+function errorSummary(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause;
+  if (cause instanceof Error && cause.message !== error.message) {
+    return `${error.message}: ${cause.message}`;
+  }
+  return error.message;
+}
+
+interface ViewerOutputRelay {
+  bindFailure: Promise<never>;
+  recentOutput: () => string;
+}
+
+function relayViewerOutput(child: ChildProcess): ViewerOutputRelay {
+  let recentOutput = "";
+  let bindFailureReported = false;
+  let rejectBindFailure: (error: Error) => void = () => undefined;
+  const bindFailure = new Promise<never>((_resolve, reject) => {
+    rejectBindFailure = reject;
+  });
+  const forward =
+    (target: NodeJS.WriteStream) =>
+    (chunk: string | Buffer): void => {
+      const text = String(chunk);
+      target.write(chunk);
+      recentOutput = `${recentOutput}${text}`.slice(-8_192);
+      if (
+        !bindFailureReported &&
+        /EADDRINUSE|address already in use/i.test(recentOutput)
+      ) {
+        bindFailureReported = true;
+        const bindLine =
+          recentOutput
+            .split(/\r?\n/)
+            .find((line) => /EADDRINUSE|address already in use/i.test(line))
+            ?.trim() ?? "address already in use";
+        rejectBindFailure(new Error(`Viewer bind failed: ${bindLine}`));
+      }
+    };
+  child.stdout?.on("data", forward(process.stdout));
+  child.stderr?.on("data", forward(process.stderr));
+  return {
+    bindFailure,
+    recentOutput: () => recentOutput.trim(),
+  };
 }
 
 export async function waitForViewer(
   url: string,
   readiness: ViewerReadiness,
-  attempts = 50,
+  options: ViewerWaitOptions = {},
 ): Promise<void> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const pollIntervalMs = options.pollIntervalMs ?? 100;
+  const deadline = Date.now() + timeoutMs;
+  let lastFailure = "the viewer did not accept a loopback connection";
+
+  while (Date.now() < deadline) {
+    if (options.signal?.aborted) {
+      throw options.signal.reason;
+    }
     try {
       const sessionResponse = await fetch(`${url}/api/agent/session`, {
-        signal: AbortSignal.timeout(500),
+        signal: options.signal
+          ? AbortSignal.any([AbortSignal.timeout(500), options.signal])
+          : AbortSignal.timeout(500),
       });
-      if (!sessionResponse.ok) throw new Error("session-unavailable");
+      if (!sessionResponse.ok) {
+        throw new Error(
+          `the session endpoint returned HTTP ${sessionResponse.status}`,
+        );
+      }
       const session = (await sessionResponse.json()) as unknown;
       if (
         !session ||
@@ -94,50 +162,83 @@ export async function waitForViewer(
         !("token" in session) ||
         session.token !== readiness.sessionToken
       ) {
-        throw new Error("session-mismatch");
+        throw new Error(
+          "the session endpoint did not return this launcher's session",
+        );
       }
 
       const endpoint = readiness.expectedProjectId
         ? "/api/workspace"
         : "/api/projects";
       const response = await fetch(`${url}${endpoint}`, {
-        signal: AbortSignal.timeout(500),
+        signal: options.signal
+          ? AbortSignal.any([AbortSignal.timeout(500), options.signal])
+          : AbortSignal.timeout(500),
       });
-      if (response.ok) {
-        const payload = (await response.json()) as unknown;
-        if (!readiness.expectedProjectId) {
-          if (
-            payload &&
-            typeof payload === "object" &&
-            "projects" in payload &&
-            Array.isArray(payload.projects) &&
-            !("activeRoot" in payload)
-          ) {
-            return;
-          }
-          throw new Error("launcher-state-mismatch");
-        }
+      if (!response.ok) {
+        throw new Error(
+          `${endpoint} returned HTTP ${response.status}`,
+        );
+      }
+      const payload = (await response.json()) as unknown;
+      if (!readiness.expectedProjectId) {
         if (
           payload &&
           typeof payload === "object" &&
-          "graph" in payload &&
-          payload.graph &&
-          typeof payload.graph === "object" &&
-          "project" in payload.graph &&
-          payload.graph.project &&
-          typeof payload.graph.project === "object" &&
-          "id" in payload.graph.project &&
-          payload.graph.project.id === readiness.expectedProjectId
+          "projects" in payload &&
+          Array.isArray(payload.projects) &&
+          !("activeRoot" in payload)
         ) {
           return;
         }
+        throw new Error(
+          "/api/projects returned a state for a different launcher mode",
+        );
       }
-    } catch {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "graph" in payload &&
+        payload.graph &&
+        typeof payload.graph === "object" &&
+        "project" in payload.graph &&
+        payload.graph.project &&
+        typeof payload.graph.project === "object" &&
+        "id" in payload.graph.project &&
+        payload.graph.project.id === readiness.expectedProjectId
+      ) {
+        return;
+      }
+      throw new Error(
+        "/api/workspace returned a different project fingerprint",
+      );
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throw options.signal.reason;
+      }
       // The local server may still be binding its port.
+      lastFailure = errorSummary(error);
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) {
+      await new Promise<void>((resolve) => {
+        let timer: NodeJS.Timeout;
+        const finish = (): void => {
+          clearTimeout(timer);
+          options.signal?.removeEventListener("abort", finish);
+          resolve();
+        };
+        timer = setTimeout(
+          finish,
+          Math.min(pollIntervalMs, remainingMs),
+        );
+        options.signal?.addEventListener("abort", finish, { once: true });
+      });
+    }
   }
-  throw new Error(`Local server did not become ready at ${url}.`);
+  throw new Error(
+    `Local server did not become ready at ${url} within ${timeoutMs} ms. Last readiness check: ${lastFailure}.`,
+  );
 }
 
 export async function findAvailableLoopbackPort(): Promise<number> {
@@ -354,78 +455,87 @@ async function openViewer(
   }
   const codexPath = await resolveBundledCodexBinary(repositoryRoot);
   const explicitPort = parseViewerPort(options.port);
-  const attempts = explicitPort ? 1 : 5;
-  let lastError: unknown;
+  const port = explicitPort ?? (await findAvailableLoopbackPort());
+  const url = `http://127.0.0.1:${port}`;
+  const sessionToken = randomBytes(32).toString("base64url");
+  const {
+    ATLAS_PROJECT_ROOT: _projectRoot,
+    ATLAS_PROJECT_ID: _projectId,
+    ATLAS_CHECKOUT_ID: _checkoutId,
+    ATLAS_GUI_SESSION_TOKEN: _sessionToken,
+    NITRO_HOST: _nitroHost,
+    NITRO_PORT: _nitroPort,
+    ...baseEnvironment
+  } = process.env;
+  const child = spawn(process.execPath, [serverEntry], {
+    stdio: ["inherit", "pipe", "pipe"],
+    windowsHide: true,
+    env: {
+      ...baseEnvironment,
+      ...(graph
+        ? {
+            ATLAS_PROJECT_ROOT: graph.project.rootPath,
+            ATLAS_PROJECT_ID: graph.project.id,
+            ...(graph.project.identity?.checkoutId
+              ? { ATLAS_CHECKOUT_ID: graph.project.identity.checkoutId }
+              : {}),
+          }
+        : {}),
+      ATLAS_CLI_ENTRY: currentFile,
+      ATLAS_GUI_SESSION_TOKEN: sessionToken,
+      ...(codexPath ? { ATLAS_CODEX_PATH: codexPath } : {}),
+      NITRO_HOST: "127.0.0.1",
+      NITRO_PORT: String(port),
+    },
+  });
+  const outputRelay = relayViewerOutput(child);
+  const startupController = new AbortController();
+  const removeStartupShutdown = registerViewerShutdown(child);
 
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const port = explicitPort ?? (await findAvailableLoopbackPort());
-    const url = `http://127.0.0.1:${port}`;
-    const sessionToken = randomBytes(32).toString("base64url");
-    const {
-      ATLAS_PROJECT_ROOT: _projectRoot,
-      ATLAS_PROJECT_ID: _projectId,
-      ATLAS_CHECKOUT_ID: _checkoutId,
-      ATLAS_GUI_SESSION_TOKEN: _sessionToken,
-      NITRO_HOST: _nitroHost,
-      NITRO_PORT: _nitroPort,
-      ...baseEnvironment
-    } = process.env;
-    const child = spawn(process.execPath, [serverEntry], {
-      stdio: "inherit",
-      windowsHide: true,
-      env: {
-        ...baseEnvironment,
-        ...(graph
-          ? {
-              ATLAS_PROJECT_ROOT: graph.project.rootPath,
-              ATLAS_PROJECT_ID: graph.project.id,
-              ...(graph.project.identity?.checkoutId
-                ? { ATLAS_CHECKOUT_ID: graph.project.identity.checkoutId }
-                : {}),
-            }
-          : {}),
-        ATLAS_CLI_ENTRY: currentFile,
-        ATLAS_GUI_SESSION_TOKEN: sessionToken,
-        ...(codexPath ? { ATLAS_CODEX_PATH: codexPath } : {}),
-        NITRO_HOST: "127.0.0.1",
-        NITRO_PORT: String(port),
-      },
-    });
-
-    try {
-      await waitForViewerChild(child, url, {
-        sessionToken,
-        ...(graph ? { expectedProjectId: graph.project.id } : {}),
-      });
-      if (options.browser) await open(url);
-    } catch (error) {
-      lastError = error;
-      await stopViewerChild(child);
-      if (explicitPort) {
-        throw new Error(
-          `Port ${port} is unavailable or the viewer could not start there. Use "--port auto" or choose another port.`,
-          { cause: error },
-        );
-      }
-      continue;
-    }
-
-    manageViewerLifecycle(child);
-    process.stdout.write(`Project Atlas GUI is running at ${url}\n`);
-    process.stdout.write("Press Ctrl+C in this terminal to close it.\n");
-    return;
+  try {
+    await Promise.race([
+      waitForViewerChild(
+        child,
+        url,
+        {
+          sessionToken,
+          ...(graph ? { expectedProjectId: graph.project.id } : {}),
+        },
+        { signal: startupController.signal },
+      ),
+      outputRelay.bindFailure,
+    ]);
+    if (options.browser) await open(url);
+  } catch (error) {
+    await stopViewerChild(child);
+    const portKind = explicitPort
+      ? `explicit loopback port ${port}`
+      : `automatically selected loopback port ${port}`;
+    const recentOutput = outputRelay.recentOutput();
+    const outputDetail = recentOutput
+      ? ` Last viewer output: ${recentOutput.split(/\r?\n/).at(-1)}`
+      : "";
+    throw new Error(
+      `Project Atlas viewer failed to start on ${portKind}. ${errorSummary(error)}${outputDetail}`,
+      { cause: error },
+    );
+  } finally {
+    startupController.abort(new Error("Viewer startup check cancelled."));
+    removeStartupShutdown();
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Project Atlas could not reserve a free loopback port.");
+  manageViewerLifecycle(child);
+  process.stdout.write(`Project Atlas GUI is running at ${url}\n`);
+  process.stdout.write("Press Ctrl+C in this terminal to close it.\n");
 }
 
-async function waitForViewerChild(
+export async function waitForViewerChild(
   child: ChildProcess,
   url: string,
   readiness: ViewerReadiness,
+  options: ViewerWaitOptions = {},
 ): Promise<void> {
+  const readinessController = new AbortController();
   let onError: ((error: Error) => void) | undefined;
   let onExit:
     | ((code: number | null, signal: NodeJS.Signals | null) => void)
@@ -442,31 +552,40 @@ async function waitForViewerChild(
     child.once("exit", onExit);
   });
   try {
-    await Promise.race([waitForViewer(url, readiness), stopped]);
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, readinessController.signal])
+      : readinessController.signal;
+    await Promise.race([
+      waitForViewer(url, readiness, { ...options, signal }),
+      stopped,
+    ]);
   } finally {
+    readinessController.abort(new Error("Viewer readiness check cancelled."));
     if (onError) child.removeListener("error", onError);
     if (onExit) child.removeListener("exit", onExit);
   }
 }
 
-async function stopViewerChild(child: ChildProcess): Promise<void> {
+export async function stopViewerChild(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill();
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
+    let giveUpTimer: NodeJS.Timeout | undefined;
+    const forceTimer = setTimeout(() => {
       if (child.exitCode === null && child.signalCode === null) {
         child.kill("SIGKILL");
       }
-      resolve();
+      giveUpTimer = setTimeout(resolve, 2_000);
     }, 2_000);
     child.once("exit", () => {
-      clearTimeout(timer);
+      clearTimeout(forceTimer);
+      if (giveUpTimer) clearTimeout(giveUpTimer);
       resolve();
     });
   });
 }
 
-function manageViewerLifecycle(child: ChildProcess): void {
+function registerViewerShutdown(child: ChildProcess): () => void {
   const shutdown = (): void => {
     if (child.exitCode === null && child.signalCode === null) child.kill();
   };
@@ -480,6 +599,11 @@ function manageViewerLifecycle(child: ChildProcess): void {
   process.once("SIGTERM", shutdown);
   process.once("SIGHUP", shutdown);
   process.once("exit", shutdown);
+  return removeListeners;
+}
+
+function manageViewerLifecycle(child: ChildProcess): void {
+  const removeListeners = registerViewerShutdown(child);
   child.once("error", (error) => {
     process.stderr.write(`Viewer process failed: ${error.message}\n`);
   });
