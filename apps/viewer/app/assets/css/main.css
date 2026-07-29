@@ -2940,7 +2940,7 @@ textarea::placeholder {
   letter-spacing: 0.08em;
 }
 
-/* Task Workbench */
+/* Codex handoff sidecar */
 
 .task-section {
   width: min(100%, 1560px);
@@ -2953,7 +2953,7 @@ textarea::placeholder {
   grid-template-columns:
     minmax(300px, 390px)
     minmax(420px, 1fr)
-    minmax(220px, 260px);
+    minmax(240px, 280px);
 }
 
 .workbench-composer {
@@ -2962,13 +2962,59 @@ textarea::placeholder {
   border-right: 1px solid var(--atlas-rule);
 }
 
-.workbench-composer .mode-switch {
-  display: flex;
-  flex-wrap: wrap;
+.task-intake-controls {
+  display: grid;
+  gap: 7px;
 }
 
-.workbench-composer .mode-switch .capability-pill {
-  align-self: center;
+.workbench-composer .mode-switch {
+  width: 100%;
+  display: flex;
+}
+
+.task-status-row {
+  min-height: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 3px;
+}
+
+.task-status-row .text-button {
+  margin-left: auto;
+}
+
+.codex-sidecar-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 11px 12px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: 8px;
+  background: var(--atlas-raised);
+}
+
+.codex-sidecar-note svg {
+  flex: 0 0 auto;
+  color: var(--atlas-accent);
+}
+
+.codex-sidecar-note strong,
+.codex-sidecar-note span {
+  display: block;
+}
+
+.codex-sidecar-note strong {
+  font-size: 0.8rem;
+}
+
+.codex-sidecar-note span {
+  margin-top: 3px;
+  color: var(--atlas-ink-faint);
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .workbench-intent {
@@ -3067,9 +3113,9 @@ textarea::placeholder {
 .source-decision {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
   padding: 10px;
   border: 1px solid var(--atlas-rule);
   border-radius: 7px;
@@ -3085,8 +3131,9 @@ textarea::placeholder {
 }
 
 .figma-sync-band {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
   gap: 9px;
   margin-top: 10px;
   padding: 10px;
@@ -3118,7 +3165,9 @@ textarea::placeholder {
 }
 
 .figma-sync-band strong,
-.figma-sync-band span:not(.mini-loader) {
+.figma-sync-band span:not(.mini-loader),
+.figma-sync-band code,
+.figma-sync-band small {
   display: block;
 }
 
@@ -3130,6 +3179,42 @@ textarea::placeholder {
   margin-top: 2px;
   color: var(--atlas-ink-muted);
   font-size: 0.72rem;
+}
+
+.figma-sync-copy code {
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+  color: currentColor;
+  font-size: 0.68rem;
+}
+
+.figma-sync-copy small {
+  margin-top: 7px;
+  color: var(--atlas-ink-faint);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.figma-sync-copy .figma-sync-progress {
+  color: var(--atlas-ink-muted);
+}
+
+.figma-sync-copy .figma-sync-blocker {
+  color: var(--atlas-warning);
+}
+
+.figma-sync-actions {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 2px;
+  padding-top: 9px;
+  border-top: 1px solid var(--atlas-rule-soft);
+}
+
+.figma-sync-actions .secondary-button {
+  width: 100%;
 }
 
 .source-decision > div:first-child span,
@@ -3155,8 +3240,15 @@ textarea::placeholder {
 .source-decision-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 5px;
+  justify-content: flex-start;
+  gap: 4px 12px;
+  padding-top: 7px;
+  border-top: 1px solid var(--atlas-rule-soft);
+}
+
+.source-decision-actions .text-button {
+  min-height: 28px;
+  text-align: left;
 }
 
 .source-chips > button {
@@ -3183,6 +3275,19 @@ textarea::placeholder {
   grid-template-columns: 110px minmax(0, 1fr) auto;
   gap: 7px;
   margin-top: 10px;
+}
+
+.source-required-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--atlas-ink-faint);
+  font-size: 0.73rem;
+}
+
+.source-required-toggle input {
+  width: auto;
 }
 
 .capability-line {
@@ -3383,6 +3488,39 @@ textarea::placeholder {
   margin-top: 12px;
 }
 
+.receipt-disclosure,
+.checkpoint-disclosure {
+  margin: 14px 0;
+  padding: 11px 12px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: 7px;
+  background: var(--atlas-raised);
+}
+
+.receipt-disclosure summary,
+.checkpoint-disclosure summary {
+  cursor: pointer;
+  color: var(--atlas-ink-muted);
+  font-size: 0.77rem;
+  font-weight: 650;
+}
+
+.receipt-disclosure article {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--atlas-rule-soft);
+  overflow-wrap: anywhere;
+}
+
+.receipt-disclosure article span,
+.receipt-disclosure article small,
+.checkpoint-disclosure small {
+  color: var(--atlas-ink-faint);
+  font-size: 0.7rem;
+}
+
 .decision-band,
 .question-gate {
   display: grid;
@@ -3449,9 +3587,15 @@ textarea::placeholder {
 }
 
 .decision-record > div > span {
+  display: block;
+  margin-bottom: 4px;
   color: var(--atlas-warning);
   font-size: 0.7rem;
   text-transform: uppercase;
+}
+
+.decision-record > div > strong {
+  display: block;
 }
 
 .decision-record.decision-required > div > span {
@@ -3541,6 +3685,8 @@ textarea::placeholder {
 
 .workbench-inspector {
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: 28px 0 40px 24px;
   border-left: 1px solid var(--atlas-rule);
 }
@@ -3570,9 +3716,33 @@ textarea::placeholder {
   margin: 0;
 }
 
+.checkpoint-disclosure {
+  margin-top: 16px;
+}
+
+.checkpoint-disclosure p {
+  margin: 11px 0;
+  font-size: 0.73rem;
+  line-height: 1.45;
+}
+
+.checkpoint-disclosure p strong,
+.checkpoint-disclosure p span {
+  display: block;
+}
+
+.checkpoint-disclosure p span {
+  margin-top: 3px;
+  color: var(--atlas-ink-muted);
+}
+
+.checkpoint-disclosure dl {
+  margin-bottom: 9px;
+}
+
 .workbench-inspector dl > div {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(72px, 0.8fr) minmax(0, 1.2fr);
   gap: 8px;
   padding: 7px 0;
   border-top: 1px solid var(--atlas-rule-soft);
@@ -3585,9 +3755,50 @@ textarea::placeholder {
 .workbench-inspector dd {
   min-width: 0;
   margin: 0;
-  overflow: hidden;
   text-align: right;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+
+.workbench-inspector dl > .source-count-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+}
+
+.workbench-inspector .source-count-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.source-count-summary > span {
+  min-width: 0;
+  padding: 4px 5px 5px;
+  border: 1px solid var(--atlas-rule-soft);
+  border-radius: 5px;
+  background: var(--atlas-raised);
+  text-align: center;
+}
+
+.source-count-summary strong,
+.source-count-summary small {
+  display: block;
+}
+
+.source-count-summary strong {
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.source-count-summary small {
+  margin-top: 4px;
+  color: var(--atlas-ink-faint);
+  font-size: 0.58rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .inspector-sources {
@@ -3611,6 +3822,25 @@ textarea::placeholder {
 .inspector-sources p strong,
 .inspector-sources p span {
   display: block;
+}
+
+.receipt-id-list {
+  margin-top: 12px;
+  font-size: 0.7rem;
+}
+
+.receipt-id-list summary {
+  cursor: pointer;
+  color: var(--atlas-ink-faint);
+}
+
+.receipt-id-list code {
+  display: block;
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--atlas-info);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .inspector-sources p span {
@@ -5069,6 +5299,24 @@ textarea::placeholder {
     display: block;
     border-top: 0;
     border-left: 0;
+  }
+
+  .figma-sync-band {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .figma-sync-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .workbench-inspector dl > .source-count-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .workbench-inspector .source-count-summary {
+    text-align: left;
   }
 
   .entity-list {

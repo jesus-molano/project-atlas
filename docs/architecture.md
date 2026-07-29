@@ -72,7 +72,10 @@ flowchart LR
   resolutions without changing canonical evidence.
 - `agent`: provider-neutral run, progress, question, cancellation, resumption,
   and compact-result contracts. The first adapter uses the official Codex SDK;
-  the GUI depends on the interface rather than Codex-specific UI state.
+  the GUI depends on the interface rather than Codex-specific UI state. It stays
+  dependency-free: its structural SourceReceipt transport validator mirrors the
+  versioned core schema, while the runtime validates persisted receipts again at
+  the trust boundary.
 
 ## Agent context contract
 
@@ -185,8 +188,10 @@ logical scope unless an explicit override is used; Atlas does not silently merge
 the two repositories.
 
 Task intake, exact source references, confirmations, briefs, permissions,
-thread IDs, and execution state remain task-scoped. Persisted run audits retain
-only content-free counts and source kinds. Component decisions default to the
+thread IDs, and execution state remain task-scoped. A bounded ignored local
+journal/capsule persists semantic checkpoints and IDs for compaction-safe
+resume without persisting a transcript or reloading indexes. Persisted run
+audits retain only content-free counts and source kinds. Component decisions default to the
 current checkout; promoting one to the logical project requires explicit user
 confirmation. See [Task intake and persistence scopes](task-intake-and-scopes.md).
 
@@ -227,11 +232,11 @@ resource, termination, dependency and performance baseline is in
 
 ## Human control plane
 
-The complete Project Atlas GUI is a local observation and control plane over
+The Project Atlas GUI is a local observation and control sidecar over
 the same runtime, SQLite indexes, and Markdown used by CLI and MCP. Stable
 view-model contracts in `packages/runtime/src/view-models.ts` prevent a second
 persistence or business-logic layer. Navigation never invokes an LLM; only an
-explicit reviewed Task Workbench action creates a hard-capped agent package.
+explicit reviewed Codex handoff action creates a hard-capped agent package.
 
 The shell keeps project/worktree/branch context persistent and groups Home,
 Explore, Work, Review, and System in at most two navigation levels. Code,

@@ -35,6 +35,7 @@ import {
   parseFigmaReference,
   queryDesignVariables,
   rankDesignCandidates,
+  resolveExplicitDesignTarget,
   type BuildFigmaDesignIndexInput,
   type DesignCandidateResult,
   type DesignFileIndex,
@@ -59,8 +60,32 @@ export {
 export {
   extractOpenApiTaskContext,
   loadConfirmedOpenApiContext,
+  type ConfirmedOpenApiSource,
   type OpenApiTaskContext,
+  type OpenApiSourceResolver,
 } from "./openapi.js";
+export {
+  prepareTaskContext,
+  TaskPreparationBlockedError,
+  type GuardedTaskContextDependencies,
+  type TaskContextOptions,
+} from "./task-preparation.js";
+export {
+  appendTaskJournalMilestone,
+  encodeResumeCapsule,
+  expandSourceReceipt,
+  loadTaskResumeCapsule,
+  loadTaskResumeTransport,
+  persistSourceReceipts,
+  pruneExpiredTaskState,
+  taskContextResumeHandles,
+  writeTaskCheckpoint,
+  type ResumeCapsuleTransport,
+  type TaskCheckpointInput,
+  type TaskJournalMilestone,
+  type TaskResumeCapsule,
+  type TaskContextHandleSource,
+} from "./task-state.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -1014,12 +1039,17 @@ export async function findTaskDesignCandidates(
     store.close();
   }
   const atlasCandidates = searchComponentContext(graph, task, 3);
-  const result = rankDesignCandidates(designIndex, task, {
-    ...(options.limit ? { limit: options.limit } : {}),
-    codeSignals: atlasCandidates.map(
-      (candidate) => candidate.component.name,
-    ),
-  });
+  const explicitReference = options.figmaFile
+    ? parseFigmaReference(options.figmaFile)
+    : undefined;
+  const result = explicitReference?.nodeId
+    ? resolveExplicitDesignTarget(designIndex, explicitReference.nodeId)
+    : rankDesignCandidates(designIndex, task, {
+        ...(options.limit ? { limit: options.limit } : {}),
+        codeSignals: atlasCandidates.map(
+          (candidate) => candidate.component.name,
+        ),
+      });
   const apiFindings = atlasCandidates.flatMap((candidate): DesignFinding[] => {
     const component = graph.components.find(
       (item) => item.id === candidate.component.id,

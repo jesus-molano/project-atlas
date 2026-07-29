@@ -11,6 +11,7 @@ import {
   parseFigmaReference,
   queryDesignVariables,
   rankDesignCandidates,
+  resolveExplicitDesignTarget,
   type DesignIndexEnrichment,
 } from "./index.js";
 
@@ -32,6 +33,41 @@ async function checkoutIndex() {
 }
 
 describe("Figma Design Index", () => {
+  it("keeps an exact Figma node authoritative and never substitutes ranked Atlas candidates", async () => {
+    const metadata = await readFile(fixture("checkout-depth-2.json"), "utf8");
+    const index = buildFigmaDesignIndex({
+      figmaUrl:
+        "https://www.figma.com/design/StorefrontKey/Storefront?node-id=10-1",
+      metadata,
+      indexedAt: "2026-07-29T12:00:00.000Z",
+    });
+
+    const exact = resolveExplicitDesignTarget(index, "10:1");
+    expect(exact.candidates).toEqual([
+      expect.objectContaining({
+        origin: "user-confirmed-target",
+        node: expect.objectContaining({ id: "10:1" }),
+      }),
+    ]);
+
+    const mismatch = resolveExplicitDesignTarget(index, "10:2");
+    expect(mismatch.candidates).toEqual([]);
+    expect(mismatch.findings).toEqual([
+      expect.objectContaining({
+        code: "explicit-target-mismatch",
+        level: "decision-required",
+      }),
+    ]);
+
+    index.sources[0]!.receipt.freshness = "stale";
+    const stale = resolveExplicitDesignTarget(index, "10:1");
+    expect(stale.candidates).toEqual([]);
+    expect(stale.findings[0]).toMatchObject({
+      code: "explicit-target-stale",
+      level: "decision-required",
+    });
+  });
+
   it("builds a lightweight REST map with statuses, code links, and variables", async () => {
     const index = await checkoutIndex();
 
@@ -703,7 +739,7 @@ describe("Figma Design Index", () => {
     const upgraded = normalizeDesignIndex(
       legacy as unknown as Parameters<typeof normalizeDesignIndex>[0],
     );
-    expect(upgraded.schemaVersion).toBe(3);
+    expect(upgraded.schemaVersion).toBe(4);
     expect(upgraded.devStatus.availability).toBe("available");
     expect(upgraded.nodes.find((node) => node.id === "10:1")).toMatchObject({
       devStatusAvailability: "available",

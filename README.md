@@ -5,8 +5,10 @@ project before they change code. It finds existing components, design evidence,
 decisions, risks, and prior outcomes without dumping the whole repository or
 design file into the conversation.
 
-The normal entry point is `$frontend-task`. You describe the task; the skill
-selects the useful sources and uses Atlas only when it adds value.
+The normal entry point is native Codex with `$frontend-task`. You describe the
+task; the skill selects useful sources and uses Atlas as a compact, verifiable
+context sidecar only when it adds value. The GUI is an optional control,
+inspection, and traceability surface—not a replacement conversation.
 
 ## Quick start — Windows + Codex
 
@@ -73,7 +75,9 @@ task-relevant records. It never injects the complete repository, Figma file, or
 memory store into the conversation.
 
 The default task package is hard-capped and reports its estimated size,
-truncation state, matches, and IDs that can be expanded deliberately.
+truncation state, retrieval hits/misses/retries, and IDs that can be expanded
+deliberately. Source receipts are referenced by immutable ID; receipt bodies,
+full indexes, and source documents stay outside the prompt.
 
 ## Open the GUI
 
@@ -112,9 +116,9 @@ The desktop-shaped local workspace lets you:
   another repository without restarting the server;
 - search code, design, and memory from one command surface;
 - choose evidence by goal: reuse, impact, tests, design state, or prior decision;
-- send a reviewed, hard-capped package to the Task Workbench;
-- prepare, implement, cancel, correct, and continue a Codex task in the same
-  checkout through the official SDK;
+- copy a reviewed, hard-capped handoff to native Codex;
+- optionally use the explicitly experimental embedded runner to prepare,
+  implement, cancel, correct, and continue a Codex task in the same checkout;
 - review agent progress, material questions, compact outcomes, and memory
   proposals without storing raw external documents.
 
@@ -150,6 +154,7 @@ block the task.
 | --- | --- |
 | Product repository | Product code; Atlas does not change it merely by being queried |
 | `<product-repo>/.component-atlas/` | Ignored local artifacts and local memory |
+| `<product-repo>/.component-atlas/task-state/` | Bounded task capsules, semantic milestone journal, and SourceReceipts; no transcript |
 | Windows LocalAppData | SQLite keyed by logical repository, with checkout-specific code/local memory and shared confirmed design/canonical memory |
 | `<product-repo>/project-memory/` | Optional team/canonical Markdown, only when policy allows and a user approves it |
 | `~/.agents/skills/` | Global `frontend-task` and `reuse-first` skill links/copies |

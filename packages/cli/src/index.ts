@@ -14,17 +14,22 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  assessTaskRisk,
   buildComponentContext,
   buildImpactContext,
   buildReuseContext,
   buildSimilarityContext,
   componentImpact,
   findComponent,
+  missingTaskSourceReference,
   searchComponentContext,
   searchComponents,
   similarComponents,
+  taskSourceId,
   type DecisionKind,
   type Framework,
+  type TaskSourceDecision,
+  type TaskSourceKind,
 } from "@component-atlas/core";
 import type { MemoryStatus, MemoryType } from "@component-atlas/memory";
 import { startMcpServer } from "@component-atlas/mcp";
@@ -33,7 +38,6 @@ import {
   fitBudgetedResponse,
   getProjectMemoryItem,
   getProjectCapabilities,
-  getTaskContext,
   graphSummary,
   indexProjectMemory,
   inspectFigmaDesignNode,
@@ -43,6 +47,7 @@ import {
   applyMemoryUpdate,
   checkBeforeChange,
   orientProject,
+  prepareTaskContext,
   proposeMemoryUpdate,
   recordDecision,
   recordProjectOutcome,
@@ -850,7 +855,20 @@ export function createProgram(): Command {
     .option("--budget <chars>", "shared hard response budget", "4200")
     .option("--limit <count>", "maximum candidates per source", "3")
     .option("--refresh", "refresh Markdown memory before retrieval")
-    .description("Combine memory, code, and optional design in one compact bundle.")
+    .option("--confirm-objective", "confirm the reviewed objective")
+    .option(
+      "--source <kind=reference...>",
+      "confirmed exact task sources (jira, confluence, figma, github, openapi, other)",
+    )
+    .option(
+      "--omit-source <kinds...>",
+      "explicitly omit source kinds after review",
+    )
+    .option(
+      "--unavailable-source <kinds...>",
+      "mark reviewed source kinds unavailable",
+    )
+    .description("Build a compact handle/receipt-ID bundle after task intake clears.")
     .action(
       async (
         rootPath: string,
@@ -860,15 +878,83 @@ export function createProgram(): Command {
           budget: string;
           limit: string;
           refresh?: boolean;
+          confirmObjective?: boolean;
+          source?: string[];
+          omitSource?: string[];
+          unavailableSource?: string[];
         },
       ) => {
+        const allowedKinds = new Set([
+          "jira",
+          "confluence",
+          "figma",
+          "github",
+          "openapi",
+          "other",
+        ]);
+        const sources: TaskSourceDecision[] = (options.source ?? []).map((entry) => {
+          const separator = entry.indexOf("=");
+          const kind = entry.slice(0, separator);
+          const reference = entry.slice(separator + 1);
+          if (
+            separator < 1 ||
+            !allowedKinds.has(kind) ||
+            !reference.trim()
+          ) {
+            throw new Error(
+              `Invalid --source "${entry}". Use kind=exact-reference.`,
+            );
+          }
+          return {
+            id: taskSourceId(kind as TaskSourceKind, reference),
+            kind: kind as TaskSourceKind,
+            reference,
+            origin: "manual" as const,
+            state: "confirmed" as const,
+            required: false,
+            relationship: "primary" as const,
+          };
+        });
+        for (const [state, kinds] of [
+          ["omitted", options.omitSource ?? []],
+          ["unavailable", options.unavailableSource ?? []],
+        ] as const) {
+          for (const kind of kinds) {
+            if (!allowedKinds.has(kind)) {
+              throw new Error(`Invalid source kind "${kind}".`);
+            }
+            const reference = missingTaskSourceReference(
+              kind as TaskSourceKind,
+            );
+            sources.push({
+              id: taskSourceId(kind as TaskSourceKind, reference),
+              kind: kind as TaskSourceKind,
+              reference,
+              origin: "manual",
+              state,
+              required: false,
+              relationship: "primary",
+            });
+          }
+        }
         printBudgetedJson(
-          await getTaskContext(rootPath, task, {
-            budgetChars: parseBudget(options.budget),
-            topK: parseLimit(options.limit, 10),
-            ...(options.figmaFile ? { figmaFile: options.figmaFile } : {}),
-            ...(options.refresh ? { refreshMemory: true } : {}),
-          }),
+          await prepareTaskContext(
+            rootPath,
+            {
+              schemaVersion: 1,
+              scope: "task",
+              objective: task,
+              objectiveConfirmed: options.confirmObjective ?? false,
+              risk: assessTaskRisk(task),
+              sources,
+            },
+            {
+              budgetChars: parseBudget(options.budget),
+              topK: parseLimit(options.limit, 10),
+              ...(options.figmaFile ? { figmaFile: options.figmaFile } : {}),
+              ...(options.refresh ? { refreshMemory: true } : {}),
+            },
+          ),
         );
       },
     );

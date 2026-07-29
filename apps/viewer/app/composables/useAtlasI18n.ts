@@ -27,6 +27,7 @@ export function atlasErrorSource(
   caught: unknown,
   fallback = "An unexpected local error occurred.",
 ): string {
+  let source: string | undefined;
   if (
     typeof caught === "object" &&
     caught !== null &&
@@ -36,11 +37,27 @@ export function atlasErrorSource(
     "statusMessage" in caught.data &&
     typeof caught.data.statusMessage === "string"
   ) {
-    return caught.data.statusMessage;
+    source = caught.data.statusMessage;
   }
-  if (caught instanceof Error && caught.message) return caught.message;
-  if (typeof caught === "string" && caught.trim()) return caught;
-  return fallback;
+  if (!source && caught instanceof Error && caught.message) {
+    source = caught.message;
+  }
+  if (!source && typeof caught === "string" && caught.trim()) {
+    source = caught;
+  }
+  if (!source) return fallback;
+  const compact = source.trim();
+  if (
+    compact.length > 700 ||
+    compact.startsWith("{") ||
+    compact.startsWith("[") ||
+    /invalid_json_schema|codex_output_schema|response_format|invalid_request_error/iu.test(
+      compact,
+    )
+  ) {
+    return fallback;
+  }
+  return compact;
 }
 
 export function translateAtlasRuntimeMessage(
@@ -112,6 +129,47 @@ export function translateAtlasRuntimeMessage(
       command: translateAtlasUi(locale, commandNotBulk[1] ?? ""),
     });
   }
+  const figmaTargetMissing = source.match(
+    /^The confirmed Figma target (.+) has not been synchronized\. Map this exact target through Figma Desktop MCP before context retrieval; Atlas candidates cannot replace it\.$/u,
+  );
+  if (figmaTargetMissing) {
+    return translateAtlasUi(
+      locale,
+      "The confirmed Figma target {target} has not been synchronized. Map this exact target through Figma Desktop MCP before context retrieval; Atlas candidates cannot replace it.",
+      { target: figmaTargetMissing[1] ?? "" },
+    );
+  }
+  const figmaFileReceiptMissing = source.match(
+    /^The confirmed Figma file (.+) has no exact current source receipt\. Synchronize that file through the confirmed adapter before context retrieval\.$/u,
+  );
+  if (figmaFileReceiptMissing) {
+    return translateAtlasUi(
+      locale,
+      "The confirmed Figma file {fileKey} has no exact current source receipt. Synchronize that file through the confirmed adapter before context retrieval.",
+      { fileKey: figmaFileReceiptMissing[1] ?? "" },
+    );
+  }
+  const openApiConflict = source.match(
+    /^Required OpenAPI contracts conflict for ([A-Z]+) (.+)\. Confirm the governing contract or version before context retrieval\.$/u,
+  );
+  if (openApiConflict) {
+    return translateAtlasUi(
+      locale,
+      "Required OpenAPI contracts conflict for {method} {path}. Confirm the governing contract or version before context retrieval.",
+      { method: openApiConflict[1] ?? "", path: openApiConflict[2] ?? "" },
+    );
+  }
+  const openApiUnavailable = source.match(
+    /^A required OpenAPI contract could not be resolved \((receipt-[a-f0-9]{16})\)\. (.+)$/u,
+  );
+  if (openApiUnavailable) {
+    const prefix = translateAtlasUi(
+      locale,
+      "A required OpenAPI contract could not be resolved ({receiptId}).",
+      { receiptId: openApiUnavailable[1] ?? "" },
+    );
+    return `${prefix} ${openApiUnavailable[2] ?? ""}`;
+  }
 
   // Validation can join several Atlas-owned sentences into one status message.
   // Translate only known catalog entries; arbitrary external/user text remains raw.
@@ -152,6 +210,7 @@ export function useAtlasI18n() {
   const t = (source: string, params?: TranslationParams) =>
     translateAtlasUi(locale.value, source, params);
   const statusLabel = (value: string) => {
+    if (value === "clear") return t("No blockers");
     if (locale.value === "es" && SPANISH_UI_MESSAGES[value]) {
       return t(value);
     }

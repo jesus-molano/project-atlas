@@ -14,6 +14,7 @@ intake:
       reference: Exact task-scoped URL or ID
       state: pending | confirmed | omitted | unavailable | replaced
       origin: explicit | inferred | manual
+      relationship: primary | search-candidate | linked-secondary
 mode: new | continue | correct | finish
 planning_checkpoint:
   phase: pre-investigation | post-evidence | not-required
@@ -36,6 +37,14 @@ project_context:
     - Relevant decision, convention, failed attempt, or none
   findings:
     - decision-required, warning, or resolved with evidence
+  handles:
+    - Opaque Atlas IDs only
+  source_receipt_ids:
+    - Immutable receipt IDs only; expand one on demand
+  retrieval:
+    hits: 0
+    misses: 0
+    retries: 0
 capabilities:
   repository: required | not-applicable
   atlas: recommended | optional | unavailable | not-applicable
@@ -75,6 +84,12 @@ unknowns:
     - Low-impact assumptions and repository convention used
 validation:
   - Commands and manual checks required
+resume_capsule:
+  task_id: Stable task ID
+  covered: [Bounded scope IDs]
+  remaining: [Bounded scope IDs]
+  worktree_head: Exact HEAD
+  next_safe_action: One action
 memory_delta:
   outcome: Observed or verified task result
   closeout_status: none | canonical-candidate | canonical-stored | local-only | declined

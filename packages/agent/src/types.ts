@@ -1,5 +1,76 @@
 import type { MemoryCloseout } from "./memory-closeout.js";
 
+export type AgentSourceReceiptProvider =
+  | "figma"
+  | "jira"
+  | "confluence"
+  | "openapi"
+  | "github"
+  | "other";
+
+export type AgentSourceReceiptAdapter =
+  | "figma-desktop-mcp-local"
+  | "figma-remote-connector"
+  | "atlassian-rovo"
+  | "openapi-local-file"
+  | "openapi-pasted"
+  | "openapi-public-http"
+  | "openapi-internal-connector"
+  | "github-connector"
+  | "atlas-cache"
+  | "manual-import"
+  | "other";
+
+export interface AgentSourceIdentity {
+  provider: AgentSourceReceiptProvider;
+  canonicalId: string;
+  url?: string;
+  host?: string;
+  fileKey?: string;
+  nodeId?: string;
+  issueKey?: string;
+  pageId?: string;
+  operationId?: string;
+  method?: string;
+  path?: string;
+  version?: string;
+}
+
+export interface AgentSourceReceipt {
+  schemaVersion: 1;
+  id: string;
+  sourceDecisionId: string;
+  provider: AgentSourceReceiptProvider;
+  requested: AgentSourceIdentity;
+  resolved: AgentSourceIdentity;
+  adapter: AgentSourceReceiptAdapter;
+  route: string;
+  operation: string;
+  scope: {
+    kind:
+      | "file"
+      | "page"
+      | "node"
+      | "selection"
+      | "issue"
+      | "document"
+      | "operation"
+      | "repository"
+      | "unknown";
+    id: string;
+    parentId?: string;
+  };
+  contentHash?: string;
+  observedAt: string;
+  fallback?: {
+    fromAdapter: AgentSourceReceiptAdapter;
+    condition: string;
+    identityPreserved: boolean;
+  };
+  coverage: "exact" | "partial" | "candidate";
+  freshness: "current" | "stale" | "unknown";
+}
+
 export type AgentAdapterState =
   | "detected"
   | "unavailable"
@@ -46,6 +117,8 @@ export interface AgentSourceDecision {
   state: "pending" | "confirmed" | "omitted" | "unavailable" | "replaced";
   required: boolean;
   replacementFor?: string;
+  parentSourceId?: string;
+  relationship?: "primary" | "search-candidate" | "linked-secondary";
   decidedAt?: string;
 }
 
@@ -64,6 +137,7 @@ export interface AgentContextMetrics {
 
 export interface AgentRunRequest {
   mode: AgentRunMode;
+  purpose?: "task" | "figma-sync";
   task: string;
   rootPath: string;
   compactContext: string;
@@ -81,6 +155,7 @@ export interface AgentCompactResult {
   status: "completed" | "needs-input";
   summary: string;
   brief: string[];
+  sourceReceipts: AgentSourceReceipt[];
   evidence: Array<{
     source:
       | "repository"
@@ -93,6 +168,8 @@ export interface AgentCompactResult {
       | "agent";
     label: string;
     handle?: string;
+    receiptId?: string;
+    classification?: "confirmed-source" | "atlas-candidate" | "local";
   }>;
   decisions: Array<{
     title: string;

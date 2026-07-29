@@ -49,7 +49,7 @@ and conversation are the baseline; never assume an external source exists.
    - Otherwise, resolve each detected external reference with the same choices
      when it can materially affect the task.
    In the Project Atlas GUI, use the source ledger already presented by the
-   Workbench only for decisions it actually records. For a new high-risk task,
+   Codex handoff sidecar only for decisions it actually records. For a new high-risk task,
    an empty or detected-links-only ledger does not satisfy the checkpoint: it
    must record an explicit decision for Jira, Confluence, Figma, and
    Swagger/OpenAPI. Ask one grouped question for any unresolved rows. Outside
@@ -133,13 +133,20 @@ When Project Atlas is available:
    `report_source_capabilities`; never probe credentials merely to populate
    status. Read `get_source_capabilities` when health affects the task.
 3. Reduce the brief to one precise implementation intent.
-4. Call `get_task_context` once with a small shared budget. It combines only the
-   most relevant Project Memory, Code Atlas, and cached Design Atlas signals.
+4. Create or reuse one stable `task_id` and call `get_task_context` once with
+   that ID, the approved objective flag, and the complete source-decision
+   ledger under a small shared budget. Keep the returned `taskId`; the runtime
+   gate must
+   clear before indexing, source resolution, or connector access. The result
+   contains only relevant summaries, handles, SourceReceipt IDs, and compact
+   retrieval telemetry; it never injects persistent indexes or receipt bodies.
 5. Follow the retrieval ladder only when needed: `orient_project`, then
    `search_project_memory`, then `get_memory_item` for a confirmed ID. Do not
    expand every result.
 6. If Project Memory is not available, call `get_reuse_context` once and use
    its compact candidates, scopes, APIs, consumers, tests, and impact.
+   Expand a handle or receipt ID only when the decision needs it. Never expand
+   all results or receipts by default.
 7. Before editing, call `check_before_change` with the intended files or area.
    Stop only for `decision-required`; report warnings with their evidence and
    recommendation.
@@ -177,12 +184,21 @@ alternative used.
 At the start of preparation, before investigating code, ingest every confirmed
 Figma source through that route: retrieve sparse metadata from Figma Desktop
 MCP and immediately call Project Atlas `map_figma_file` with the exact project
-root and confirmed reference. Do this for file, page, and direct-node links so
+root and confirmed reference. Include a `source_receipt` bound to the exact
+source-decision ID, adapter/route/operation, observed time, scope, freshness,
+coverage, and any identity-preserving fallback. Do this for file, page, and direct-node links so
 Design Atlas persists the available nodes and relationships while preparation
 is still running. Refresh the task/design snapshot after mapping. Never probe
 Figma Desktop MCP before the source is confirmed. If ingestion cannot run,
 surface `confirmed-unsynced` or the concrete access/sync error instead of
 presenting an unexplained empty Design Atlas.
+In the Project Atlas Workbench, use **Synchronize exact target** for one
+confirmed direct-node pin before requesting task context. That read-only
+bootstrap may call only Figma Desktop MCP local and `map_figma_file` for the
+immutable `fileKey+nodeId`; it must not compose task context, inspect the
+repository, query other connectors, or replace the target with an Atlas
+candidate. Show progress, failure guidance, and retry, then enable preparation
+only after an exact current receipt is visible.
 
 Before any full `get_design_context` retrieval, preinspect the confirmed scope
 with the available lightweight hierarchy mechanism: normally `get_metadata`
@@ -217,7 +233,11 @@ Use either route; neither depends on Ready for dev:
 
 - Direct: a user-confirmed node URL or active selection is authoritative enough
   to skip candidate ranking, but it must still be sparsely mapped for Design
-  Atlas persistence before deep inspection. If it is a large screen, treat it
+  Atlas persistence before deep inspection. Preserve its `fileKey+nodeId` as an
+  immutable pin. If that exact node is missing, resolves to another identity,
+  or has a stale receipt, block with a minimal explanation. Never replace it
+  with a ranked node; ranked results must remain labelled Atlas candidates.
+  If it is a large screen, treat it
   as orientation: inspect sparse children, select the smallest task-relevant
   subtree, then retrieve deep context, screenshot, and exact variables only for
   that subtree. Omit shell, navigation, repeated assets, and peripheral
@@ -243,6 +263,37 @@ asset URLs; retain file/node identity and resolve relevant assets on demand.
 Use global Variables collection/mode summaries only when read access exists.
 Otherwise retrieve `get_variable_defs` for the confirmed node. Code Connect,
 global Variables, and library data improve evidence but are optional.
+
+## Preserve source identity and resumability
+
+- A user-confirmed exact Jira issue, Confluence page, Figma node, or
+  OpenAPI/Swagger contract is authoritative. Search results are candidates, not
+  substitutes. A linked secondary source returns to `pending` until explicitly
+  promoted to a primary source and confirmed.
+- Every external evidence item must reference a SourceReceipt ID bound to its
+  confirmed source decision. Requested/resolved identity, adapter route,
+  operation, exact scope, observation/version/hash, fallback condition,
+  coverage, and freshness live in the receipt. Expand it with
+  `expand_source_receipt` only when evidence is inspected.
+- OpenAPI may come from a confirmed local file, pasted content, public URL, or
+  authenticated/internal connector. Keep per-contract and per-operation
+  receipt IDs. Do not auto-confirm task wording, silently merge incompatible
+  operations, or let one unreadable corporate contract discard other valid
+  confirmed contracts.
+- Long tasks call `checkpoint_task` with the same `task_id` only at semantic
+  milestones and before a risk boundary: approved objective, confirmed
+  decision, source resolution, completed batch, validated change/test, block,
+  and completion. Mark the final milestone `completed`. Do not checkpoint every
+  action or poll a context-percentage threshold.
+- After Codex context compaction or task resume, call `resume_task_capsule`.
+  Rehydrate only its strict bounded transport (TOON when a validated round trip
+  is smaller, otherwise JSON), then expand its handles/receipt IDs on demand.
+  Do not replay a transcript, repository/design index, or source document.
+- The task capsule contains only the approved objective, source decisions,
+  receipt/Atlas IDs, covered and remaining scope, worktree/HEAD, budget, and
+  next safe action. Closed capsules have a short TTL. If the capsule has
+  expired or a material decision is absent, ask the user again instead of
+  inferring it from chat fragments.
 
 ## Implement and verify
 

@@ -43,11 +43,17 @@ No manual scan, memory, context, or Figma command is required first.
    default, three maximum). Otherwise ask one brief chat question. Do not build
    a separate form.
 8. Reduce the brief to one implementation intent.
-9. Call `scan_repository` and one budgeted `get_task_context`. This composes the
-   most relevant memory, code, and cached-design signals under a shared cap.
+9. Call `scan_repository` and one budgeted `get_task_context` with one stable
+   `task_id`, the approved objective flag, and complete source-decision ledger.
+   Preserve the returned `taskId` across the native Codex task. The runtime gate runs
+   first. The response contains only the most relevant summaries, handles,
+   SourceReceipt IDs, and compact retrieval telemetry under a shared cap; no
+   index or receipt body is injected by default.
 10. At the start of preparation, ingest every confirmed Figma reference into
-   Design Atlas: retrieve sparse metadata and call `map_figma_file`, including
-   for a concrete node. A concrete node skips candidate ranking; a file/page
+   Design Atlas: retrieve sparse metadata and call `map_figma_file` with a
+   SourceReceipt bound to the exact decision and actual adapter route, including
+   for a concrete node. A concrete node preserves `fileKey+nodeId`, skips
+   candidate ranking, and blocks if missing/mismatched/stale; a file/page
    continues with `find_design_candidates`. Refresh the task/design snapshot so
    persisted nodes are visible before code work or task completion. Use the
    Figma Desktop MCP at `http://127.0.0.1:3845/mcp` first for every context
@@ -60,7 +66,11 @@ No manual scan, memory, context, or Figma command is required first.
    unauthorized, or lacks the operation, and briefly state the fallback
    reason. Never probe it before source confirmation, and surface loading,
    available, confirmed-unsynchronized, or access/sync-error state instead of
-   an unexplained empty design view.
+   an unexplained empty design view. In the Workbench, an exact unsynchronized
+   node is resolved through the dedicated **Synchronize exact target** action
+   before `get_task_context`: this source-only Codex run has zero generated
+   task context, reads no unrelated connector, exposes progress/error/retry,
+   and cannot substitute a ranked candidate.
 11. Treat Ready for dev as a ranking boost, never a filter or prerequisite.
    Treat `source-unavailable` as a connector limitation, not a missing state.
 12. Stop for `decision-required`, surface `warning` with its recommendation, and
@@ -96,8 +106,20 @@ section and the GUI only renders that same object. The GUI does not run a
 second candidate detector, state transition, or approval path.
 
 Focused Atlas queries remain compact. The retrieval ladder is orientation,
-search, then expansion of a confirmed ID. The orchestrator requests `raw` nodes
+search, then expansion of a confirmed ID. Receipts use the same rule through
+`expand_source_receipt`. The orchestrator requests `raw` nodes
 only when diagnosing incorrect extraction.
+
+Long-running tasks call `checkpoint_task` with that same ID only at semantic
+milestones or before a risk boundary, persisting a bounded journal plus a
+strict 4 KB materialized resume capsule. Completion is an explicit terminal
+checkpoint. After Codex context compaction, call `resume_task_capsule`; load
+only the approved objective, decisions,
+receipt/Atlas IDs, covered/remaining scope, worktree/HEAD, budget, and next safe
+action. TOON is used only when a strict round trip validates and is smaller;
+JSON remains the canonical readable fallback. No transcript or index is
+replayed. Closed capsules expire after 24 hours and leave a minimal final
+receipt.
 
 Invoking the skill authorizes this task-scoped orchestration. It does not
 authorize plugin installation, connector login, access to an unconnected

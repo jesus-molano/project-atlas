@@ -11,6 +11,10 @@ import {
   MEMORY_CLOSEOUT_PROMPT_RULES,
   parseMemoryCloseout,
 } from "./memory-closeout.js";
+import {
+  assertAgentSourceReceiptMatchesDecision,
+  parseAgentSourceReceipt,
+} from "./source-receipts.js";
 import type {
   AgentAdapter,
   AgentAdapterStatus,
@@ -28,6 +32,136 @@ const MAX_EVENT_TEXT_CHARS = 2_000;
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
 const MIN_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 60 * 60_000;
+
+const sourceIdentitySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    provider: {
+      type: "string",
+      enum: ["figma", "jira", "confluence", "openapi", "github", "other"],
+    },
+    canonicalId: { type: "string", maxLength: 1_000 },
+    url: { type: ["string", "null"], maxLength: 1_000 },
+    host: { type: ["string", "null"], maxLength: 300 },
+    fileKey: { type: ["string", "null"], maxLength: 300 },
+    nodeId: { type: ["string", "null"], maxLength: 300 },
+    issueKey: { type: ["string", "null"], maxLength: 100 },
+    pageId: { type: ["string", "null"], maxLength: 300 },
+    operationId: { type: ["string", "null"], maxLength: 300 },
+    method: { type: ["string", "null"], maxLength: 20 },
+    path: { type: ["string", "null"], maxLength: 500 },
+    version: { type: ["string", "null"], maxLength: 200 },
+  },
+  required: [
+    "provider",
+    "canonicalId",
+    "url",
+    "host",
+    "fileKey",
+    "nodeId",
+    "issueKey",
+    "pageId",
+    "operationId",
+    "method",
+    "path",
+    "version",
+  ],
+} as const;
+
+const sourceReceiptSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    schemaVersion: { type: "number", const: 1 },
+    id: { type: "string", pattern: "^receipt-[a-f0-9]{16}$" },
+    sourceDecisionId: { type: "string", maxLength: 160 },
+    provider: {
+      type: "string",
+      enum: ["figma", "jira", "confluence", "openapi", "github", "other"],
+    },
+    requested: sourceIdentitySchema,
+    resolved: sourceIdentitySchema,
+    adapter: {
+      type: "string",
+      enum: [
+        "figma-desktop-mcp-local",
+        "figma-remote-connector",
+        "atlassian-rovo",
+        "openapi-local-file",
+        "openapi-pasted",
+        "openapi-public-http",
+        "openapi-internal-connector",
+        "github-connector",
+        "atlas-cache",
+        "manual-import",
+        "other",
+      ],
+    },
+    route: { type: "string", maxLength: 500 },
+    operation: { type: "string", maxLength: 160 },
+    scope: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: {
+          type: "string",
+          enum: [
+            "file",
+            "page",
+            "node",
+            "selection",
+            "issue",
+            "document",
+            "operation",
+            "repository",
+            "unknown",
+          ],
+        },
+        id: { type: "string", maxLength: 500 },
+        parentId: { type: ["string", "null"], maxLength: 500 },
+      },
+      required: ["kind", "id", "parentId"],
+    },
+    contentHash: { type: ["string", "null"], maxLength: 200 },
+    observedAt: { type: "string", maxLength: 100 },
+    fallback: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      properties: {
+        fromAdapter: { type: "string", maxLength: 100 },
+        condition: { type: "string", maxLength: 1_000 },
+        identityPreserved: { type: "boolean" },
+      },
+      required: ["fromAdapter", "condition", "identityPreserved"],
+    },
+    coverage: {
+      type: "string",
+      enum: ["exact", "partial", "candidate"],
+    },
+    freshness: {
+      type: "string",
+      enum: ["current", "stale", "unknown"],
+    },
+  },
+  required: [
+    "schemaVersion",
+    "id",
+    "sourceDecisionId",
+    "provider",
+    "requested",
+    "resolved",
+    "adapter",
+    "route",
+    "operation",
+    "scope",
+    "contentHash",
+    "observedAt",
+    "fallback",
+    "coverage",
+    "freshness",
+  ],
+} as const;
 
 interface CodexThread {
   runStreamed(
@@ -52,6 +186,11 @@ const resultSchema = {
       maxItems: 12,
       items: { type: "string", maxLength: 600 },
     },
+    sourceReceipts: {
+      type: "array",
+      maxItems: 20,
+      items: sourceReceiptSchema,
+    },
     evidence: {
       type: "array",
       maxItems: 20,
@@ -73,9 +212,28 @@ const resultSchema = {
             ],
           },
           label: { type: "string", maxLength: 500 },
-          handle: { type: "string", maxLength: 500 },
+          handle: { type: ["string", "null"], maxLength: 500 },
+          receiptId: {
+            type: ["string", "null"],
+            pattern: "^receipt-[a-f0-9]{16}$",
+          },
+          classification: {
+            type: ["string", "null"],
+            enum: [
+              "confirmed-source",
+              "atlas-candidate",
+              "local",
+              null,
+            ],
+          },
         },
-        required: ["source", "label"],
+        required: [
+          "source",
+          "label",
+          "handle",
+          "receiptId",
+          "classification",
+        ],
       },
     },
     decisions: {
@@ -87,9 +245,12 @@ const resultSchema = {
         properties: {
           title: { type: "string", maxLength: 600 },
           status: { type: "string", enum: ["confirmed", "pending"] },
-          recommendation: { type: "string", maxLength: 1_000 },
+          recommendation: {
+            type: ["string", "null"],
+            maxLength: 1_000,
+          },
         },
-        required: ["title", "status"],
+        required: ["title", "status", "recommendation"],
       },
     },
     risks: {
@@ -111,7 +272,7 @@ const resultSchema = {
     },
     memoryCloseout: MEMORY_CLOSEOUT_JSON_SCHEMA,
     outcome: {
-      type: "object",
+      type: ["object", "null"],
       additionalProperties: false,
       properties: {
         status: {
@@ -128,7 +289,7 @@ const resultSchema = {
       required: ["status", "summary", "verification"],
     },
     question: {
-      type: "object",
+      type: ["object", "null"],
       additionalProperties: false,
       properties: {
         prompt: { type: "string", maxLength: 1_000 },
@@ -146,10 +307,13 @@ const resultSchema = {
     "status",
     "summary",
     "brief",
+    "sourceReceipts",
     "evidence",
     "decisions",
     "risks",
     "memoryCloseout",
+    "outcome",
+    "question",
   ],
 } as const;
 
@@ -236,6 +400,7 @@ function assertRequest(request: AgentRunRequest): void {
 }
 
 function buildPrompt(request: AgentRunRequest): string {
+  const figmaSourceSync = request.purpose === "figma-sync";
   const verb =
     request.mode === "continue"
       ? "Continue"
@@ -255,8 +420,8 @@ function buildPrompt(request: AgentRunRequest): string {
       ? request.sourceDecisions
           .map((source) =>
             source.state === "confirmed"
-              ? `- ${source.kind}: confirmed`
-              : `- ${source.kind}: ${source.state}; do not access`,
+              ? `- ${source.kind}: confirmed primary; decision=${source.id}; exact=${source.reference}`
+              : `- ${source.kind}: ${source.state}; decision=${source.id}; do not access`,
           )
           .join("\n")
       : "- Empty: no source connector is authorized for this task.";
@@ -272,6 +437,7 @@ function buildPrompt(request: AgentRunRequest): string {
           ...confirmedFigmaSources,
           "- Connect to and use Figma Desktop MCP, the local MCP server exposed by the Figma desktop application, when it is available and authorized.",
           "- For each confirmed reference, read sparse metadata with the appropriate Figma Desktop MCP operation (`get_metadata` for the supported file, page, or node scope), then immediately call Project Atlas `map_figma_file` with the exact project root, confirmed reference, and returned metadata.",
+          "- Include `source_receipt` in `map_figma_file`: the matching source decision ID, adapter `figma-desktop-mcp-local`, actual MCP route/operation, observation time, and fallback only if exact identity was preserved.",
           "- `map_figma_file` is required even for a direct node reference: it persists the sparse nodes and relationships in Design Atlas before code components are created or the task finishes.",
           "- Audit Variables separately with Project Atlas `sync_figma_variables`. Use `global` only if the active Figma Desktop MCP explicitly exposes and successfully returns a file-global Variables operation; do not infer global coverage from node context, selection, or `get_variable_defs`.",
           "- The documented Desktop `get_variable_defs` operation is node/selection scoped and is not equivalent to the global catalog. Record `selection-only` only when that fallback is actually exposed; record `permission-required` for an authorization/plan denial and `unavailable` when no confirmed Variables read is exposed. None of those states means the file contains no variables.",
@@ -285,6 +451,34 @@ function buildPrompt(request: AgentRunRequest): string {
   const answer = request.answer
     ? `\nMaterial answer supplied by the user:\n${request.answer}\n`
     : "";
+  if (figmaSourceSync) {
+    return [
+      "$frontend-task Synchronize the exact confirmed Figma target for Project Atlas.",
+      "",
+      "Task intent:",
+      request.task,
+      "",
+      "Task-scoped source ledger:",
+      sourceLedger,
+      "",
+      "Exact Figma target:",
+      ...confirmedFigmaSources,
+      "",
+      "Source-gate rules:",
+      `- Work only in ${request.rootPath}.`,
+      "- This is a source bootstrap, not task preparation or implementation. Do not inspect the repository, compose Atlas task context, edit files, or explore unrelated connectors.",
+      "- Resolve only the single exact confirmed Figma fileKey+nodeId above through Figma Desktop MCP local.",
+      "- Never replace the confirmed target with an Atlas candidate, search result, current selection, nearby node, or similarly named frame.",
+      "- If requested and resolved identity differ, freshness cannot be established, or Figma Desktop MCP local is unavailable, stop and return a minimal needs-input result with the discrepancy and retry guidance.",
+      "- Read sparse metadata for that identity, then call Project Atlas `map_figma_file` only with the exact confirmed reference and returned metadata.",
+      "- Return a SourceReceipt bound to the confirmed source decision. Keep evidence compact and reference the receipt by ID.",
+      "- The successful next step is to return to Atlas and prepare bounded context; do not perform that step in this run.",
+      ...MEMORY_CLOSEOUT_PROMPT_RULES,
+      "- Return the requested compact structured result.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   return [
     `$frontend-task ${verb} this frontend task.`,
     "",
@@ -308,6 +502,10 @@ function buildPrompt(request: AgentRunRequest): string {
     `- Checkout sandbox: ${request.sandbox}. This does not authorize any Project Memory write; only the exact shared memoryCloseout confirmation can do that.`,
     "- Preserve existing user changes and inspect the current diff before editing.",
     "- Use a connector only for an explicitly confirmed source above. Relevance alone is not authorization.",
+    "- An exact Jira issue, Confluence page, Figma node, or OpenAPI contract confirmed by the user is authoritative. Search results are Atlas candidates, never silent substitutes.",
+    "- Linked or discovered secondary sources return to pending intake and cannot provide authoritative evidence until explicitly promoted and confirmed.",
+    "- For every external evidence item, return a SourceReceipt bound to its confirmed source decision and reference that receipt by ID. If requested/resolved identity or version differs, stop with a minimal discrepancy instead of falling back silently.",
+    "- Keep receipts out of narrative briefs: use receipt IDs and expand a receipt only when evidence is requested.",
     "- Use only the bounded `api` context extracted from confirmed OpenAPI/Swagger sources; do not inject or reproduce a full specification.",
     "- Do not follow, infer, or add transitive source references without a new user confirmation.",
     "- Omitted, unavailable, replaced, and unlisted sources are optional and must not block progress.",
@@ -330,8 +528,21 @@ function isStringArray(value: unknown): value is string[] {
   );
 }
 
-function parseCompactResult(value: string): AgentCompactResult {
-  const parsed = JSON.parse(value) as unknown;
+function omitNullObjectFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(omitNullObjectFields);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== null)
+      .map(([key, item]) => [key, omitNullObjectFields(item)]),
+  );
+}
+
+function parseCompactResult(
+  value: string,
+  request: AgentRunRequest,
+): AgentCompactResult {
+  const parsed = omitNullObjectFields(JSON.parse(value));
   if (!parsed || typeof parsed !== "object") {
     throw new Error("Codex returned a non-object result.");
   }
@@ -340,9 +551,12 @@ function parseCompactResult(value: string): AgentCompactResult {
     !["completed", "needs-input"].includes(String(result.status)) ||
     typeof result.summary !== "string" ||
     !isStringArray(result.brief) ||
+    !Array.isArray(result.sourceReceipts) ||
     !Array.isArray(result.evidence) ||
     !Array.isArray(result.decisions) ||
-    !Array.isArray(result.risks)
+    !Array.isArray(result.risks) ||
+    (result.status === "completed" && !result.outcome) ||
+    (result.status === "needs-input" && !result.question)
   ) {
     throw new Error("Codex returned an invalid compact result.");
   }
@@ -352,9 +566,41 @@ function parseCompactResult(value: string): AgentCompactResult {
   } catch {
     throw new Error("Codex returned an invalid compact result.");
   }
+  const sourceReceipts = result.sourceReceipts.map((value) =>
+    parseAgentSourceReceipt(value),
+  );
+  for (const receipt of sourceReceipts) {
+    const decision = request.sourceDecisions.find(
+      (candidate) => candidate.id === receipt.sourceDecisionId,
+    );
+    if (!decision) {
+      throw new Error(
+        "Codex returned a receipt without a matching source decision.",
+      );
+    }
+    assertAgentSourceReceiptMatchesDecision(decision, receipt);
+  }
+  const receiptsById = new Map(
+    sourceReceipts.map((receipt) => [receipt.id, receipt]),
+  );
+  for (const evidence of result.evidence as Array<Record<string, unknown>>) {
+    const source = String(evidence.source);
+    if (!["figma", "jira", "confluence", "github", "openapi"].includes(source)) {
+      continue;
+    }
+    const receiptId =
+      typeof evidence.receiptId === "string" ? evidence.receiptId : undefined;
+    const receipt = receiptId ? receiptsById.get(receiptId) : undefined;
+    if (!receipt || receipt.provider !== source) {
+      throw new Error(
+        "Codex external evidence is missing a matching SourceReceipt.",
+      );
+    }
+  }
   return {
     ...(parsed as AgentCompactResult),
     memoryCloseout,
+    sourceReceipts,
   };
 }
 
@@ -430,7 +676,7 @@ function classifyError(
       ? "timeout"
       : /not found|enoent|cannot find/.test(lower)
         ? "unavailable"
-        : /json|schema|structured|invalid compact/.test(lower)
+        : /json|schema|structured|invalid compact|sourcereceipt/.test(lower)
           ? "invalid-output"
           : "runtime";
   return {
@@ -584,7 +830,7 @@ export class CodexAgentAdapter implements AgentAdapter {
         if (event.type === "error") throw new Error(event.message);
       }
       if (!threadId) throw new Error("Codex did not return a thread ID.");
-      const result = parseCompactResult(finalResponse);
+      const result = parseCompactResult(finalResponse, request);
       if (result.status === "needs-input" && result.question) {
         queue.push({
           type: "question",

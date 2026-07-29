@@ -441,6 +441,8 @@ export function rankDesignCandidates(
     );
     return {
       rank: indexPosition + 1,
+      origin: "atlas-candidate" as const,
+      sourceReceiptIds: item.node.sourceReceiptIds,
       confidence: confidence(item.score),
       score: item.score,
       node: {
@@ -476,6 +478,128 @@ export function rankDesignCandidates(
   ];
   return {
     candidates,
+    findings,
+    gate: decisionGate(findings),
+  };
+}
+
+export function resolveExplicitDesignTarget(
+  index: DesignFileIndex,
+  nodeId: string,
+): DesignCandidateResult {
+  const normalizedNodeId = nodeId.includes(":")
+    ? nodeId
+    : nodeId.replace("-", ":");
+  const node = index.nodes.find((candidate) => candidate.id === normalizedNodeId);
+  if (!node) {
+    const findings: DesignFinding[] = [
+      {
+        id: `explicit-target-missing:${index.file.key}:${normalizedNodeId}`,
+        level: "decision-required",
+        code: "explicit-target-missing",
+        title: "The confirmed Figma node is not present in the Design Index",
+        evidence: [
+          `Confirmed target: ${index.file.key}::${normalizedNodeId}.`,
+          `Indexed file contains ${index.nodes.length} sparse nodes.`,
+        ],
+        recommendation:
+          "Synchronize this exact node through Figma Desktop MCP. Do not substitute an Atlas-ranked node.",
+        question:
+          "Can the exact confirmed Figma node be synchronized or replaced explicitly?",
+        nodeIds: [normalizedNodeId],
+      },
+    ];
+    return { candidates: [], findings, gate: decisionGate(findings) };
+  }
+  const exactReceipts = index.sources
+    .map((source) => source.receipt)
+    .filter(
+      (receipt) =>
+        receipt.provider === "figma" &&
+        receipt.scope.kind === "node" &&
+        receipt.scope.id === normalizedNodeId &&
+        receipt.resolved.fileKey === index.file.key &&
+        receipt.resolved.nodeId === normalizedNodeId &&
+        receipt.coverage === "exact",
+    );
+  if (exactReceipts.length === 0) {
+    const findings: DesignFinding[] = [
+      {
+        id: `explicit-target-mismatch:${index.file.key}:${normalizedNodeId}`,
+        level: "decision-required",
+        code: "explicit-target-mismatch",
+        title: "The cached design does not prove the confirmed node identity",
+        evidence: [
+          `Confirmed target: ${index.file.key}::${normalizedNodeId}.`,
+          "The node exists in a broader or differently sourced cache, but has no exact source receipt.",
+        ],
+        recommendation:
+          "Read and map this exact node before using it. Atlas candidates remain alternatives, not the confirmed target.",
+        question:
+          "Can the exact confirmed node be read now, or should the target be replaced explicitly?",
+        nodeIds: [normalizedNodeId],
+      },
+    ];
+    return { candidates: [], findings, gate: decisionGate(findings) };
+  }
+  const currentReceipts = exactReceipts.filter(
+    (receipt) => receipt.freshness === "current",
+  );
+  if (currentReceipts.length === 0) {
+    const findings: DesignFinding[] = [
+      {
+        id: `explicit-target-stale:${index.file.key}:${normalizedNodeId}`,
+        level: "decision-required",
+        code: "explicit-target-stale",
+        title: "The confirmed Figma node is backed only by stale or unknown evidence",
+        evidence: exactReceipts.slice(0, 3).map(
+          (receipt) =>
+            `${receipt.id}: ${receipt.freshness}, observed ${receipt.observedAt}.`,
+        ),
+        recommendation:
+          "Refresh the exact node through the confirmed source before implementation.",
+        question: "Refresh the confirmed Figma node before continuing?",
+        nodeIds: [normalizedNodeId],
+      },
+    ];
+    return { candidates: [], findings, gate: decisionGate(findings) };
+  }
+  const page = index.pages.find((candidate) => candidate.id === node.pageId);
+  const candidate: DesignCandidate = {
+    rank: 1,
+    origin: "user-confirmed-target",
+    sourceReceiptIds: currentReceipts.map((receipt) => receipt.id),
+    confidence: "high",
+    score: Number.MAX_SAFE_INTEGER,
+    node: {
+      id: node.id,
+      name: node.name,
+      type: node.type,
+      url: node.url,
+      page: node.pageName,
+      path: node.path.join(" / "),
+      status: node.devStatus,
+      statusAvailability: node.devStatusAvailability,
+      statusProvenance: node.devStatusProvenance,
+      pageStatus: page?.devStatus ?? "none",
+      pageStatusAvailability:
+        page?.devStatusAvailability ?? "source-unavailable",
+      pageStatusProvenance:
+        page?.devStatusProvenance ?? "source-unavailable",
+    },
+    reasons: [
+      "Exact user-confirmed Figma node",
+      "Identity verified by an exact current source receipt",
+    ],
+    matchedTaskTerms: [],
+    relatedVariants: relatedVariants(index, node),
+  };
+  const findings = designIndexFindings(index).filter(
+    (finding) =>
+      !finding.nodeIds || finding.nodeIds.some((id) => id === node.id),
+  );
+  return {
+    candidates: [candidate],
     findings,
     gate: decisionGate(findings),
   };
@@ -596,6 +720,7 @@ export function designIndexSummary(
     file: index.file,
     indexedAt: index.indexedAt,
     sources: index.sources.length,
+    sourceReceipts: index.sources.map((source) => source.receipt),
     stats: index.stats,
     devStatus: index.devStatus,
     variables: {
@@ -844,6 +969,9 @@ export function inspectDesignNode(
   return {
     file: index.file,
     node,
+    sourceReceipts: index.sources
+      .map((source) => source.receipt)
+      .filter((receipt) => node.sourceReceiptIds.includes(receipt.id)),
     breadcrumbs,
     children: node.childIds
       .map((childId) => byId.get(childId))

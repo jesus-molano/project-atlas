@@ -13,6 +13,8 @@ import {
   assessTaskRisk,
   confirmedTaskSources,
   detectTaskSources,
+  ensureTaskSourceDecisions,
+  isMissingTaskSourceReference,
   taskSourceId,
   type TaskIntakeState,
   type TaskSourceDecision,
@@ -39,6 +41,8 @@ interface ContextFinding {
 }
 
 interface CompactContext {
+  taskId?: string;
+  checkpoint?: ResumeCheckpoint;
   task: string;
   project?: { name: string; framework: string; scannedAt: string };
   memory?: Array<Record<string, unknown>>;
@@ -50,7 +54,7 @@ interface CompactContext {
     candidates?: Array<Record<string, unknown>>;
   };
   api?: {
-    available: true;
+    available: boolean;
     format: "openapi" | "swagger" | "mixed";
     contracts: number;
     operations: Array<{ method: string; path: string }>;
@@ -71,7 +75,29 @@ interface CompactContext {
     truncated: boolean;
     totalMatches: number;
     expandableIds: string[];
+    retrieval?: {
+      indexedBytesInjected: 0;
+      hits: number;
+      misses: number;
+      retries: number;
+      connectorsQueried: string[];
+      receiptsExpanded: number;
+    };
   };
+  sourceReceiptIds?: string[];
+}
+
+interface ResumeCheckpoint {
+  taskId: string;
+  status: "active" | "blocked" | "completed";
+  updatedAt: string;
+  objective: { text: string; approved: boolean };
+  sourceReceiptIds: string[];
+  handles: string[];
+  scope: { covered: string[]; remaining: string[] };
+  workspace: { rootPath: string; head: string };
+  budget: { contextChars: number; estimatedTokens: number };
+  nextSafeAction: string;
 }
 
 type RunState =
@@ -86,6 +112,7 @@ interface RunResponse {
   id: string;
   state: RunState;
   mode: AgentRunMode;
+  purpose?: "task" | "figma-sync";
   sandbox: AgentSandbox;
   startingFingerprint: string;
   currentFingerprint: string;
@@ -93,6 +120,7 @@ interface RunResponse {
   threadId?: string;
   events: Array<{ cursor: number; event: AgentRunEvent }>;
   nextCursor: number;
+  checkpoint?: ResumeCheckpoint;
 }
 
 interface RunSummary {
@@ -109,6 +137,7 @@ interface RunSummary {
   updatedAt: string;
   threadId?: string;
   resumable: boolean;
+  checkpoint?: ResumeCheckpoint;
 }
 
 type FigmaSyncStatus =
@@ -157,8 +186,10 @@ const advancedOpen = ref(false);
 const contextOptionsOpen = ref(false);
 const sourceKind = ref<TaskSourceKind>("figma");
 const sourceValue = ref("");
+const sourceRequired = ref(false);
 const replacementFor = ref("");
 const sourceDecisions = ref<TaskSourceDecision[]>([]);
+const taskId = ref("");
 const context = ref<CompactContext>();
 const contextPending = ref(false);
 const contextError = ref("");
@@ -217,7 +248,7 @@ const selectedRun = computed(() =>
   resumableRuns.value.find((run) => run.id === selectedRunId.value),
 );
 const taskModes = computed(() => [
-  { id: "prepare" as const, label: t("New task"), disabled: false },
+  { id: "prepare" as const, label: t("Prepare"), disabled: false },
   {
     id: "continue" as const,
     label: t("Continue"),
@@ -265,6 +296,7 @@ const canGenerateContext = computed(
   () =>
     intakeAssessment.value.status === "ready" &&
     Boolean(agentToken.value) &&
+    pendingFigmaSources.value.length === 0 &&
     (mode.value === "prepare" || Boolean(selectedRun.value)),
 );
 const reviewFingerprint = computed(
@@ -278,13 +310,38 @@ const confirmedFigmaSources = computed(() =>
     (source) => source.kind === "figma" && source.state === "confirmed",
   ),
 );
-const indexedFigmaKeys = computed(
-  () => new Set(props.designIndexes.map((index) => index.file.key)),
-);
 const pendingFigmaSources = computed(() =>
   confirmedFigmaSources.value.filter((source) => {
-    const key = figmaFileKey(source.reference);
-    return !key || !indexedFigmaKeys.value.has(key);
+    try {
+      const target = parseFigmaReference(source.reference.replace(/^figma:/, ""));
+      const index = props.designIndexes.find(
+        (candidate) => candidate.file.key === target.fileKey,
+      );
+      if (!index) return true;
+      if (!target.nodeId) {
+        return !index.sources.some(
+          (snapshot) =>
+            snapshot.receipt.requested.fileKey === target.fileKey &&
+            snapshot.receipt.resolved.fileKey === target.fileKey &&
+            snapshot.receipt.freshness === "current",
+        );
+      }
+      const node = index.nodes.find((candidate) => candidate.id === target.nodeId);
+      if (!node) return true;
+      return !index.sources.some(
+        (snapshot) =>
+          node.sourceReceiptIds.includes(snapshot.receipt.id) &&
+          snapshot.receipt.requested.fileKey === target.fileKey &&
+          snapshot.receipt.requested.nodeId === target.nodeId &&
+          snapshot.receipt.resolved.fileKey === target.fileKey &&
+          snapshot.receipt.resolved.nodeId === target.nodeId &&
+          snapshot.receipt.scope.kind === "node" &&
+          snapshot.receipt.scope.id === target.nodeId &&
+          snapshot.receipt.freshness === "current",
+      );
+    } catch {
+      return true;
+    }
   }),
 );
 const figmaSyncState = computed<FigmaSyncState>(() => {
@@ -304,17 +361,21 @@ const figmaSyncState = computed<FigmaSyncState>(() => {
       message: "Synchronizing the confirmed source through Figma Desktop MCP.",
     };
   }
-  if (attemptedRun && ["failed", "cancelled"].includes(attemptedRun.state)) {
+  if (
+    attemptedRun &&
+    ["failed", "cancelled", "awaiting-input"].includes(attemptedRun.state)
+  ) {
     return {
       status: "error",
       message:
-        "Figma source could not be synchronized. Check Figma Desktop MCP access and the agent result.",
+        "Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target.",
     };
   }
   if (!pendingFigmaSources.value.length) {
     return {
       status: "available",
-      message: "Design Atlas available from the confirmed Figma source.",
+      message:
+        "Design Atlas has the exact confirmed target. Prepare task is now available.",
     };
   }
   if (
@@ -324,13 +385,13 @@ const figmaSyncState = computed<FigmaSyncState>(() => {
     return {
       status: "error",
       message:
-        "Figma source could not be synchronized. Check Figma Desktop MCP access and the agent result.",
+        "Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target.",
     };
   }
   return {
     status: "confirmed-unsynced",
     message:
-      "Figma source confirmed, not synchronized. Start Codex preparation to ingest it.",
+      "Figma source confirmed, not synchronized. Synchronize the exact target before preparing context.",
   };
 });
 const figmaSyncLabel = computed(() => {
@@ -341,20 +402,68 @@ const figmaSyncLabel = computed(() => {
   }
   return t("Figma · confirmed, not synchronized");
 });
+const confirmedFigmaTarget = computed(() => {
+  if (confirmedFigmaSources.value.length !== 1) return undefined;
+  try {
+    return parseFigmaReference(
+      confirmedFigmaSources.value[0]!.reference.replace(/^figma:/, ""),
+    );
+  } catch {
+    return undefined;
+  }
+});
+const figmaSyncTargetLabel = computed(() => {
+  const target = confirmedFigmaTarget.value;
+  if (!target) return confirmedFigmaSources.value[0]?.reference ?? "";
+  return target.nodeId ? `${target.fileKey} · ${target.nodeId}` : target.fileKey;
+});
+const figmaSyncProgress = computed(() => {
+  const latest = [...runEvents.value].reverse().find(
+    (item) =>
+      item.event.type === "activity" ||
+      item.event.type === "run-started" ||
+      item.event.type === "question" ||
+      item.event.type === "completed" ||
+      item.event.type === "failed" ||
+      item.event.type === "cancelled",
+  );
+  if (!latest) return "";
+  if (latest.event.type === "question") return latest.event.prompt;
+  if (latest.event.type === "completed") return latest.event.result.summary;
+  return eventLabel(latest.event);
+});
+const canStartFigmaSync = computed(
+  () =>
+    ["confirmed-unsynced", "error"].includes(figmaSyncState.value.status) &&
+    confirmedFigmaSources.value.length === 1 &&
+    Boolean(confirmedFigmaTarget.value?.nodeId) &&
+    intakeAssessment.value.status === "ready" &&
+    agentStatus.value?.state === "detected" &&
+    !["queued", "running"].includes(activeRun.value?.state ?? ""),
+);
+const figmaSyncBlockReason = computed(() => {
+  if (confirmedFigmaSources.value.length !== 1) {
+    return t("Confirm exactly one authoritative Figma target.");
+  }
+  if (!confirmedFigmaTarget.value?.nodeId) {
+    return t("The confirmed Figma target must include an exact file and node ID.");
+  }
+  if (intakeAssessment.value.status !== "ready") {
+    return intakeAssessment.value.reasons[0]
+      ? runtimeMessage(intakeAssessment.value.reasons[0])
+      : t("Confirm the task objective and resolve every source decision first.");
+  }
+  if (agentStatus.value?.state !== "detected") {
+    return t("The local Codex integration must be available to run Figma Desktop MCP.");
+  }
+  return "";
+});
 const taskSessionKey = computed(
   () =>
     `atlas-task:${props.identity?.logicalId ?? props.projectName}:${
       props.identity?.checkoutId ?? props.projectRoot
     }`,
 );
-
-function figmaFileKey(reference: string): string | undefined {
-  try {
-    return parseFigmaReference(reference.replace(/^figma:/, "")).fileKey;
-  } catch {
-    return undefined;
-  }
-}
 
 const capabilitySummary = computed(() =>
   props.capabilities.observations.filter(
@@ -381,6 +490,12 @@ const latestResult = computed(() => {
     ? completed.event.result
     : undefined;
 });
+const activeCheckpoint = computed(
+  () =>
+    activeRun.value?.checkpoint ??
+    selectedRun.value?.checkpoint ??
+    context.value?.checkpoint,
+);
 
 const materialQuestion = computed(() => {
   const question = [...runEvents.value]
@@ -409,7 +524,8 @@ function addSource(): void {
     reference: value,
     origin: "manual",
     state: "confirmed",
-    required: false,
+    required: sourceRequired.value,
+    relationship: "primary",
     ...(replacementFor.value ? { replacementFor: replacementFor.value } : {}),
     decidedAt: new Date().toISOString(),
   };
@@ -421,11 +537,19 @@ function addSource(): void {
     );
   }
   sourceDecisions.value = [
-    ...sourceDecisions.value.filter((item) => item.id !== id),
+    ...sourceDecisions.value.filter(
+      (item) =>
+        item.id !== id &&
+        !(
+          item.kind === source.kind &&
+          isMissingTaskSourceReference(item.reference)
+        ),
+    ),
     source,
   ];
   replacementFor.value = "";
   sourceValue.value = "";
+  sourceRequired.value = false;
 }
 
 function decideSource(
@@ -435,6 +559,14 @@ function decideSource(
     "confirmed" | "omitted" | "unavailable"
   >,
 ): void {
+  const current = sourceDecisions.value.find((source) => source.id === id);
+  if (
+    state === "confirmed" &&
+    current &&
+    isMissingTaskSourceReference(current.reference)
+  ) {
+    return;
+  }
   sourceDecisions.value = sourceDecisions.value.map((source) =>
     source.id === id
       ? { ...source, state, decidedAt: new Date().toISOString() }
@@ -459,10 +591,20 @@ function syncDetectedSources(): void {
   const detected = detectTaskSources(task.value);
   for (const handle of props.pinnedHandles ?? []) {
     if (!handle.startsWith("design:")) continue;
-    const fileKey = handle.slice("design:".length).split("::")[0];
+    const [fileKey, nodeId] = handle.slice("design:".length).split("::");
+    if (!fileKey) continue;
     const index = props.designIndexes.find((item) => item.file.key === fileKey);
     if (!index) continue;
-    const reference = index.file.url;
+    let reference = index.file.url;
+    try {
+      const url = new URL(index.file.url);
+      if (nodeId) url.searchParams.set("node-id", nodeId.replace(":", "-"));
+      reference = url.toString();
+    } catch {
+      if (nodeId) {
+        reference = `https://www.figma.com/design/${encodeURIComponent(fileKey)}/Atlas?node-id=${encodeURIComponent(nodeId.replace(":", "-"))}`;
+      }
+    }
     const id = taskSourceId("figma", reference);
     if (!detected.some((source) => source.id === id)) {
       detected.push({
@@ -472,6 +614,7 @@ function syncDetectedSources(): void {
         origin: "inferred",
         state: "pending",
         required: false,
+        relationship: "primary",
       });
     }
   }
@@ -487,7 +630,7 @@ function syncDetectedSources(): void {
       retained.push(source);
     }
   }
-  sourceDecisions.value = retained;
+  sourceDecisions.value = ensureTaskSourceDecisions(task.value, retained);
 }
 
 function selectMode(nextMode: AgentRunMode): void {
@@ -529,6 +672,7 @@ async function generateContext(): Promise<void> {
       method: "POST",
       headers: { "x-atlas-session": agentToken.value },
       body: {
+        ...(taskId.value ? { taskId: taskId.value } : {}),
         task: task.value,
         objectiveConfirmed: objectiveConfirmed.value,
         sourceDecisions: sourceDecisions.value,
@@ -538,6 +682,7 @@ async function generateContext(): Promise<void> {
         ...(figmaFile.value ? { figmaFile: figmaFile.value } : {}),
       },
     });
+    taskId.value = context.value.taskId ?? taskId.value;
     preparationMs.value = Math.max(0, Date.now() - (preparedAt.value ?? Date.now()));
   } catch (caught) {
     contextError.value = atlasErrorSource(caught, "Local context failed.");
@@ -561,6 +706,37 @@ async function loadAgentSurface(): Promise<void> {
     runError.value = atlasErrorSource(
       caught,
       "Codex integration status is unavailable.",
+    );
+  }
+}
+
+async function startFigmaSync(): Promise<void> {
+  if (figmaSyncState.value.status === "loading") return;
+  if (!agentToken.value) await loadAgentSurface();
+  if (!agentToken.value || !canStartFigmaSync.value) return;
+  runError.value = "";
+  contextError.value = "";
+  runEvents.value = [];
+  try {
+    activeRun.value = await $fetch<RunResponse>("/api/agent/figma-sync", {
+      method: "POST",
+      headers: { "x-atlas-session": agentToken.value },
+      body: {
+        task: task.value,
+        objectiveConfirmed: objectiveConfirmed.value,
+        sourceDecisions: sourceDecisions.value,
+        expectedFingerprint: props.workspaceFingerprint,
+      },
+    });
+    figmaSyncAttemptRunId.value = activeRun.value.id;
+    figmaSyncAttemptSourceIds.value = confirmedFigmaSources.value.map(
+      (source) => source.id,
+    );
+    pollRun();
+  } catch (caught) {
+    runError.value = atlasErrorSource(
+      caught,
+      "The exact Figma target could not be synchronized.",
     );
   }
 }
@@ -622,12 +798,6 @@ async function startRun(): Promise<void> {
           expectedFingerprint: props.workspaceFingerprint,
         },
       });
-    }
-    if (confirmedFigmaSources.value.length) {
-      figmaSyncAttemptRunId.value = activeRun.value.id;
-      figmaSyncAttemptSourceIds.value = confirmedFigmaSources.value.map(
-        (source) => source.id,
-      );
     }
     pollRun();
   } catch (caught) {
@@ -786,6 +956,7 @@ function newTask(): void {
   if (pollTimer) clearTimeout(pollTimer);
   mode.value = "prepare";
   task.value = "";
+  taskId.value = "";
   objectiveConfirmed.value = false;
   sourceDecisions.value = [];
   context.value = undefined;
@@ -805,6 +976,7 @@ function persistTaskSession(): void {
       schemaVersion: 1,
       scope: "task",
       task: task.value,
+      taskId: taskId.value,
       mode: mode.value,
       selectedRunId: selectedRunId.value,
       objectiveConfirmed: objectiveConfirmed.value,
@@ -829,6 +1001,7 @@ function restoreTaskSession(): void {
       schemaVersion?: number;
       scope?: string;
       task?: string;
+      taskId?: string;
       mode?: AgentRunMode;
       selectedRunId?: string;
       objectiveConfirmed?: boolean;
@@ -844,6 +1017,7 @@ function restoreTaskSession(): void {
     };
     if (saved.schemaVersion !== 1 || saved.scope !== "task") return;
     if (saved.task) task.value = saved.task;
+    taskId.value = saved.taskId ?? "";
     mode.value = saved.mode ?? "prepare";
     selectedRunId.value = saved.selectedRunId ?? "";
     objectiveConfirmed.value = saved.objectiveConfirmed ?? false;
@@ -863,7 +1037,15 @@ function restoreTaskSession(): void {
 
 async function copyPackage(): Promise<void> {
   if (!context.value) return;
-  await navigator.clipboard.writeText(JSON.stringify(context.value, null, 2));
+  const { checkpoint: _checkpoint, ...handoffContext } = context.value;
+  await navigator.clipboard.writeText(
+    [
+      `$frontend-task ${task.value.trim()}`,
+      "",
+      "Use this bounded Project Atlas handoff. Expand handles or SourceReceipt IDs only when needed:",
+      JSON.stringify(handoffContext),
+    ].join("\n"),
+  );
   copied.value = true;
 }
 
@@ -934,6 +1116,7 @@ watch(figmaFile, (fileKey) => {
       origin: "manual",
       state: "confirmed",
       required: false,
+      relationship: "primary",
       decidedAt: new Date().toISOString(),
     },
   ];
@@ -941,6 +1124,7 @@ watch(figmaFile, (fileKey) => {
 watch(
   [
     task,
+    taskId,
     objectiveConfirmed,
     sourceDecisions,
     context,
@@ -961,6 +1145,19 @@ watch(
   { deep: true, immediate: true },
 );
 watch(
+  () => pendingFigmaSources.value.length,
+  (count) => {
+    if (
+      count === 0 &&
+      activeRun.value?.purpose === "figma-sync" &&
+      !["queued", "running"].includes(activeRun.value.state)
+    ) {
+      activeRun.value = undefined;
+      runEvents.value = [];
+    }
+  },
+);
+watch(
   () => props.initialTask,
   (value) => {
     if (value && value !== task.value) task.value = value;
@@ -975,26 +1172,37 @@ onBeforeUnmount(() => {
 <template>
   <div class="workbench">
     <section class="workbench-composer" aria-labelledby="task-intent-heading">
-      <div class="mode-switch" :aria-label="t('Task intake status')">
-        <button
-          v-for="item in taskModes"
-          :key="item.id"
-          :class="['mode-button', { active: mode === item.id }]"
-          :disabled="item.disabled || Boolean(activeRun)"
-          :aria-pressed="mode === item.id"
-          @click="selectMode(item.id)"
-        >
-          {{ item.label }}
-        </button>
-        <span :class="['capability-pill', risk.level]">
-          {{ t("{level} risk", { level: statusLabel(risk.level) }) }}
-        </span>
-        <span :class="['capability-pill', intakeAssessment.status]">
-          {{ statusLabel(intakeAssessment.status) }}
-        </span>
-        <button v-if="activeRun" class="text-button" @click="newTask">
-          {{ t("New task") }}
-        </button>
+      <div class="codex-sidecar-note">
+        <AtlasIcon name="task" />
+        <div>
+          <strong>{{ t("Codex first · Atlas verifies the handoff") }}</strong>
+          <span>{{ t("Use native Codex for conversation and execution. This surface controls scope, source integrity, and traceability.") }}</span>
+        </div>
+      </div>
+      <div class="task-intake-controls">
+        <div class="mode-switch" :aria-label="t('Task mode')">
+          <button
+            v-for="item in taskModes"
+            :key="item.id"
+            :class="['mode-button', { active: mode === item.id }]"
+            :disabled="item.disabled || Boolean(activeRun)"
+            :aria-pressed="mode === item.id"
+            @click="selectMode(item.id)"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <div class="task-status-row" :aria-label="t('Task intake status')">
+          <span :class="['capability-pill', risk.level]">
+            {{ t("{level} risk", { level: statusLabel(risk.level) }) }}
+          </span>
+          <span :class="['capability-pill', intakeAssessment.status]">
+            {{ statusLabel(intakeAssessment.status) }}
+          </span>
+          <button v-if="activeRun" class="text-button" @click="newTask">
+            {{ t("New task") }}
+          </button>
+        </div>
       </div>
 
       <label v-if="mode !== 'prepare'" class="resume-picker">
@@ -1069,11 +1277,25 @@ onBeforeUnmount(() => {
           >
             <div :title="source.reference">
               <span>{{ statusLabel(source.kind) }} · {{ statusLabel(source.state) }}</span>
-              <strong>{{ source.reference.replace(/^https?:\/\//, "").slice(0, 54) }}</strong>
-              <small>{{ source.origin === "manual" ? t("Added by you") : t("Detected in the task") }}</small>
+              <strong>
+                {{
+                  isMissingTaskSourceReference(source.reference)
+                    ? t("No source supplied")
+                    : source.reference.replace(/^https?:\/\//, "").slice(0, 54)
+                }}
+              </strong>
+              <small>
+                {{ source.required ? t("Required source") : t("Optional source") }}
+                ·
+                {{ source.origin === "manual" ? t("Added by you") : t("Detected in the task") }}
+              </small>
             </div>
             <div v-if="source.state === 'pending'" class="source-decision-actions">
-              <button class="secondary-button" @click="decideSource(source.id, 'confirmed')">
+              <button
+                v-if="!isMissingTaskSourceReference(source.reference)"
+                class="secondary-button"
+                @click="decideSource(source.id, 'confirmed')"
+              >
                 {{ t("Yes, use this") }}
               </button>
               <button class="text-button" @click="decideSource(source.id, 'omitted')">
@@ -1088,7 +1310,10 @@ onBeforeUnmount(() => {
             </div>
             <div v-else class="source-decision-actions">
               <button
-                v-if="source.state !== 'confirmed'"
+                v-if="
+                  source.state !== 'confirmed' &&
+                  !isMissingTaskSourceReference(source.reference)
+                "
                 class="text-button"
                 @click="decideSource(source.id, 'confirmed')"
               >
@@ -1133,6 +1358,10 @@ onBeforeUnmount(() => {
             :placeholder="replacementFor ? t('Paste the replacement URL or ID') : t('Paste one URL or ID')"
             @keydown.enter.prevent="addSource"
           >
+          <label class="source-required-toggle">
+            <input v-model="sourceRequired" type="checkbox">
+            <span>{{ t("Required for this task") }}</span>
+          </label>
           <button class="secondary-button" :disabled="!sourceValue.trim()" @click="addSource">
             {{ t("Add") }}
           </button>
@@ -1142,13 +1371,61 @@ onBeforeUnmount(() => {
       <div
         v-if="figmaSyncState.status !== 'idle'"
         :class="['figma-sync-band', figmaSyncState.status]"
-        role="status"
+        :role="figmaSyncState.status === 'error' ? 'alert' : 'status'"
+        aria-live="polite"
       >
         <span v-if="figmaSyncState.status === 'loading'" class="mini-loader" />
         <AtlasIcon v-else :name="figmaSyncState.status === 'available' ? 'check' : 'design'" />
-        <div>
+        <div class="figma-sync-copy">
           <strong>{{ figmaSyncLabel }}</strong>
           <span>{{ t(figmaSyncState.message) }}</span>
+          <code v-if="figmaSyncTargetLabel">{{ figmaSyncTargetLabel }}</code>
+          <small
+            v-if="['confirmed-unsynced', 'error'].includes(figmaSyncState.status)"
+          >
+            {{ t("Keep Figma Desktop open with access to this file. Atlas will read and map only this exact node; candidates cannot replace it.") }}
+          </small>
+          <small
+            v-if="
+              ['confirmed-unsynced', 'error'].includes(figmaSyncState.status) &&
+              figmaSyncBlockReason
+            "
+            class="figma-sync-blocker"
+          >
+            {{ figmaSyncBlockReason }}
+          </small>
+          <small v-if="figmaSyncProgress" class="figma-sync-progress">
+            {{ figmaSyncProgress }}
+          </small>
+          <small v-if="runError && figmaSyncState.status === 'error'" class="inline-error">
+            {{
+              runtimeMessage(
+                runError,
+                "Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target.",
+              )
+            }}
+          </small>
+        </div>
+        <div class="figma-sync-actions">
+          <button
+            v-if="['confirmed-unsynced', 'error'].includes(figmaSyncState.status)"
+            class="secondary-button"
+            :disabled="!canStartFigmaSync"
+            @click="startFigmaSync"
+          >
+            {{
+              figmaSyncState.status === "error"
+                ? t("Retry exact sync")
+                : t("Synchronize exact target")
+            }}
+          </button>
+          <button
+            v-else-if="figmaSyncState.status === 'loading'"
+            class="text-button"
+            @click="cancelRun"
+          >
+            {{ t("Cancel safely") }}
+          </button>
         </div>
       </div>
 
@@ -1212,15 +1489,15 @@ onBeforeUnmount(() => {
           </select>
         </label>
       </div>
-      <p v-if="contextError" class="inline-error">{{ runtimeMessage(contextError) }}</p>
+      <p v-if="contextError" class="inline-error" role="alert">{{ runtimeMessage(contextError) }}</p>
     </section>
 
     <section class="workbench-canvas" aria-live="polite">
-      <div v-if="!context && !activeRun" class="workbench-empty">
+      <div v-if="!context" class="workbench-empty">
         <span>{{ t("WORK / READY") }}</span>
-        <h2>{{ t("Start with an outcome, not a form.") }}</h2>
+        <h2>{{ t("Prepare a verified handoff to Codex.") }}</h2>
         <p>
-          {{ t("Atlas will search the current checkout and show exactly what is worth sending to an agent. Jira, Confluence, Figma, and OpenAPI remain optional.") }}
+          {{ t("Atlas sends only a compact brief, handles, and receipt IDs. Persistent indexes and full evidence stay outside the prompt until Codex requests an exact ID.") }}
         </p>
         <ol>
           <li>{{ t("Describe the task.") }}</li>
@@ -1269,7 +1546,7 @@ onBeforeUnmount(() => {
             <h2>{{ context.task }}</h2>
           </div>
           <button class="text-button" @click="copyPackage">
-            {{ copied ? t("Package copied") : t("Copy package") }}
+            {{ copied ? t("Handoff copied") : t("Copy for Codex") }}
           </button>
         </header>
 
@@ -1351,7 +1628,7 @@ onBeforeUnmount(() => {
 
         <section v-if="!activeRun" class="launch-row">
           <div>
-            <strong>{{ agentStatus?.label ?? "Codex" }}</strong>
+            <strong>{{ t("Experimental embedded runner") }} · {{ agentStatus?.label ?? "Codex" }}</strong>
             <span>{{ agentStatus?.detail ? t(agentStatus.detail) : t("Checking the local agent adapter…") }}</span>
             <span v-if="pendingBlockingFindings.length" class="launch-blocker">
               {{ t("Review every decision-required finding before starting Codex.") }}
@@ -1440,6 +1717,22 @@ onBeforeUnmount(() => {
               <p v-if="!latestResult.risks.length">{{ t("No unresolved risk reported.") }}</p>
             </section>
           </div>
+          <details
+            v-if="latestResult.sourceReceipts?.length"
+            class="receipt-disclosure"
+          >
+            <summary>
+              {{ t("{count} source receipts", { count: latestResult.sourceReceipts?.length ?? 0 }) }}
+            </summary>
+            <article
+              v-for="receipt in latestResult.sourceReceipts ?? []"
+              :key="receipt.id"
+            >
+              <strong>{{ statusLabel(receipt.provider) }} · {{ receipt.id }}</strong>
+              <span>{{ receipt.adapter }} · {{ receipt.scope.kind }}:{{ receipt.scope.id }}</span>
+              <small>{{ statusLabel(receipt.freshness) }} · {{ formatDate(receipt.observedAt) }}</small>
+            </article>
+          </details>
           <section
             :class="[
               'memory-closeout',
@@ -1543,7 +1836,7 @@ onBeforeUnmount(() => {
             {{ t("Review implementation") }}
           </button>
         </section>
-        <p v-if="runError" class="inline-error">{{ runtimeMessage(runError) }}</p>
+        <p v-if="runError" class="inline-error" role="alert">{{ runtimeMessage(runError) }}</p>
       </template>
     </section>
 
@@ -1562,28 +1855,78 @@ onBeforeUnmount(() => {
         />
       </div>
       <dl>
-        <div><dt>{{ t("Project") }}</dt><dd>{{ projectName }}</dd></div>
-        <div><dt>{{ t("Branch") }}</dt><dd>{{ identity?.branch ?? t("detached / unknown") }}</dd></div>
-        <div><dt>{{ t("Checkout") }}</dt><dd>{{ identity?.checkoutId.slice(0, 8) ?? t("path scoped") }}</dd></div>
-        <div><dt>{{ t("Snapshot") }}</dt><dd>{{ reviewFingerprint.slice(0, 8) }}</dd></div>
+        <div><dt>{{ t("Project") }}</dt><dd :title="projectName">{{ projectName }}</dd></div>
         <div>
+          <dt>{{ t("Branch") }}</dt>
+          <dd :title="identity?.branch ?? t('detached / unknown')">
+            {{ identity?.branch ?? t("detached / unknown") }}
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t("Checkout") }}</dt>
+          <dd :title="identity?.checkoutId ?? t('path scoped')">
+            {{ identity?.checkoutId.slice(0, 8) ?? t("path scoped") }}
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t("Snapshot") }}</dt>
+          <dd :title="reviewFingerprint">{{ reviewFingerprint.slice(0, 8) }}</dd>
+        </div>
+        <div class="source-count-row">
           <dt>{{ t("Sources") }}</dt>
-          <dd>
-            {{ t("{confirmed} confirmed · {pending} pending · {omitted} omitted/unavailable", {
-              confirmed: sourceCounts.confirmed,
-              pending: sourceCounts.pending,
-              omitted: sourceCounts.omitted + sourceCounts.unavailable,
-            }) }}
+          <dd class="source-count-summary">
+            <span>
+              <strong>{{ sourceCounts.confirmed }}</strong>
+              <small>{{ t("Confirmed sources") }}</small>
+            </span>
+            <span>
+              <strong>{{ sourceCounts.pending }}</strong>
+              <small>{{ t("Pending sources") }}</small>
+            </span>
+            <span>
+              <strong>{{ sourceCounts.omitted + sourceCounts.unavailable }}</strong>
+              <small>{{ t("Omitted or unavailable sources") }}</small>
+            </span>
           </dd>
         </div>
         <div><dt>{{ t("Context") }}</dt><dd>{{ t("{used} / {budget} chars", { used: formatNumber(context?.metrics.usedChars ?? 0), budget: formatNumber(budgetChars) }) }}</dd></div>
         <div><dt>{{ t("Truncated") }}</dt><dd>{{ context?.metrics.truncated ? t("Yes") : t("No") }}</dd></div>
+        <div>
+          <dt>{{ t("Retrieval") }}</dt>
+          <dd>
+            {{
+              context?.metrics.retrieval
+                ? t("{hits} hits · {misses} misses · {retries} retries", {
+                    hits: context.metrics.retrieval.hits,
+                    misses: context.metrics.retrieval.misses,
+                    retries: context.metrics.retrieval.retries,
+                  })
+                : t("Not prepared")
+            }}
+          </dd>
+        </div>
         <div><dt>{{ t("Decision gate") }}</dt><dd>{{ statusLabel(displayGateStatus) }}</dd></div>
         <div>
           <dt>{{ t("Run evidence") }}</dt>
           <dd>{{ activeRun?.stale || selectedRun?.stale ? t("snapshot changed") : t("current") }}</dd>
         </div>
       </dl>
+      <details v-if="activeCheckpoint" class="checkpoint-disclosure">
+        <summary>
+          {{ t("Resume capsule") }} · {{ statusLabel(activeCheckpoint.status) }}
+        </summary>
+        <p>
+          <strong>{{ t("Next safe action") }}</strong>
+          <span>{{ t(activeCheckpoint.nextSafeAction) }}</span>
+        </p>
+        <dl>
+          <div><dt>{{ t("Covered") }}</dt><dd>{{ activeCheckpoint.scope.covered.length }}</dd></div>
+          <div><dt>{{ t("Remaining") }}</dt><dd>{{ activeCheckpoint.scope.remaining.length }}</dd></div>
+          <div><dt>{{ t("Receipts") }}</dt><dd>{{ activeCheckpoint.sourceReceiptIds.length }}</dd></div>
+          <div><dt>{{ t("HEAD") }}</dt><dd>{{ activeCheckpoint.workspace.head.slice(0, 8) }}</dd></div>
+        </dl>
+        <small>{{ t("Details expand by ID only; no transcript or full index is stored here.") }}</small>
+      </details>
       <section class="inspector-sources">
         <span>{{ t("Confirmed references") }}</span>
         <p v-if="!sources.length">{{ t("Repository + Atlas only") }}</p>
@@ -1593,6 +1936,12 @@ onBeforeUnmount(() => {
             {{ source.value.replace(/^https?:\/\//, "").slice(0, 46) }}
           </span>
         </p>
+        <details v-if="context?.sourceReceiptIds?.length" class="receipt-id-list">
+          <summary>{{ t("Receipt IDs") }} · {{ context.sourceReceiptIds.length }}</summary>
+          <code v-for="receiptId in context.sourceReceiptIds" :key="receiptId">
+            {{ receiptId }}
+          </code>
+        </details>
       </section>
       <div class="boundary-legend">
         <span><i class="local" />{{ t("Local · 0 tokens") }}</span>

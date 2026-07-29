@@ -8,9 +8,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./task-preparation": {
+      "types": "./dist/task-preparation.d.ts",
+      "import": "./dist/task-preparation.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -22,6 +28,7 @@
     "@component-atlas/design": "workspace:*",
     "@component-atlas/memory": "workspace:*",
     "@component-atlas/store": "workspace:*",
+    "@toon-format/toon": "^4.1.0",
     "fast-glob": "^3.3.3",
     "yaml": "^2.9.0"
   },

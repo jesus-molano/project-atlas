@@ -220,6 +220,9 @@ importers:
       '@component-atlas/store':
         specifier: workspace:*
         version: link:../store
+      '@toon-format/toon':
+        specifier: ^4.1.0
+        version: 4.1.0
       fast-glob:
         specifier: ^3.3.3
         version: 3.3.3
@@ -1396,6 +1399,9 @@ packages:
 
   '@speed-highlight/core@1.2.17':
     resolution: {integrity: sha512-Z92FwKpCtfaW1V0jTU/fh3QzYEZN8wDwrzRIBoADCJfn4mJCNcJN/XegifX7BDrQ8/h9Xh/JnbyMchL0FqXrkg==}
+
+  '@toon-format/toon@4.1.0':
+    resolution: {integrity: sha512-dBB3pkEx9QYvHnHR6rtkaBAh+7x4W/oA5ONur4G0fh7Ow69PbPuM7OFxzNRABqyxC0t6SZ3RixiGbCuaFjPDAQ==}
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
@@ -5476,6 +5482,8 @@ snapshots:
   '@sindresorhus/merge-streams@4.0.0': {}
 
   '@speed-highlight/core@1.2.17': {}
+
+  '@toon-format/toon@4.1.0': {}
 
   '@tybys/wasm-util@0.10.3':
     dependencies:

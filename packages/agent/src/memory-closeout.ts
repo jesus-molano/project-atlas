@@ -82,7 +82,7 @@ export const MEMORY_CLOSEOUT_JSON_SCHEMA = {
       },
     },
     localOutcome: {
-      type: "object",
+      type: ["object", "null"],
       additionalProperties: false,
       properties: {
         summary: { type: "string", maxLength: 1_000 },
@@ -101,6 +101,7 @@ export const MEMORY_CLOSEOUT_JSON_SCHEMA = {
     "status",
     "summary",
     "candidates",
+    "localOutcome",
     "confirmationRequired",
     "confirmationPrompt",
   ],
@@ -164,7 +165,7 @@ export function parseMemoryCloseout(value: unknown): MemoryCloseout {
     return item as unknown as MemoryCandidate;
   });
   const localOutcome =
-    closeout.localOutcome === undefined
+    closeout.localOutcome == null
       ? undefined
       : (() => {
           if (!closeout.localOutcome || typeof closeout.localOutcome !== "object") {

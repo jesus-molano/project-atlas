@@ -1,12 +1,12 @@
 # Validation and external boundary
 
-Validated locally on 2026-07-26 without corporate data:
+Validated locally on 2026-07-29 without corporate data:
 
 - relative documentation links and the five-minute installation command;
 - production build: Nuxt 4.5.0, Vite 8.1.5, Vue 3.5.40;
 - TypeScript build/typecheck for every package and the viewer;
-- 58 tests across 22 files covering Code Atlas, Design Atlas, Project Memory,
-  runtime, MCP, and the `frontend-task` source precheck;
+- 219 tests across 54 files covering Code Atlas, Design Atlas, Project Memory,
+  runtime, MCP, the viewer, and the `frontend-task` source precheck;
 - cold start and idempotent Markdown rebuild;
 - active versus superseded knowledge;
 - contradictory active decisions and stale-memory warnings;
@@ -19,6 +19,20 @@ Validated locally on 2026-07-26 without corporate data:
   configuration/imported-type fallback, cancellation, and a reproducible
   full-scan comparison;
 - one shared 2,800-character task budget containing memory, code, and design;
+- a runtime gate that blocks context retrieval before unresolved objectives or
+  high-risk source decisions can trigger connector work;
+- exact Figma `fileKey + nodeId` pinning, with missing, mismatched, candidate,
+  and stale observations rejected instead of silently substituted;
+- deterministic source receipts for Figma, OpenAPI, Jira, and Confluence
+  identities, referenced by ID in compact context and expanded only on demand;
+- OpenAPI source isolation, per-contract/operation provenance, and explicit
+  conflict handling without allowing one unavailable source to erase another
+  valid contract;
+- bounded semantic task journals and strict 4 KB resume capsules, including
+  TOON round-trip validation, readable JSON fallback, worktree/HEAD state,
+  risk-boundary checkpoints, and completed-state TTL cleanup;
+- compact retrieval telemetry for injected index bytes, hits, misses, retries,
+  queried connectors, and expanded receipts;
 - no-Figma fallback and Figma ranking with zero Ready for dev nodes;
 - status-capable and status-unavailable Figma sources without treating
   unavailable metadata as `none`;
@@ -52,9 +66,20 @@ Validated locally on 2026-07-26 without corporate data:
   Windows paths, alternate `CODEX_HOME`, dry-run, and idempotency;
 - complete nine-section GUI over Vuenime (78 nodes, 237 relations) and a
   temporary full fixture (4 components, 8 Figma nodes, 6 memory items);
-- browser interaction checks for transversal search, design and memory detail,
+- prior baseline browser interaction checks for transversal search, design and memory detail,
   evidence-backed risks, proposal revision/application, responsive navigation,
   accessible names, empty states, and zero horizontal overflow;
+- static responsive and accessibility regressions for the new exact-Figma sync
+  band, bounded three-cell source summary, progress/error/retry states, and
+  context gate;
+- live browser review of the Codex-first Workbench at 1440x1000, 1024x900, and
+  390x844, covering source preflight, exact-Figma loading/failure/retry/cancel,
+  the OpenAPI receipt ID disclosure, active and blocked resume capsules, and the
+  experimental-runner hierarchy;
+- zero page, composer, inspector, Figma-band, receipt, capsule, or source-summary
+  horizontal overflow in those three browser sizes; long branch/source
+  identities wrap within the sidecar and source actions remain independently
+  operable;
 - production-server API smokes for Overview, Workspace, bounded Task Context,
   repository refresh through the CLI boundary, and memory refresh.
 
@@ -67,6 +92,7 @@ Representative measured CLI output:
 | Figma candidate | included above | status `none` | no Ready for dev required |
 | CLI Task Context on Vuenime | 2,400 chars | 1,242 chars / 311 tokens | 2 code candidates |
 | GUI Task Context on Vuenime | 3,600 chars | 2,026 chars / 507 tokens | 5 code candidates |
+| GUI OpenAPI visual-audit fixture | 3,600 chars | 2,295 chars / 574 tokens | 1 receipt ID · 3 hits · 0 misses/retries |
 
 The reproducible incremental benchmark uses 300 generic Vue components with
 non-trivial templates and changes one component. Three local runs measured

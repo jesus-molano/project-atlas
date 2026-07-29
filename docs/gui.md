@@ -36,7 +36,7 @@ levels:
 
 - **Project:** Home and actionable changes since the current snapshot.
 - **Explore:** Code, Design, and Memory.
-- **Work:** Task Workbench and compact local activity.
+- **Work:** Codex handoff and compact local activity.
 - **Review:** Action Center and Memory Inbox.
 - **System:** Connections and Settings.
 
@@ -116,10 +116,22 @@ actions. Safe review actions can be triaged together; authority choices, risk
 acceptance, and agent continuation remain individual gates. See
 [action-center.md](action-center.md) for the mutation and Codex boundaries.
 
-## Task Workbench and Codex
+## Codex handoff sidecar
 
-The Workbench supports new, continue, and correct modes. It autodetects explicit
-source links, allows them to be excluded, and accepts pinned Atlas handles.
+Native Codex with `$frontend-task` is the primary conversation and execution
+surface. The former Workbench is deliberately presented as a Codex handoff
+sidecar: it supports new, continue, and correct modes, autodetects explicit
+source links, records grouped source decisions, and accepts pinned Atlas
+handles. Its embedded runner is labelled experimental.
+When one exact Figma node is confirmed but its current receipt is missing, the
+sidecar exposes **Synchronize exact target** before **Prepare task**. This
+read-only bootstrap invokes Codex only to read sparse metadata from Figma
+Desktop MCP local and call `map_figma_file` for the immutable
+`fileKey+nodeId`; it generates no task context, queries no unrelated connector,
+and never accepts a ranked Atlas candidate. The same compact band shows the
+prerequisite, exact identity, progress, success, a retryable error, and the
+next step. Task preparation remains disabled until the exact current receipt
+exists.
 Before launch it shows:
 
 - exact project, worktree, branch, and snapshot fingerprint;
@@ -127,6 +139,9 @@ Before launch it shows:
 - connected and unavailable capabilities;
 - selected sources and possible writes;
 - hard character cap, actual characters, estimated tokens, and truncation.
+- compact retrieval hits/misses/retries and receipt IDs;
+- a progressively disclosed 4 KB resume capsule with covered/remaining scope,
+  HEAD, and the next safe action.
 
 After review, the server regenerates the package from trusted local state and
 starts the provider-neutral Agent Adapter. The first implementation uses the
@@ -134,6 +149,11 @@ official `@openai/codex-sdk`. Progress is translated into human phases; raw
 commands and external documents are not copied into the activity log. One run
 owns a checkout at a time. Runs can be cancelled, material questions answered,
 and completed work corrected or continued using the same Codex thread.
+
+The sidecar never renders a second chat transcript or a noisy task dashboard.
+Milestones, provenance, receipts, and capsule state are disclosed on demand
+using the established tokens, responsive grid, keyboard focus, and non-color
+status labels.
 
 External writes are prohibited by the initial run contract. Jira, Confluence,
 Figma, GitHub, commit/push, and canonical memory require a separate explicit
@@ -154,7 +174,7 @@ from Settings. There is no telemetry.
 ## Keyboard, accessibility, and recovery
 
 - `Ctrl/Cmd + K` opens universal evidence search.
-- `Ctrl/Cmd + 1`, `2`, and `3` open Home, Code, and Task Workbench.
+- `Ctrl/Cmd + 1`, `2`, and `3` open Home, Code, and Codex handoff.
 - `Escape` closes transient surfaces.
 - All controls have visible focus, accessible names, non-color labels, and
   reduced-motion support.

@@ -11,6 +11,7 @@ export interface BudgetOptions {
   expandableIds?: string[];
   preserveKeys?: string[];
   preserveFirstKeys?: string[];
+  retrieval?: NonNullable<ResponseMetrics["retrieval"]>;
 }
 
 function normalizedBudget(value: number | undefined): number {
@@ -137,6 +138,7 @@ export function fitBudgetedResponse<T extends Record<string, unknown>>(
       totalMatches: options.totalMatches ?? 0,
       ...(options.nextCursor ? { nextCursor: options.nextCursor } : {}),
       expandableIds: [...new Set(options.expandableIds ?? [])].slice(0, 20),
+      ...(options.retrieval ? { retrieval: options.retrieval } : {}),
     },
   } as T & { metrics: ResponseMetrics };
 

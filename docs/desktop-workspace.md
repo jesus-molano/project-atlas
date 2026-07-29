@@ -13,7 +13,7 @@ The shell has four persistent zones:
 2. **Navigator** — a collapsible, two-level hierarchy:
    - Project: Overview
    - Explore: Code, Design, Memory
-   - Work: Task Workbench
+   - Work: Codex handoff
    - Review: Action Center, Memory Inbox
    - System: Connections, Settings
 3. **Workspace** — the selected evidence or work surface. It owns the page
@@ -72,18 +72,20 @@ The interface does not use a generic **Refresh** label. Activity copy states the
 source and boundary, such as “Scanning changed Vue files locally” or “Codex is
 checking the confirmed Figma node”.
 
-## Task Workbench flow
+## Codex handoff flow
 
 1. Select the current checkout and describe or continue the task.
-2. Add optional Jira, Confluence, or Figma references. Blank fields allow the
-   agent to discover only directly relevant links when connectors exist.
+2. Resolve explicit Jira, Confluence, Figma, and OpenAPI references in the
+   structured source ledger. Discovery results remain candidates and linked
+   secondaries return to pending.
 3. Review detected connectors and enrichments. Unavailable optional sources do
    not block the task.
 4. Generate the local compact context package.
 5. Review the exact intent, references, included Atlas handles, character/token
    estimate, hard cap, truncation, sandbox, and working directory.
-6. Start Codex explicitly. `$frontend-task` is invoked inside the thread; Atlas
-   does not execute a skill independently.
+6. Prefer copying the handoff to native Codex. The embedded runner is
+   experimental and starts only after explicit review; `$frontend-task` is
+   invoked inside the thread and Atlas does not execute a skill independently.
 7. Follow bounded progress events. Material questions and approvals appear as
    native Atlas controls before the run continues.
 8. Keep the compact result in the active workspace. The durable local audit
@@ -160,11 +162,11 @@ navigation group instead of becoming independent dashboard destinations.
 
 | Surface | Human question | Decision | Direct action | Provenance/freshness | Correct or continue | Placement |
 | --- | --- | --- | --- | --- | --- | --- |
-| Home / Project | Where am I, what changed, and what should I continue? | Choose pending work in the current checkout | Continue task, copy path, rescan stale code | Git remote fingerprint, checkout, branch, HEAD, diff, snapshot revision | Preserve the diff and reopen the Workbench | Primary |
+| Home / Project | Where am I, what changed, and what should I continue? | Choose pending work in the current checkout | Continue task, copy path, rescan stale code | Git remote fingerprint, checkout, branch, HEAD, diff, snapshot revision | Preserve the diff and reopen the Codex handoff | Primary |
 | Code | What already exists, what uses it, what is tested, and what might break? | Reuse, extend, extract, or change | Open file/test, compare candidates, pin to task, ask Codex | Indexed commit/working tree, exact versus inferred relation | Rescan affected files; revise the reuse decision | Explore |
 | Design | Which design family/state is relevant and how does it map to code? | Select root, responsive variant, state, or missing evidence | Sync map, isolate subtree, open source, compare, pin to task | File/page/node IDs, source adapter, indexed version, status provenance | Reselect node, refresh scope, correct family membership | Explore |
 | Memory | What has this project decided or learned, and is it still authoritative? | Follow, review, supersede, or reject knowledge | Open evidence, relate entities, propose revision, ask Codex | Authority, confidence, source, updated/verified/review dates | Revise proposal, supersede explicitly, restore a prior relation | Explore |
-| Task Workbench | What should we do next with this task? | Confirm scope, sources, budget, sandbox, and material answers | Prepare, implement, continue, correct, cancel | Task revision, selected handles, agent thread, source observations | Edit the delta and resume the same thread/worktree | Work |
+| Codex handoff | What should Codex do next with this task? | Confirm scope, sources, budget, sandbox, and material answers | Copy handoff, inspect, continue, correct; optionally use the experimental runner | Task revision, selected handles, agent thread, source receipts, resume capsule | Edit the delta and resume the same thread/worktree | Work |
 | Review | What needs a human decision or semantic approval? | Resolve conflict, accept/reject/revise memory, acknowledge risk | Approve, reject, combine, supersede, open evidence, continue task | Finding rule, evidence handles, proposal origin, task/run | Reopen decision, revise proposal, continue originating task | Review |
 | Connections | What is actually available now, and what is cached only? | Continue degraded, connect elsewhere, or refresh evidence | Rescan code, reindex memory, sync confirmed design scope, copy setup help | checked-at, adapter, configured/authenticated/detected/cache state | Retry source, keep local-only path | System |
 | Settings | What are my local limits and write policies? | Choose budget, top-k, retention, and storage policy | Update local preference, clear local audit metrics | Policy source and effective value | Reset to safe defaults | System |
@@ -172,7 +174,7 @@ navigation group instead of becoming independent dashboard destinations.
 The metric-first Overview is not a standalone destination. Its useful
 project identity, changes, queues, and continuation actions become Home. Counts
 without a direct interpretation or action move to section headers or the
-inspector. Agent Activity remains inside the Task Workbench until there is
+inspector. Agent Activity remains inside the Codex handoff until there is
 evidence that a separate cross-task run log is necessary. The current local
 activity ledger intentionally stores only content-free run metadata.
 
@@ -227,7 +229,7 @@ repository. Cloning remains an explicit CLI or Git operation.
 2. Git state and changes since the last Atlas snapshot are visible before any
    action.
 3. A pending task or review can be continued in one action.
-4. The Workbench shows only the delta since the previous brief and preserves the
+4. The Codex handoff shows only the delta since the previous brief and preserves the
    worktree diff.
 
 ### Find before creating
@@ -238,7 +240,7 @@ repository. Cloning remains an explicit CLI or Git operation.
    ask Codex.
 3. Code offers goal views: **Reuse**, **Impact**, and **Tests**. Exact graph
    relations and inferred similarity remain visually distinct.
-4. A selected candidate moves to the Workbench as an Atlas handle, not a copied
+4. A selected candidate moves to the Codex handoff as an Atlas handle, not a copied
    graph payload.
 
 ### Prepare and run
@@ -299,7 +301,7 @@ Normal desktop:
 └─────────────┴───────────────────────────────────┘
 ```
 
-Task Workbench:
+Codex handoff sidecar:
 
 ```text
 ┌ Task / Continue / Correct ─────────────── Local context status ┐
@@ -315,8 +317,10 @@ Task Workbench:
 └──────────────────────────────────────────────────────────────┘
 ```
 
-During a run, the lower region becomes an activity ledger. A question opens a
-dialog anchored to the exact evidence, not a generic chat transcript.
+During an experimental embedded run, the lower region becomes an activity
+ledger. A question opens a dialog anchored to the exact evidence, not a generic
+chat transcript. Native Codex remains the primary conversation and execution
+surface.
 
 ## Action and capability manifest
 

@@ -30,7 +30,9 @@ The skill performs this sequence:
    index exists. An explicit refresh is used when approved memory files changed.
 5. **Design index.** When a Figma source is confirmed, preparation first reads
    sparse metadata through Figma Desktop MCP and persists it with
-   `map_figma_file`. A confirmed node skips ranking but is still mapped; a
+   `map_figma_file` plus an exact SourceReceipt. A confirmed node preserves
+   `fileKey+nodeId`, skips ranking, and blocks instead of accepting a missing,
+   mismatched, or stale target; a
    file/page is mapped and ranked before deep retrieval. The workspace refreshes
    during the run so Design Atlas is visible before code work or task completion.
 6. **Bounded context.** Retrieve a few task-relevant memory, code, and optional
@@ -61,8 +63,9 @@ full scan. Memory is reindexed when its source files change or an explicit
 refresh is requested. A Figma file is not remapped blindly; its sparse
 source/version hash and cached scopes are reused until new metadata is supplied.
 
-Retrieval remains focused on the current intent. Atlas returns top candidates
-and expandable IDs instead of every indexed record.
+Retrieval remains focused on the current intent. Atlas returns top candidates,
+handles, SourceReceipt IDs, and compact hit/miss/retry telemetry instead of
+every indexed record.
 
 ## Continue or correct an existing task
 
@@ -89,7 +92,8 @@ Normal task context contains only:
 - a few current decisions, constraints, or relevant prior outcomes;
 - a few code candidates with evidence and impact;
 - a few design candidates when Figma is relevant;
-- findings, one decision gate, next actions, and size metrics.
+- receipt IDs, findings, one decision gate, next actions, and size/retrieval
+  metrics.
 
 It does not contain the complete repository graph, full Figma tree, all memory,
 screenshots, or raw exports. The default GUI/task budget is 3,600 characters;
@@ -97,11 +101,12 @@ all project query tools enforce hard limits, small top-k defaults, and explicit
 expansion.
 
 Human browsing in the GUI does not add anything to agent context. Only an
-explicit Task Workbench package is meant to be copied or sent.
+explicit Codex handoff package is meant to be copied or sent.
 
-## Daily flow from the GUI
+## Optional Codex handoff sidecar
 
-The GUI is an alternative entry point to the same workflow:
+Native Codex remains the primary conversation/execution surface. The GUI is a
+control and inspection sidecar for the same workflow:
 
 1. Run `pnpm atlas` from the Project Atlas clone and choose the exact product
    checkout, or pass it directly with `pnpm atlas -- "<path>"`.
@@ -109,11 +114,24 @@ The GUI is an alternative entry point to the same workflow:
 3. Choose **Use in task**. The selected handles are pinned and guaranteed to
    enter the bounded package even when task wording alone ranks them lower.
 4. Review sources, findings, estimated tokens, snapshot, branch, and checkout.
-5. Choose read-only preparation or workspace-write implementation.
-6. Review the launch boundary, then start Codex. Atlas shows compact progress,
+5. If an exact confirmed Figma node is unsynchronized, choose **Synchronize
+   exact target** first. The read-only source bootstrap maps only that
+   `fileKey+nodeId` through Figma Desktop MCP local, emits a SourceReceipt, and
+   does not generate task context or search candidates. Retry after a
+   connection error; an identity or freshness discrepancy stays blocking.
+6. Copy the bounded package to native Codex, or deliberately choose the
+   experimental embedded runner.
+7. When using the runner, review the launch boundary, then start Codex. Atlas shows compact progress,
    supports cancellation, renders material questions in place, and reports
    confirmed Figma ingestion as loading, available, unsynchronized, or failed.
-7. Correct or continue the same Codex task without rebuilding onboarding.
+8. Correct or continue the same Codex task without rebuilding onboarding.
+
+For long tasks, `get_task_context` returns one stable `taskId`.
+`checkpoint_task` journals only semantic milestones and before-risk boundaries,
+then materializes a strict 4 KB resume capsule. Compaction/resume loads that capsule alone and
+expands handles or receipt IDs on demand. The capsule is tied to worktree/HEAD;
+it never imports another worktree's code snapshot. Closed state expires after
+24 hours, leaving a minimal final receipt rather than a transcript.
 
 Local navigation and index actions consume zero agent tokens. Agent execution
 uses the official SDK and never authorizes external writes. Jira, Confluence,

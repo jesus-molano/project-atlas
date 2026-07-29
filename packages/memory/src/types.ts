@@ -218,4 +218,12 @@ export interface ResponseMetrics {
   totalMatches: number;
   nextCursor?: string;
   expandableIds: string[];
+  retrieval?: {
+    indexedBytesInjected: 0;
+    hits: number;
+    misses: number;
+    retries: number;
+    connectorsQueried: string[];
+    receiptsExpanded: number;
+  };
 }
