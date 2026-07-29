@@ -1,0 +1,7 @@
+interface:
+  display_name: "Visual Direction"
+  short_description: "Explore and lock visual direction before code"
+  default_prompt: "Use $visual-direction to resolve design authority and compare only the necessary temporary visual directions before implementation."
+
+policy:
+  allow_implicit_invocation: false

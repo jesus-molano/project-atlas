@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "exact-figma-outranks-atlas-and-redesign-request",
+      "input": {
+        "scope": "page",
+        "hasExistingProject": true,
+        "hasExactFigma": true,
+        "exactFigma": {
+          "fileKey": "file-exact",
+          "nodeId": "42:7",
+          "url": "figma://file-exact/42:7"
+        },
+        "explicitRedesign": true,
+        "references": [
+          {
+            "id": "atlas-similar-frame",
+            "compatibleWithProject": true,
+            "facets": ["hierarchy"]
+          }
+        ]
+      },
+      "expected": {
+        "mode": "fidelity",
+        "inventionBudget": 0,
+        "explorationRequired": false,
+        "previewCount": 0,
+        "visualAuthority": "exact-figma",
+        "atlasCandidateCanReplaceExactFigma": false
+      }
+    },
+    {
+      "id": "existing-component-inherits-and-compares-two",
+      "input": {
+        "scope": "component",
+        "hasExistingProject": true,
+        "hasExactFigma": false,
+        "visualDecision": "open",
+        "references": [
+          {
+            "id": "compatible-density-reference",
+            "compatibleWithProject": true,
+            "facets": ["density"]
+          },
+          {
+            "id": "incompatible-brand-reference",
+            "compatibleWithProject": false,
+            "facets": ["typography", "color-role"]
+          }
+        ]
+      },
+      "expected": {
+        "mode": "inherit",
+        "inventionBudget": 1,
+        "explorationRequired": true,
+        "previewCount": 2,
+        "visualAuthority": "existing-system",
+        "acceptedReferences": ["compatible-density-reference"],
+        "rejectedReferences": ["incompatible-brand-reference"]
+      }
+    },
+    {
+      "id": "existing-section-with-established-pattern-stays-inactive",
+      "input": {
+        "scope": "section",
+        "hasExistingProject": true,
+        "hasExactFigma": false,
+        "visualDecision": "established-pattern"
+      },
+      "expected": {
+        "mode": "inherit",
+        "inventionBudget": 1,
+        "explorationRequired": false,
+        "previewCount": 0,
+        "visualAuthority": "existing-system"
+      }
+    },
+    {
+      "id": "existing-section-with-no-material-choice-stays-inactive",
+      "input": {
+        "scope": "section",
+        "hasExistingProject": true,
+        "hasExactFigma": false,
+        "visualDecision": "open",
+        "materialVisualChoice": false
+      },
+      "expected": {
+        "mode": "inherit",
+        "inventionBudget": 1,
+        "explorationRequired": false,
+        "previewCount": 0
+      }
+    },
+    {
+      "id": "greenfield-explores-three",
+      "input": {
+        "scope": "greenfield",
+        "hasExistingProject": false,
+        "hasExactFigma": false,
+        "visualDecision": "open",
+        "references": [
+          {
+            "id": "curated-composition-reference",
+            "compatibleWithProject": false,
+            "facets": ["composition"]
+          }
+        ]
+      },
+      "expected": {
+        "mode": "explore",
+        "inventionBudget": 2,
+        "explorationRequired": true,
+        "previewCount": 3,
+        "visualAuthority": "direction-selection-required",
+        "acceptedReferences": ["curated-composition-reference"]
+      }
+    },
+    {
+      "id": "redesign-needs-explicit-request-and-explores-three",
+      "input": {
+        "scope": "page",
+        "hasExistingProject": true,
+        "hasExactFigma": false,
+        "explicitRedesign": true,
+        "visualDecision": "open"
+      },
+      "expected": {
+        "mode": "redesign",
+        "inventionBudget": 3,
+        "explorationRequired": true,
+        "previewCount": 3,
+        "redesignRequiresExplicitRequest": true
+      }
+    },
+    {
+      "id": "ordinary-existing-page-is-not-redesign",
+      "input": {
+        "scope": "page",
+        "hasExistingProject": true,
+        "hasExactFigma": false,
+        "explicitRedesign": false,
+        "visualDecision": "open",
+        "materialVisualChoice": true
+      },
+      "expected": {
+        "mode": "inherit",
+        "inventionBudget": 1,
+        "explorationRequired": true,
+        "previewCount": 2,
+        "redesignRequiresExplicitRequest": true
+      }
+    },
+    {
+      "id": "selected-greenfield-direction-does-not-reopen-options",
+      "input": {
+        "scope": "greenfield",
+        "hasExistingProject": false,
+        "hasExactFigma": false,
+        "visualDecision": "selected-direction"
+      },
+      "expected": {
+        "mode": "explore",
+        "explorationRequired": false,
+        "previewCount": 0,
+        "visualAuthority": "selected-direction"
+      }
+    },
+    {
+      "id": "figma-write-is-never-implied",
+      "input": {
+        "scope": "component",
+        "hasExistingProject": true,
+        "hasExactFigma": false
+      },
+      "expected": {
+        "figmaWrite": "explicit-only",
+        "productionImplementationCount": 1,
+        "previewWorktrees": 0,
+        "implementationWorktrees": 1,
+        "artifacts": "ephemeral-only"
+      }
+    }
+  ]
+}

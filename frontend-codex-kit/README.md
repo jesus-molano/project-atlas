@@ -1,6 +1,6 @@
 # Frontend Codex Kit reference
 
-This folder contains the portable installer for Project Atlas and its two
+This folder contains the portable installer for Project Atlas and its three
 skills. New users should follow the
 [five-minute quick start](../README.md). This page
 documents installer behavior and recovery flags.
@@ -16,7 +16,7 @@ From a stable Project Atlas clone:
 The command:
 
 - installs dependencies and builds the complete local Atlas product;
-- installs `frontend-task` and `reuse-first`;
+- installs `frontend-task`, explicit-only `visual-direction`, and `reuse-first`;
 - adds/updates the optional marked routing block in Codex `AGENTS.md`;
 - adds the local Project Atlas MCP server to Codex;
 - adds `.component-atlas/` to the global Git ignore.
@@ -28,8 +28,8 @@ corporate data.
 
 | Artifact | Default location |
 | --- | --- |
-| Codex skills | `~/.agents/skills/frontend-task` and `reuse-first` |
-| Claude skills | `~/.claude/skills/frontend-task` and `reuse-first` |
+| Codex skills | `~/.agents/skills/frontend-task`, `visual-direction`, and `reuse-first` |
+| Claude skills | `~/.claude/skills/frontend-task`, `visual-direction`, and `reuse-first` |
 | Codex MCP entry | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` |
 | Optional routing block | `~/.codex/AGENTS.md` |
 | Reconstructible indexes | Windows LocalAppData |

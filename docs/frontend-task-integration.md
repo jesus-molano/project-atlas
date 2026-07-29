@@ -91,9 +91,21 @@ No manual scan, memory, context, or Figma command is required first.
    variables only for useful bounded targets. If no metadata or overview is
    available, document the limitation and ask for a narrower link, manual
    selection, screenshot, or export.
-14. Run `check_before_change`, record the component decision, implement,
-    validate, and rescan.
-15. Always return a compact `Memory candidates` closeout: `none`,
+14. For material visual work, explicitly load `$visual-direction`. After exact
+    Figma identity and repository reuse evidence are known, resolve
+    `fidelity`, `inherit`, `explore`, or explicit-only `redesign`. Stay
+    option-free when authority is settled; otherwise return two bounded
+    incumbent options or three bounded greenfield/redesign options. Lock one
+    compact DesignContract and state matrix before production edits.
+15. Keep every rendered option, contact sheet, mockup, sandbox, selected
+    consolidation, and review capture in the skill-owned operating-system temp
+    session. Purge discarded options at selection and all remaining artifacts
+    at task close/cancel; recover `cleanup-pending` through retry/TTL. No
+    exploration artifact or sandbox source enters the repository.
+16. Run `check_before_change`, record the component decision, implement one
+    selected solution in one implementation worktree, validate with bounded
+    post-implementation captures, and rescan.
+17. Always return a compact `Memory candidates` closeout: `none`,
     `canonical-candidate`, `canonical-stored`, `local-only`, or `declined`.
     A canonical candidate includes evidence, scope, confidence, and one exact
     confirmation question. Local-only outcomes and empty closeouts do not ask
