@@ -24,6 +24,7 @@ import {
   assertMemoryContentSafe,
   parseMemoryMarkdown,
   type MemoryItem,
+  type MemoryProposal,
 } from "@component-atlas/memory";
 import {
   AtlasStore,
@@ -689,6 +690,28 @@ function databaseRecordKey(value: unknown): string {
   return digest(JSON.stringify(value));
 }
 
+function normalizedLegacyProposal(
+  proposal: MemoryProposal,
+  projectId: string,
+): MemoryProposal {
+  return {
+    ...proposal,
+    projectId,
+  };
+}
+
+function normalizedLegacyDecision(
+  decision: ComponentDecision,
+  projectId: string,
+  checkoutId: string,
+): ComponentDecision {
+  return {
+    ...decision,
+    projectId,
+    ...(decision.scope === "checkout" ? { checkoutId } : {}),
+  };
+}
+
 async function databaseSourceFiles(
   sourcePath: string,
 ): Promise<Array<{ path: string; suffix: string; hash: string }>> {
@@ -886,11 +909,39 @@ async function findLegacyDatabase(
       const currentDecisions = new Map(
         currentSnapshot?.componentDecisions.map((item) => [item.id, item]),
       );
-      let importableRecords =
-        sourceSnapshot.graph && !currentSnapshot?.graph ? 1 : 0;
+      const normalizedGraph = sourceSnapshot.graph
+        ? normalizedLegacyGraph(sourceSnapshot.graph, identity)
+        : undefined;
+      const normalizedMemory = sourceSnapshot.memoryItems.map((item) =>
+        normalizedLegacyMemory(
+          item,
+          identity.logicalId,
+          identity.checkoutId,
+        ),
+      );
+      const normalizedProposals = sourceSnapshot.memoryProposals.map((item) =>
+        normalizedLegacyProposal(item, identity.logicalId),
+      );
+      const normalizedDecisions = sourceSnapshot.componentDecisions.map((item) =>
+        normalizedLegacyDecision(
+          item,
+          identity.logicalId,
+          identity.checkoutId,
+        ),
+      );
+      let importableRecords = normalizedGraph && !currentSnapshot?.graph ? 1 : 0;
       let alreadyImportedRecords = 0;
-      let conflictingRecords =
-        sourceSnapshot.graph && currentSnapshot?.graph ? 1 : 0;
+      let conflictingRecords = 0;
+      if (normalizedGraph && currentSnapshot?.graph) {
+        if (
+          databaseRecordKey(normalizedGraph) ===
+          databaseRecordKey(currentSnapshot.graph)
+        ) {
+          alreadyImportedRecords += 1;
+        } else {
+          conflictingRecords += 1;
+        }
+      }
       const compare = <T>(
         sourceItems: T[],
         current: Map<string, T>,
@@ -914,17 +965,17 @@ async function findLegacyDatabase(
         (item) => item.file.key,
       );
       compare(
-        sourceSnapshot.memoryItems,
+        normalizedMemory,
         currentMemory,
         (item) => `${item.scope}:${item.checkoutId ?? ""}:${item.id}`,
       );
       compare(
-        sourceSnapshot.memoryProposals,
+        normalizedProposals,
         currentProposals,
         (item) => item.id,
       );
       compare(
-        sourceSnapshot.componentDecisions,
+        normalizedDecisions,
         currentDecisions,
         (item) => item.id,
       );
@@ -1056,10 +1107,9 @@ async function importDatabase(
     const proposalIds = new Set(current.memoryProposals.map((item) => item.id));
     for (const proposal of source.memoryProposals) {
       if (proposalIds.has(proposal.id)) continue;
-      target.saveMemoryProposal({
-        ...proposal,
-        projectId: identity.logicalId,
-      });
+      target.saveMemoryProposal(
+        normalizedLegacyProposal(proposal, identity.logicalId),
+      );
       imported += 1;
     }
     const decisionIds = new Set(
@@ -1067,13 +1117,13 @@ async function importDatabase(
     );
     for (const decision of source.componentDecisions) {
       if (decisionIds.has(decision.id)) continue;
-      target.saveDecision({
-        ...decision,
-        projectId: identity.logicalId,
-        ...(decision.scope === "checkout"
-          ? { checkoutId: identity.checkoutId }
-          : {}),
-      });
+      target.saveDecision(
+        normalizedLegacyDecision(
+          decision,
+          identity.logicalId,
+          identity.checkoutId,
+        ),
+      );
       imported += 1;
     }
   } finally {
