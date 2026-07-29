@@ -1180,6 +1180,27 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Project folder": "Carpeta del proyecto",
   "Atlas never uploads the project.": "Atlas nunca sube el proyecto.",
   "Folder missing": "Carpeta no encontrada",
+  "Remove {count} unavailable project":
+    "Quitar {count} proyecto no disponible",
+  "Remove {count} unavailable projects":
+    "Quitar {count} proyectos no disponibles",
+  "Remove link": "Quitar vínculo",
+  "Remove {name} from recent projects":
+    "Quitar {name} de los proyectos recientes",
+  "Removing this link keeps the repository and Project Atlas data untouched.":
+    "Quitar este vínculo no modifica el repositorio ni los datos de Project Atlas.",
+  "This only removes unavailable links from recent-projects.json. Repositories and Project Atlas data are not deleted.":
+    "Esto solo quita los vínculos no disponibles de recent-projects.json. No se eliminan repositorios ni datos de Project Atlas.",
+  "Project Atlas could not remove that recent-project relation.":
+    "Project Atlas no pudo quitar ese vínculo de proyecto reciente.",
+  "Project Atlas could not clean unavailable recent-project relations.":
+    "Project Atlas no pudo limpiar los vínculos de proyectos recientes no disponibles.",
+  "Choose a recent project relation to remove.":
+    "Elige un vínculo de proyecto reciente para quitarlo.",
+  "That recent project relation no longer exists.":
+    "Ese vínculo de proyecto reciente ya no existe.",
+  "Confirm before removing multiple unavailable recent-project relations.":
+    "Confirma antes de quitar varios vínculos de proyectos recientes no disponibles.",
   "Confirm local metrics deletion": "Confirmar eliminación de métricas locales",
   "This removes local content-free evaluation records. It cannot be undone.":
     "Esto elimina los registros locales de evaluación sin contenido. No se puede deshacer.",

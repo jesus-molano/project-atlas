@@ -17,7 +17,6 @@ flowchart LR
   E[Local episodic memory]
   P[Typed Project Memory]
   S[(SQLite in local app data)]
-  A[.component-atlas catalog and decisions]
   C[CLI context query]
   M[MCP context query]
   W[Complete local Project Atlas GUI]
@@ -38,7 +37,6 @@ flowchart LR
   H --> P
   E --> P
   P --> S
-  G --> A
   S --> C
   S --> M
   S --> W
@@ -213,8 +211,9 @@ and keeps a separate checkout ID for every clone/worktree path and branch
 snapshot. Repositories without a remote use their Git common directory; a
 non-Git directory falls back to its canonical path. `PROJECT_ATLAS_PROJECT_KEY`
 or `scan --project-key` provides an explicit override. The centralized
-`project.json` records that identity for diagnostics; a legacy repository-local
-artifact is read-only compatibility evidence.
+`project.json` records that identity for diagnostics. A legacy
+repository-local artifact is only a migration source; it is never a destination
+for current Atlas writes.
 
 The same database contains checkout-specific code graph snapshots, a
 project-level component catalog whose sightings retain checkout provenance, one
@@ -237,10 +236,11 @@ audits retain only content-free counts and source kinds. Component decisions def
 current checkout; promoting one to the logical project requires explicit user
 confirmation. See [Task intake and persistence scopes](task-intake-and-scopes.md).
 
-Older path-keyed databases are copied conservatively into the new logical scope
-only when the target scope is empty and the stored root matches the current
-checkout. Non-canonical memory is assigned to that checkout during the copy; it
-is not promoted to project scope. The old database is retained for recovery.
+Older path-keyed databases and repository-local `.component-atlas` content are
+imported only by the explicit `storage migrate` command. The source database is
+opened read-only, target conflicts are not overwritten, and non-canonical
+memory is assigned to the selected checkout rather than promoted to project
+scope. The old application-data database remains available for recovery.
 
 Code scans persist a bounded file-hash manifest per checkout. When Git HEAD and
 configuration are compatible, unchanged hashes are reused, changed component

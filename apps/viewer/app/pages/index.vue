@@ -145,13 +145,6 @@ interface WorkspaceSnapshot {
     provenance: "code-atlas" | "project-memory";
     updatedAt: string;
   }>;
-  localHealth: Array<{
-    id: string;
-    level: "warning";
-    title: string;
-    detail: string;
-    recommendation: string;
-  }>;
   risks: ProjectRisk[];
 }
 
@@ -186,6 +179,19 @@ const otherRecentProjects = computed(
       .filter((project) => project.rootPath !== activeRoot.value)
       .slice(0, 4) ?? [],
 );
+const unavailableRecentProjects = computed(
+  () => projects.value?.projects.filter((project) => !project.available) ?? [],
+);
+
+function unavailableRecentProjectActionLabel(): string {
+  const count = unavailableRecentProjects.value.length;
+  return t(
+    count === 1
+      ? "Remove {count} unavailable project"
+      : "Remove {count} unavailable projects",
+    { count },
+  );
+}
 const detachedWorktrees = computed(() =>
   detachedRepositoryWorktrees(projects.value?.repository),
 );
@@ -207,6 +213,9 @@ const projectPath = ref("");
 const projectSwitchPending = ref(false);
 const projectInspectPending = ref(false);
 const projectSwitchError = ref("");
+const recentProjectActionError = ref("");
+const recentProjectActionPending = ref("");
+const recentCleanupConfirmationOpen = ref(false);
 const projectPickerMessage = ref("");
 const projectPreview = ref<ProjectDestinationPreview>();
 const worktreePreview = ref<WorktreeCreationPreview>();
@@ -652,6 +661,59 @@ async function reviewProject(rootPath = projectPath.value): Promise<void> {
     );
   } finally {
     projectInspectPending.value = false;
+  }
+}
+
+async function unlinkRecentProject(rootPath: string): Promise<void> {
+  if (recentProjectActionPending.value) return;
+  recentProjectActionPending.value = rootPath;
+  recentProjectActionError.value = "";
+  try {
+    const session = await $fetch<{ token: string }>("/api/agent/session");
+    await $fetch("/api/projects/recent/unlink", {
+      method: "POST",
+      headers: { "x-atlas-session": session.token },
+      body: { rootPath },
+    });
+    await refreshProjects();
+  } catch (caught) {
+    recentProjectActionError.value = uiErrorMessage(
+      caught,
+      "Project Atlas could not remove that recent-project relation.",
+    );
+  } finally {
+    recentProjectActionPending.value = "";
+  }
+}
+
+async function requestUnavailableRecentCleanup(): Promise<void> {
+  if (unavailableRecentProjects.value.length > 1) {
+    recentCleanupConfirmationOpen.value = true;
+    return;
+  }
+  await cleanUnavailableRecentProjects();
+}
+
+async function cleanUnavailableRecentProjects(): Promise<void> {
+  if (recentProjectActionPending.value) return;
+  recentProjectActionPending.value = "all-unavailable";
+  recentProjectActionError.value = "";
+  try {
+    const session = await $fetch<{ token: string }>("/api/agent/session");
+    await $fetch("/api/projects/recent/prune", {
+      method: "POST",
+      headers: { "x-atlas-session": session.token },
+      body: { confirmed: true },
+    });
+    recentCleanupConfirmationOpen.value = false;
+    await refreshProjects();
+  } catch (caught) {
+    recentProjectActionError.value = uiErrorMessage(
+      caught,
+      "Project Atlas could not clean unavailable recent-project relations.",
+    );
+  } finally {
+    recentProjectActionPending.value = "";
   }
 }
 
@@ -1109,11 +1171,59 @@ onBeforeUnmount(() => {
           </button>
         </section>
         <div v-if="projects?.projects.length" class="recent-projects">
-          <header><h2>{{ t("Recent projects") }}</h2><span>{{ t("Stored only on this computer") }}</span></header>
-          <button
+          <header>
+            <div>
+              <h2>{{ t("Recent projects") }}</h2>
+              <span>{{ t("Stored only on this computer") }}</span>
+            </div>
+            <button
+              v-if="unavailableRecentProjects.length"
+              class="recent-cleanup-button"
+              :disabled="Boolean(recentProjectActionPending)"
+              @click="requestUnavailableRecentCleanup()"
+            >
+              {{ unavailableRecentProjectActionLabel() }}
+            </button>
+          </header>
+          <div
+            v-if="recentCleanupConfirmationOpen"
+            class="recent-cleanup-confirmation"
+            role="alert"
+          >
+            <p>
+              {{
+                t(
+                  "This only removes unavailable links from recent-projects.json. Repositories and Project Atlas data are not deleted.",
+                )
+              }}
+            </p>
+            <div>
+              <button
+                class="secondary-button"
+                :disabled="Boolean(recentProjectActionPending)"
+                @click="recentCleanupConfirmationOpen = false"
+              >
+                {{ t("Cancel") }}
+              </button>
+              <button
+                class="primary-button"
+                :disabled="Boolean(recentProjectActionPending)"
+                @click="cleanUnavailableRecentProjects()"
+              >
+                {{ unavailableRecentProjectActionLabel() }}
+              </button>
+            </div>
+          </div>
+          <div
             v-for="project in projects.projects"
             :key="project.rootPath"
-            :disabled="!project.available || projectSwitchPending || projectInspectPending"
+            class="recent-project-row"
+            :class="{ 'is-unavailable': !project.available }"
+          >
+          <button
+            v-if="project.available"
+            class="recent-project-open"
+            :disabled="projectSwitchPending || projectInspectPending"
             @click="reviewProject(project.rootPath)"
           >
             <AtlasIcon name="folder" />
@@ -1138,9 +1248,40 @@ onBeforeUnmount(() => {
                 }}
               </em>
             </span>
-            <time>{{ project.available ? formatDate(project.lastOpenedAt) : t("Folder missing") }}</time>
+            <time>{{ formatDate(project.lastOpenedAt) }}</time>
             <AtlasIcon name="arrow-right" />
           </button>
+            <template v-else>
+              <AtlasIcon name="folder" />
+              <span>
+                <strong :title="project.name">{{ project.name }}</strong>
+                <small :title="project.rootPath">{{ project.rootPath }}</small>
+                <em>
+                  {{
+                    t(
+                      "Removing this link keeps the repository and Project Atlas data untouched.",
+                    )
+                  }}
+                </em>
+              </span>
+              <time>{{ t("Folder missing") }}</time>
+              <button
+                class="recent-project-unlink"
+                :aria-label="
+                  t('Remove {name} from recent projects', {
+                    name: project.name,
+                  })
+                "
+                :disabled="Boolean(recentProjectActionPending)"
+                @click="unlinkRecentProject(project.rootPath)"
+              >
+                {{ t("Remove link") }}
+              </button>
+            </template>
+          </div>
+          <p v-if="recentProjectActionError" class="inline-error" role="alert">
+            {{ runtimeMessage(recentProjectActionError) }}
+          </p>
         </div>
         <div v-else class="launcher-empty">
           <AtlasIcon name="folder" />
@@ -1749,7 +1890,7 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'connections'" class="section-workspace">
           <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("System / Connections") }}</span><h1>{{ t("What evidence can Atlas actually reach?") }}</h1><p>{{ t("Connector state, optional capabilities, permissions, and cached evidence remain distinct.") }}</p></div><span class="heading-count">{{ t("Local-first") }}</span></header>
-          <LazyHealthView :sources="overview.data.sources" :capabilities="workspace.capabilities" :agent="workspace.agent" :root-path="overview.data.project.rootPath" :local-health="workspace.localHealth" @refreshed="refreshSnapshot" />
+          <LazyHealthView :sources="overview.data.sources" :capabilities="workspace.capabilities" :agent="workspace.agent" :root-path="overview.data.project.rootPath" @refreshed="refreshSnapshot" />
         </section>
 
         <section v-else class="section-workspace">

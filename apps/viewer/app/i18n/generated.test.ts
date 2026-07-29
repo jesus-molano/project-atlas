@@ -7,7 +7,6 @@ import type { SourceHealthViewModel } from "@component-atlas/runtime";
 import { describe, expect, it } from "vitest";
 import {
   localizeActionCenterItem,
-  localizeHealthFinding,
   localizeMemoryFinding,
   localizeSourceHealth,
 } from "./generated";
@@ -115,16 +114,4 @@ describe("generated Atlas copy localization", () => {
     expect(localizeSourceHealth(source, "en").detail).toBe(source.detail);
   });
 
-  it("localizes the known local-artifact finding while preserving tool names", () => {
-    const finding = {
-      id: "local-artifacts-formatter-scope",
-      title: "Local Atlas artifacts may enter formatter or lint scans",
-      detail: "Detected prettier and eslint without an Atlas-specific ignore entry.",
-      recommendation: "Add the ignore entry.",
-    };
-    const localized = localizeHealthFinding(finding, "es");
-    expect(localized.title).toContain("artefactos locales");
-    expect(localized.detail).toContain("prettier and eslint");
-    expect(localizeHealthFinding(finding, "en")).toEqual(finding);
-  });
 });

@@ -1,11 +1,9 @@
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { access, cp, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { projectId } from "../packages/core/src/naming.js";
-import { databasePath } from "../packages/store/src/index.js";
 import { normalizeProjectAtlasArguments } from "./project-atlas-arguments.mjs";
 
 const cliEntry = fileURLToPath(
@@ -17,6 +15,12 @@ const codeFixture = fileURLToPath(
 const figmaFixture = fileURLToPath(
   new URL("../fixtures/figma/personal-no-dev-mode.xml", import.meta.url),
 );
+const legacyFixture = fileURLToPath(
+  new URL(
+    "../fixtures/legacy-component-atlas/react-project",
+    import.meta.url,
+  ),
+);
 
 function cli(args: string[]) {
   return spawnSync(process.execPath, [cliEntry, ...args], {
@@ -27,20 +31,42 @@ function cli(args: string[]) {
 
 describe.sequential("CLI compact contracts", () => {
   let rootPath: string;
+  let storageHome: string;
+  let legacyHome: string;
+  let previousStorageHome: string | undefined;
+  let previousLegacyHome: string | undefined;
 
   beforeEach(async () => {
+    previousStorageHome = process.env.PROJECT_ATLAS_HOME;
+    previousLegacyHome = process.env.COMPONENT_ATLAS_HOME;
+    storageHome = await mkdtemp(
+      path.join(os.tmpdir(), "project-atlas-cli-storage-"),
+    );
+    legacyHome = await mkdtemp(
+      path.join(os.tmpdir(), "component-atlas-cli-storage-"),
+    );
+    process.env.PROJECT_ATLAS_HOME = storageHome;
+    process.env.COMPONENT_ATLAS_HOME = legacyHome;
     rootPath = await mkdtemp(path.join(os.tmpdir(), "project-atlas-cli-"));
     await cp(codeFixture, rootPath, { recursive: true });
     expect(cli(["scan", rootPath]).status).toBe(0);
   });
 
   afterEach(async () => {
+    if (previousStorageHome === undefined) {
+      delete process.env.PROJECT_ATLAS_HOME;
+    } else {
+      process.env.PROJECT_ATLAS_HOME = previousStorageHome;
+    }
+    if (previousLegacyHome === undefined) {
+      delete process.env.COMPONENT_ATLAS_HOME;
+    } else {
+      process.env.COMPONENT_ATLAS_HOME = previousLegacyHome;
+    }
     await Promise.all([
       rm(rootPath, { recursive: true, force: true }),
-      rm(path.dirname(databasePath(projectId(rootPath))), {
-        recursive: true,
-        force: true,
-      }),
+      rm(storageHome, { recursive: true, force: true }),
+      rm(legacyHome, { recursive: true, force: true }),
     ]);
   });
 
@@ -53,6 +79,68 @@ describe.sequential("CLI compact contracts", () => {
       "open",
       "C:\\work\\checkout",
     ]);
+    expect(
+      normalizeProjectAtlasArguments([
+        "storage",
+        "migrate",
+        rootPath,
+        "--dry-run",
+      ]),
+    ).toEqual(["storage", "migrate", rootPath, "--dry-run"]);
+    const migration = cli([
+      "storage",
+      "migrate",
+      rootPath,
+      "--dry-run",
+      "--json",
+    ]);
+    expect(migration.status).toBe(0);
+    expect(JSON.parse(migration.stdout)).toMatchObject({
+      mode: "dry-run",
+      state: "not-found",
+      source: { untouched: true },
+    });
+  });
+
+  it("migrates and removes a verified repository-local legacy directory", async () => {
+    const legacyRoot = await mkdtemp(
+      path.join(os.tmpdir(), "project-atlas-cli-legacy-"),
+    );
+    await cp(legacyFixture, legacyRoot, { recursive: true });
+    try {
+      const result = cli([
+        "storage",
+        "migrate",
+        legacyRoot,
+        "--apply",
+        "--remove-source",
+        "--json",
+      ]);
+      expect(result.status, result.stderr).toBe(0);
+      const report = JSON.parse(result.stdout);
+      expect(report).toMatchObject({
+        migration: {
+          mode: "apply",
+          state: "migrated",
+          source: { untouched: true },
+        },
+        cleanup: {
+          removedPath: path.join(legacyRoot, ".component-atlas"),
+          projectStorageDeleted: false,
+          repositoryDeleted: false,
+        },
+      });
+      await expect(
+        access(path.join(legacyRoot, ".component-atlas")),
+      ).rejects.toThrow();
+      await expect(
+        access(report.cleanup.projectStoragePath),
+      ).resolves.toBeUndefined();
+      await expect(access(path.join(legacyRoot, "package.json"))).resolves
+        .toBeUndefined();
+    } finally {
+      await rm(legacyRoot, { recursive: true, force: true });
+    }
   });
 
   it("enforces the reuse limit and shared response budget", () => {

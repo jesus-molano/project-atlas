@@ -66,9 +66,11 @@ gate, so decisions and constraints use those existing contracts.
 ## Locations and portability
 
 New canonical and local memory is written only below the single Project Atlas
-application-data root. Legacy repository-local `project-memory/` and
-`.component-atlas/memory/` Markdown remains readable for compatibility but is
-never rewritten or deleted automatically.
+application-data root. Legacy repository-local `project-memory/` remains
+readable as versioned project evidence. Legacy `.component-atlas/memory/` is
+imported with `pnpm atlas storage migrate <repo> --apply`; add
+`--remove-source` to delete the verified `.component-atlas` directory after
+import.
 
 The SQLite database is isolated by the repository's stable project ID. Use
 `pnpm atlas storage` to inspect its location and sizes. `memory index` remains

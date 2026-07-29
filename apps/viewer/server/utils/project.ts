@@ -6,7 +6,11 @@ import {
   resolveProjectIdentity,
   type ProjectAtlasSnapshot,
 } from "@component-atlas/runtime";
-import { AtlasStore } from "@component-atlas/store";
+import {
+  AtlasStore,
+  forgetRecentProject as forgetStoredRecentProject,
+  forgetRecentProjects as forgetStoredRecentProjects,
+} from "@component-atlas/store";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -24,6 +28,7 @@ const launchProjectRoot = process.env.ATLAS_PROJECT_ROOT
   ? canonicalFilesystemPath(process.env.ATLAS_PROJECT_ROOT)
   : undefined;
 let activeProjectRoot = launchProjectRoot;
+let launchProjectRootDismissed = false;
 
 export function projectRootPath(): string {
   // Embedded hosts and tests may assign the launch root after module loading.
@@ -31,7 +36,7 @@ export function projectRootPath(): string {
   // environment lazily so imports do not freeze an empty launch state.
   const rootPath =
     activeProjectRoot ??
-    (process.env.ATLAS_PROJECT_ROOT
+    (!launchProjectRootDismissed && process.env.ATLAS_PROJECT_ROOT
       ? canonicalFilesystemPath(process.env.ATLAS_PROJECT_ROOT)
       : undefined);
   if (!rootPath) {
@@ -120,6 +125,7 @@ export async function validateProjectRoot(inputPath: string): Promise<string> {
 
 export function setActiveProjectRoot(rootPath: string): void {
   activeProjectRoot = canonicalFilesystemPath(rootPath);
+  launchProjectRootDismissed = false;
 }
 
 async function readRecentProjectsFile(): Promise<RecentProjectsFile> {
@@ -212,6 +218,60 @@ export async function rememberRecentProject(rootPath: string): Promise<void> {
     "utf8",
   );
   await rename(temporaryPath, targetPath);
+}
+
+function dismissUnavailableActiveRoot(rootPaths: string[]): void {
+  if (
+    activeProjectRoot &&
+    rootPaths.some(
+      (rootPath) =>
+        normalizedPathKey(rootPath) ===
+        normalizedPathKey(activeProjectRoot!),
+    ) &&
+    !existsSync(activeProjectRoot)
+  ) {
+    if (
+      launchProjectRoot &&
+      normalizedPathKey(launchProjectRoot) ===
+        normalizedPathKey(activeProjectRoot)
+    ) {
+      launchProjectRootDismissed = true;
+    }
+    activeProjectRoot = undefined;
+  }
+}
+
+export async function unlinkRecentProject(rootPath: string): Promise<boolean> {
+  const current = await readRecentProjectsFile();
+  const match = current.projects.find(
+    (project) =>
+      normalizedPathKey(project.rootPath) === normalizedPathKey(rootPath),
+  );
+  if (!match) return false;
+  const removed = await forgetStoredRecentProject(match.rootPath);
+  if (removed) dismissUnavailableActiveRoot([match.rootPath]);
+  return removed;
+}
+
+export async function unlinkUnavailableRecentProjects(): Promise<number> {
+  const current = await readRecentProjectsFile();
+  const unavailable = current.projects
+    .filter((project) => !existsSync(project.rootPath))
+    .map((project) => project.rootPath);
+  if (
+    activeProjectRoot &&
+    !existsSync(activeProjectRoot) &&
+    !unavailable.some(
+      (rootPath) =>
+        normalizedPathKey(rootPath) === normalizedPathKey(activeProjectRoot!),
+    )
+  ) {
+    unavailable.push(activeProjectRoot);
+  }
+  if (unavailable.length === 0) return 0;
+  const removed = await forgetStoredRecentProjects(unavailable);
+  if (removed > 0) dismissUnavailableActiveRoot(unavailable);
+  return removed;
 }
 
 export function projectAtlasCliEntry(): string {

@@ -1,0 +1,7 @@
+{
+  "name": "legacy-atlas-react",
+  "private": true,
+  "dependencies": {
+    "react": "^19.0.0"
+  }
+}

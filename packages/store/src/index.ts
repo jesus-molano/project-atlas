@@ -35,6 +35,8 @@ export {
   PROJECT_ATLAS_HOME_ENV,
   PROJECT_ATLAS_STORAGE_VERSION,
   inspectProjectAtlasStorage,
+  forgetRecentProject,
+  forgetRecentProjects,
   legacyProjectAtlasStorageRoots,
   projectAtlasStorageRoot,
   projectAtlasTempRoot,
@@ -99,12 +101,21 @@ export class AtlasStore {
   readonly filePath: string;
   readonly database: DatabaseSync;
 
-  constructor(projectId: string) {
-    this.filePath = databasePath(projectId);
-    mkdirSync(path.dirname(this.filePath), { recursive: true });
-    this.database = new DatabaseSync(this.filePath);
-    this.database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-    this.migrate();
+  constructor(
+    projectId: string,
+    options: { filePath?: string; readOnly?: boolean } = {},
+  ) {
+    this.filePath = options.filePath ?? databasePath(projectId);
+    if (!options.readOnly) mkdirSync(path.dirname(this.filePath), { recursive: true });
+    this.database = new DatabaseSync(this.filePath, {
+      readOnly: options.readOnly ?? false,
+    });
+    if (options.readOnly) {
+      this.database.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON;");
+    } else {
+      this.database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+      this.migrate();
+    }
   }
 
   private migrate(): void {

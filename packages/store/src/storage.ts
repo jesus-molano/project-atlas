@@ -205,6 +205,42 @@ export async function rememberRecentProject(
   });
 }
 
+export async function forgetRecentProjects(
+  rootPaths: string[],
+  options: StorageRootOptions = {},
+): Promise<number> {
+  const pathKeys = new Set(
+    rootPaths
+      .map((rootPath) => rootPath.trim())
+      .filter(Boolean)
+      .map((rootPath) =>
+        path.resolve(rootPath).replaceAll("\\", "/").toLowerCase(),
+      ),
+  );
+  if (pathKeys.size === 0) return 0;
+  const projects = await readRecentProjects(options);
+  const next = projects.filter(
+    (project) =>
+      !pathKeys.has(
+        path.resolve(project.rootPath).replaceAll("\\", "/").toLowerCase(),
+      ),
+  );
+  const removed = projects.length - next.length;
+  if (removed === 0) return 0;
+  await atomicJson(recentProjectsPath(options), {
+    schemaVersion: PROJECT_ATLAS_STORAGE_VERSION,
+    projects: next,
+  });
+  return removed;
+}
+
+export async function forgetRecentProject(
+  rootPath: string,
+  options: StorageRootOptions = {},
+): Promise<boolean> {
+  return (await forgetRecentProjects([rootPath], options)) === 1;
+}
+
 async function directoryBytes(target: string): Promise<number> {
   let targetStat;
   try {

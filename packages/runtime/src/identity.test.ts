@@ -10,6 +10,7 @@ import {
   resolveProjectIdentity,
 } from "./identity.js";
 import { loadProjectGraph, scanProject } from "./index.js";
+import { migrateLegacyProjectStorage } from "./legacy-migration.js";
 
 const temporary: string[] = [];
 
@@ -137,7 +138,7 @@ describe("stable project identity", () => {
     expect(overridden.logicalId).not.toBe(local.logicalId);
   }, 15_000);
 
-  it("copies a matching legacy path scope without deleting the recovery database", async () => {
+  it("does not copy a matching legacy path scope until migration is explicit", async () => {
     const root = await repository(
       "legacy-project",
       "https://github.com/example/legacy-project.git",
@@ -186,9 +187,44 @@ describe("stable project identity", () => {
     } finally {
       legacy.close();
     }
+    await mkdir(path.join(root, ".component-atlas"), { recursive: true });
+    await writeFile(
+      path.join(root, ".component-atlas", "project.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: GRAPH_SCHEMA_VERSION,
+          project: {
+            id: legacyId,
+            name: "legacy-project",
+            rootPath: root,
+            framework: "vue",
+            scannedAt: now,
+            sourceFiles: 0,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
 
     const graph = await scanProject(root, { writeArtifacts: false });
     expect(graph.project.id).not.toBe(legacyId);
+    const beforeMigration = new AtlasStore(graph.project.id);
+    try {
+      expect(
+        beforeMigration.listMemoryItems(
+          graph.project.id,
+          graph.project.identity?.checkoutId,
+        ),
+      ).toEqual([]);
+    } finally {
+      beforeMigration.close();
+    }
+    expect(databaseExists(legacyId)).toBe(true);
+
+    const report = await migrateLegacyProjectStorage(root, { mode: "apply" });
+    expect(report.source.legacyDatabasePath).toContain(legacyId);
     const migrated = new AtlasStore(graph.project.id);
     try {
       expect(

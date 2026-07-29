@@ -51,12 +51,10 @@ import {
 } from "@component-atlas/design";
 import {
   AtlasStore,
-  databaseExists,
   projectStorageDirectory,
   rememberRecentProject,
 } from "@component-atlas/store";
 import { resolveProjectIdentity } from "./identity.js";
-import { filesystemPathsEquivalent } from "./path-identity.js";
 import { detectProjectProfile } from "./profile.js";
 
 export { detectProjectProfile } from "./profile.js";
@@ -82,6 +80,16 @@ export {
   filesystemPathKey,
   filesystemPathsEquivalent,
 } from "./path-identity.js";
+export {
+  migrateLegacyProjectStorage,
+  parseLegacyDecisionMarkdown,
+  removeMigratedLegacyProjectStorage,
+  type LegacyMigrationCategory,
+  type LegacyMigrationCategoryReport,
+  type LegacyMigrationMode,
+  type LegacyProjectCleanupReport,
+  type LegacyProjectMigrationReport,
+} from "./legacy-migration.js";
 export {
   extractOpenApiTaskContext,
   loadConfirmedOpenApiContext,
@@ -716,85 +724,6 @@ async function scanProfileComponents(
   return { components, coverage };
 }
 
-async function migrateLegacyProject(
-  rootPath: string,
-  identity: Awaited<ReturnType<typeof resolveProjectIdentity>>,
-): Promise<void> {
-  if (
-    identity.logicalId === identity.legacyPathId ||
-    !databaseExists(identity.legacyPathId)
-  ) {
-    return;
-  }
-  if (databaseExists(identity.logicalId)) {
-    const current = new AtlasStore(identity.logicalId);
-    try {
-      if (current.loadGraph(identity.logicalId)) return;
-    } finally {
-      current.close();
-    }
-  }
-  const legacy = new AtlasStore(identity.legacyPathId);
-  try {
-    const snapshot = legacy.readProjectSnapshot(
-      identity.legacyPathId,
-      undefined,
-      { includeAllMemory: true },
-    );
-    if (
-      !snapshot.graph ||
-      !filesystemPathsEquivalent(snapshot.graph.project.rootPath, rootPath)
-    ) {
-      return;
-    }
-    const target = new AtlasStore(identity.logicalId);
-    try {
-      const {
-        legacyPathId: _legacyPathId,
-        ...identityMetadata
-      } = identity;
-      const graph: ComponentGraph = {
-        ...snapshot.graph,
-        project: {
-          ...snapshot.graph.project,
-          id: identity.logicalId,
-          rootPath,
-          identity: identityMetadata,
-        },
-      };
-      target.replaceGraph(graph);
-      for (const index of snapshot.designIndexes) {
-        target.saveDesignIndex(identity.logicalId, index);
-      }
-      for (const item of snapshot.memoryItems) {
-        target.saveMemoryItem(identity.logicalId, {
-          ...item,
-          projectId: identity.logicalId,
-          ...(item.scope === "canonical"
-            ? {}
-            : { checkoutId: identity.checkoutId }),
-        });
-      }
-      for (const proposal of snapshot.memoryProposals) {
-        target.saveMemoryProposal({
-          ...proposal,
-          projectId: identity.logicalId,
-        });
-      }
-      for (const decision of snapshot.componentDecisions) {
-        target.saveDecision({
-          ...decision,
-          projectId: identity.logicalId,
-        });
-      }
-    } finally {
-      target.close();
-    }
-  } finally {
-    legacy.close();
-  }
-}
-
 export async function scanProject(
   inputPath: string,
   options: ScanProjectOptions = {},
@@ -805,7 +734,6 @@ export async function scanProject(
     fresh: true,
   });
   const rootPath = identity.worktreePath;
-  await migrateLegacyProject(rootPath, identity);
   throwIfAborted(options.signal);
   const manifest = await packageJson(rootPath);
   let profile: ProjectProfile;
@@ -1047,7 +975,6 @@ export async function loadProjectGraph(
   const identity = await resolveProjectIdentity(inputPath, {
     ...(options.projectKey ? { projectKey: options.projectKey } : {}),
   });
-  await migrateLegacyProject(identity.worktreePath, identity);
   const store = new AtlasStore(identity.logicalId);
   try {
     const graph = store.loadGraph(identity.logicalId, identity.checkoutId);
