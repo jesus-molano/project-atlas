@@ -3,7 +3,9 @@ import {
   assertPublicRemoteUrl,
   assertSameOriginTransition,
   canonicalizePublicOpenApiReference,
+  pinnedAddressLookup,
   privateNetworkAddress,
+  readPublicDocument,
   type PublicDocumentLoader,
 } from "./openapi-source.js";
 
@@ -159,5 +161,41 @@ describe("secure Swagger UI canonicalization", () => {
     await expect(
       assertPublicRemoteUrl("https://api.example.com:8443/openapi.json"),
     ).rejects.toThrow(/standard HTTP/i);
+  });
+
+  it("returns the pinned address in both Node lookup modes", async () => {
+    const lookup = pinnedAddressLookup({
+      address: "93.184.216.34",
+      family: 4,
+    });
+    await expect(
+      new Promise((resolve, reject) =>
+        lookup("api.example.com", { all: true }, (error, addresses) =>
+          error ? reject(error) : resolve(addresses),
+        ),
+      ),
+    ).resolves.toEqual([{ address: "93.184.216.34", family: 4 }]);
+    await expect(
+      new Promise((resolve, reject) =>
+        lookup(
+          "api.example.com",
+          { all: false },
+          (error, address, family) =>
+            error ? reject(error) : resolve({ address, family }),
+        ),
+      ),
+    ).resolves.toEqual({ address: "93.184.216.34", family: 4 });
+  });
+
+  it("keeps the failing OpenAPI target in safe retrieval diagnostics", async () => {
+    await expect(
+      readPublicDocument(
+        "https://api.example.com/openapi.json",
+        undefined,
+        async () => [{ address: "127.0.0.1", family: 4 }],
+      ),
+    ).rejects.toThrow(
+      /OpenAPI retrieval failed for https:\/\/api\.example\.com\/openapi\.json: Private network/u,
+    );
   });
 });

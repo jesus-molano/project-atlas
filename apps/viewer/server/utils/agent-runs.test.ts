@@ -223,6 +223,14 @@ describe.sequential("viewer agent run ownership", () => {
           state: "confirmed",
           required: true,
         },
+        {
+          id: "source-github-secondary",
+          kind: "github",
+          reference: "https://github.com/example/reference",
+          origin: "explicit",
+          state: "confirmed",
+          required: false,
+        },
       ],
       expectedFingerprint: snapshot.fingerprint,
     });
@@ -240,7 +248,15 @@ describe.sequential("viewer agent run ownership", () => {
         truncated: false,
       },
       sources: [{ kind: "figma", value: reference }],
+      sourceDecisions: [
+        expect.objectContaining({
+          kind: "figma",
+          reference,
+          state: "confirmed",
+        }),
+      ],
     });
+    expect(adapter.request?.sourceDecisions).toHaveLength(1);
     expect(adapter.request?.compactContext).not.toContain("components");
     expect(getAgentRun(started.id)).toMatchObject({
       purpose: "figma-sync",

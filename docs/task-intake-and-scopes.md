@@ -14,11 +14,14 @@ inspect and record the same structured intake before context generation:
    new high-risk task first gets one grouped Jira, Confluence, Figma, and
    OpenAPI/Swagger source confirmation before repository investigation, even
    when no reference or connector was detected. Each source can be confirmed,
-   supplied/replaced, or explicitly omitted.
+   supplied/replaced, explicitly omitted, or delegated to Codex as an external
+   resolution without claiming Atlas retrieval.
 4. Every detected Jira, Confluence, Figma, GitHub, OpenAPI/Swagger, or other
    reference starts `pending`. Task wording never auto-confirms a contract.
-5. The user confirms it, replaces/adds a source, omits it, or marks it
-   unavailable. Optional omitted sources never block the task.
+5. The user confirms it, replaces/adds a source, omits it, marks it
+   unavailable, or records that it will be resolved externally in Codex.
+   Optional omitted or externally resolved sources never block the task and
+   never enter Atlas context as if they had been retrieved.
 6. Only confirmed sources enter task context or authorize connector access;
    connector health, credentials, and searches are not probed beforehand.
    OpenAPI is loaded only after confirmation; Atlas extracts a bounded
@@ -36,7 +39,9 @@ inspect and record the same structured intake before context generation:
 8. Editing requires a second confirmation and resumes the same reviewed thread
    with checkout write permission.
 
-The task draft and active run remain in browser/in-memory state. Atlas stores
+The task draft, durable errors, source ledger, and active run identity are
+mirrored in browser-local state so the sidecar can recover after navigation or
+an app restart. Atlas also stores
 the complete task source ledger and bounded task state outside every checkout
 under `%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\task-state\`. The
 append-only journal contains semantic milestones, while one materialized
@@ -82,7 +87,8 @@ never promoted to canonical memory as a migration side effect.
 
 ## Fallbacks
 
-- A missing optional connector resolves as `unavailable` or `omitted`.
+- A missing optional connector resolves as `unavailable`, `omitted`, or
+  `external` when the user explicitly chooses to resolve it in Codex.
 - An active task can resume from its bounded capsule without replaying chat or
   indexes. After capsule expiry, start a new read-only intake; the minimal final
   receipt is traceability, not enough to infer prior decisions.

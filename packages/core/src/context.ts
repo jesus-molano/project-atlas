@@ -245,10 +245,42 @@ export function buildReuseContext(
     throw new Error("Reuse context requires a non-empty implementation intent.");
   }
   const candidateLimit = boundedLimit(limit, 3, 5);
-  const candidates = searchComponents(graph, normalizedIntent, candidateLimit).map(
-    (result, index) =>
-      candidateContext(graph, result.component, index + 1, result.reasons),
+  const exclusions = [
+    ...normalizedIntent.matchAll(
+      /(?:\bexclude\b|\bexcluding\b|\bexcept\b|\bwithout\b|\bdo not touch\b|\bdon't touch\b|\boutside (?:the )?scope\b|\bfuera de alcance\b|\bsin\b)\s+([^,.;]+)/giu,
+    ),
+  ].flatMap((match) =>
+    (match[1] ?? "")
+      .split(/\s+/u)
+      .map((term) => term.toLowerCase().replace(/[^\p{L}\p{N}_-]/gu, ""))
+      .filter(
+        (term) =>
+          term.length > 2 &&
+          !["and", "con", "del", "from", "the", "todo", "touch"].includes(term),
+      ),
   );
+  const candidates = searchComponents(
+    graph,
+    normalizedIntent,
+    Math.min(50, Math.max(candidateLimit * 4, candidateLimit)),
+  )
+    .filter((result) => {
+      if (exclusions.length === 0) return true;
+      const searchable = [
+        result.component.name,
+        result.component.effectiveName,
+        result.component.relativePath,
+        ...result.component.imports,
+        ...result.component.renderedNames,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return !exclusions.some((term) => searchable.includes(term));
+    })
+    .slice(0, candidateLimit)
+    .map((result, index) =>
+      candidateContext(graph, result.component, index + 1, result.reasons),
+    );
 
   const top = candidates[0];
   const nextActions = top

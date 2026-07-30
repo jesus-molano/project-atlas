@@ -170,6 +170,12 @@ export async function recordContextCostAudit(
     truncated: input.interaction?.truncated ?? false,
     completed: input.interaction?.completed ?? false,
     reworkRequired: input.interaction?.reworkRequired ?? false,
+    ...(input.interaction?.runId
+      ? { runId: input.interaction.runId }
+      : {}),
+    ...(input.interaction?.terminalState
+      ? { terminalState: input.interaction.terminalState }
+      : {}),
   };
   const estimated = Math.ceil(
     (
@@ -271,6 +277,10 @@ function reportGroup(
   return {
     taskType,
     runs: records.length,
+    sdkRuns: records.filter((record) => record.tokens.source === "sdk").length,
+    estimatedRuns: records.filter(
+      (record) => record.tokens.source === "character-fallback",
+    ).length,
     inputTokens: distribution(records.map((record) => record.tokens.input)),
     cachedInputTokens: distribution(
       records.map((record) => record.tokens.cachedInput),
@@ -397,6 +407,16 @@ function portableRecord(
       "delegationOutputChars",
     ),
   };
+  if (
+    (record.interaction?.runId &&
+      !/^[A-Za-z0-9_.:-]{8,160}$/u.test(record.interaction.runId)) ||
+    (record.interaction?.terminalState &&
+      !["completed", "failed", "cancelled", "awaiting-input"].includes(
+        record.interaction.terminalState,
+      ))
+  ) {
+    throw new Error("Portable context-cost run linkage is invalid.");
+  }
   const interaction: ContextCostAuditRecord["interaction"] = {
     questionCount: bounded(
       record.interaction?.questionCount,
@@ -411,6 +431,16 @@ function portableRecord(
     truncated: record.interaction?.truncated === true,
     completed: record.interaction?.completed === true,
     reworkRequired: record.interaction?.reworkRequired === true,
+    ...(record.interaction?.runId &&
+    /^[A-Za-z0-9_.:-]{8,160}$/u.test(record.interaction.runId)
+      ? { runId: record.interaction.runId }
+      : {}),
+    ...(record.interaction?.terminalState &&
+    ["completed", "failed", "cancelled", "awaiting-input"].includes(
+      record.interaction.terminalState,
+    )
+      ? { terminalState: record.interaction.terminalState }
+      : {}),
   };
   if (!["sdk", "character-fallback"].includes(record.tokens?.source)) {
     throw new Error("Portable context-cost token source is invalid.");

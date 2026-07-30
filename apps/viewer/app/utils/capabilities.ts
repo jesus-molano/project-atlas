@@ -11,7 +11,14 @@ export function isSimulatedCapability(
 export function capabilityDisplayState(
   capability: Pick<CapabilityObservation, "state" | "detail">,
 ): string {
-  return isSimulatedCapability(capability)
-    ? `simulated ${capability.state}`
-    : capability.state;
+  if (isSimulatedCapability(capability)) {
+    return `simulated ${capability.state}`;
+  }
+  if (capability.state === "unknown") {
+    return "not reported in this session";
+  }
+  if (/\bcache\b/i.test(capability.detail ?? "")) {
+    return "local cache; state and freshness reported separately";
+  }
+  return capability.state;
 }

@@ -5,6 +5,7 @@ import {
   ACTION_CENTER_SCHEMA_VERSION,
   GRAPH_SCHEMA_VERSION,
   type ActionCenterMutation,
+  type AgentRunAuditRecord,
   type ComponentGraph,
   type ProjectCapabilityReport,
 } from "@component-atlas/core";
@@ -216,5 +217,49 @@ describe("Action Center server orchestration", () => {
     } finally {
       store.close();
     }
+  });
+
+  it("keeps failed and cancelled Codex runs discoverable by exact run ID", () => {
+    const run = (state: "failed" | "cancelled"): AgentRunAuditRecord => ({
+      schemaVersion: 2,
+      id: `run-${state}-fixture`,
+      projectId: "project",
+      checkoutId: "checkout",
+      startedAt: capturedAt,
+      updatedAt: capturedAt,
+      mode: "prepare",
+      state,
+      sourceKinds: [],
+      selectedKinds: [],
+      sandbox: "read-only",
+      budgetChars: 3_600,
+      contextChars: 1_200,
+      estimatedTokens: 300,
+      truncated: false,
+      eventCount: 2,
+      questionCount: 0,
+      stale: false,
+    });
+    const snapshot = buildActionCenterSnapshot(
+      fixtureSnapshot(),
+      capabilities(),
+      [run("failed"), run("cancelled")],
+      [],
+    );
+
+    expect(snapshot.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          runId: "run-failed-fixture",
+          type: "risk",
+          blocking: true,
+        }),
+        expect.objectContaining({
+          runId: "run-cancelled-fixture",
+          type: "warning",
+          blocking: false,
+        }),
+      ]),
+    );
   });
 });

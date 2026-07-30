@@ -139,7 +139,13 @@ export interface AgentSourceDecision {
   kind: AgentSourceKind;
   reference: string;
   origin: "explicit" | "inferred" | "manual";
-  state: "pending" | "confirmed" | "omitted" | "unavailable" | "replaced";
+  state:
+    | "pending"
+    | "confirmed"
+    | "omitted"
+    | "unavailable"
+    | "external"
+    | "replaced";
   required: boolean;
   replacementFor?: string;
   parentSourceId?: string;

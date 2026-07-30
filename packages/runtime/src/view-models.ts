@@ -482,7 +482,7 @@ export function buildProjectSearchViewModel(
     normalizedQuery,
     limitPerSource,
   );
-  const code: ProjectSearchResultViewModel[] = codeCandidates.map(
+  const componentCode: ProjectSearchResultViewModel[] = codeCandidates.map(
     (candidate) => ({
       id: candidate.component.id,
       source: "code",
@@ -502,6 +502,70 @@ export function buildProjectSearchViewModel(
       ],
     }),
   );
+  const loweredQuery = normalizedQuery.toLowerCase();
+  const entityCode: ProjectSearchResultViewModel[] = (snapshot.graph.entities ?? [])
+    .map((entity) => {
+      const endpoint = [
+        entity.endpoint?.method,
+        entity.endpoint?.path,
+        entity.endpoint?.operationId,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const reasons = [
+        entity.name.toLowerCase() === loweredQuery ? "exact name" : undefined,
+        entity.relativePath.toLowerCase() === loweredQuery ||
+        entity.relativePath.split("/").at(-1)?.toLowerCase() === loweredQuery
+          ? "exact path"
+          : undefined,
+        entity.name.toLowerCase().includes(loweredQuery) ? "name" : undefined,
+        entity.relativePath.toLowerCase().includes(loweredQuery)
+          ? "path"
+          : undefined,
+        endpoint.toLowerCase().includes(loweredQuery) ? "endpoint" : undefined,
+      ].filter((reason): reason is string => Boolean(reason));
+      const score =
+        (reasons.includes("exact path") ? 102 : 0) +
+        (reasons.includes("exact name") ? 100 : 0) +
+        (reasons.includes("name") ? 12 : 0) +
+        (reasons.includes("path") ? 8 : 0) +
+        (reasons.includes("endpoint") ? 6 : 0);
+      return {
+        entity,
+        reasons,
+        score,
+      };
+    })
+    .filter((candidate) => candidate.score > 0)
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.entity.relativePath.localeCompare(right.entity.relativePath),
+    )
+    .map(({ entity, reasons, score }) => ({
+      id: entity.id,
+      source: "code" as const,
+      kind: entity.kind,
+      title: entity.name,
+      subtitle: entity.relativePath,
+      score,
+      reasons: reasons.slice(0, 3),
+      target: { section: "code" as const, id: entity.id },
+      provenance: [
+        {
+          source: "repository" as const,
+          label: entity.relativePath,
+          updatedAt: snapshot.graph.project.scannedAt,
+          stale: false,
+        },
+      ],
+    }));
+  const code = [...componentCode, ...entityCode]
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.title.localeCompare(right.title),
+    )
+    .slice(0, limitPerSource);
   const codeSignals = code.map((result) => result.title);
   const design: ProjectSearchResultViewModel[] = snapshot.designIndexes
     .flatMap((index) =>

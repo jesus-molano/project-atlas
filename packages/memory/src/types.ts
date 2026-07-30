@@ -160,6 +160,7 @@ export interface MemoryProposalReviewItem {
   title: string;
   scope: MemoryScope;
   path: string;
+  absolutePath: string;
   supersedes: string[];
 }
 
@@ -181,6 +182,7 @@ export interface MemoryProposalReview {
       | "atlas-storage/memory/canonical"
       | ".component-atlas/memory"
       | "project-memory";
+    absoluteDirectory: string;
     itemCount: number;
     supersededIds: string[];
     items: MemoryProposalReviewItem[];

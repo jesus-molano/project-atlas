@@ -64,7 +64,11 @@ describe("content-free context cost audits", () => {
       taskType: "small",
       recordedAt: "2026-01-01T00:00:00.000Z",
       context: { promptChars: 4_000, compactContextChars: 1_200 },
-      interaction: { completed: true },
+      interaction: {
+        completed: true,
+        runId: "run-small-0001",
+        terminalState: "completed",
+      },
       usage: {
         inputTokens: 1_000,
         cachedInputTokens: 600,
@@ -109,9 +113,15 @@ describe("content-free context cost audits", () => {
       cachedInput: 600,
       output: 120,
     });
+    expect(records[2]?.interaction).toMatchObject({
+      runId: "run-small-0001",
+      terminalState: "completed",
+    });
     const report = await contextCostReport(root);
     expect(report.groups.find((group) => group.taskType === "all")).toMatchObject({
       runs: 3,
+      sdkRuns: 2,
+      estimatedRuns: 1,
       inputTokens: {
         count: 3,
         median: 3_000,

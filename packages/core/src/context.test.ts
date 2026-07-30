@@ -176,6 +176,40 @@ describe("reuse context", () => {
     expect(() => buildReuseContext(graph, "   ")).toThrow("non-empty");
   });
 
+  it("prefers exact paths and respects explicit exclusions", () => {
+    const profile = component("ProfileSecurityPanel", "feature", []);
+    const login = component("LoginChallenge", "feature", []);
+    const graph: ComponentGraph = {
+      schemaVersion: GRAPH_SCHEMA_VERSION,
+      project: {
+        id: "scope-fixture",
+        name: "scope-fixture",
+        rootPath: "/fixture",
+        framework: "vue",
+        scannedAt: new Date(0).toISOString(),
+        sourceFiles: 2,
+      },
+      components: [login, profile],
+      edges: buildGraphEdges([login, profile]),
+      tokens: [],
+    };
+
+    expect(searchComponentContext(graph, "LoginChallenge.vue", 5)).toEqual([
+      expect.objectContaining({
+        component: expect.objectContaining({ name: "LoginChallenge" }),
+        reasons: ["exact path"],
+      }),
+    ]);
+    const reuse = buildReuseContext(
+      graph,
+      "profile security panel, excluding login challenge",
+      3,
+    );
+    expect(reuse.candidates.map((item) => item.component.name)).toEqual([
+      "ProfileSecurityPanel",
+    ]);
+  });
+
   it("keeps one login challenge primary and Backoffice reference-only", () => {
     const otp = component("OtpInput", "public", []);
     const login = component(

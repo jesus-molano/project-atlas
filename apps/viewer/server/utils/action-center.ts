@@ -288,7 +288,7 @@ function designItems(snapshot: ProjectAtlasSnapshot): ActionCenterItem[] {
   );
 }
 
-function awaitingRunItems(
+function agentRunItems(
   snapshot: ProjectAtlasSnapshot,
   runs: AgentRunAuditRecord[],
 ): ActionCenterItem[] {
@@ -297,37 +297,63 @@ function awaitingRunItems(
       (run) =>
         run.projectId === snapshot.graph.project.id &&
         run.checkoutId === checkoutId(snapshot) &&
-        run.state === "awaiting-input",
+        ["awaiting-input", "failed", "cancelled"].includes(run.state),
     )
     .map((run) => {
+      const awaiting = run.state === "awaiting-input";
+      const failed = run.state === "failed";
       const evidence: ActionEvidenceHandle[] = [{
         id: run.id,
         source: "agent",
         label: `Run ${run.id.slice(0, 8)}`,
         handle: `agent:${run.id}`,
-        summary: `Awaiting one material answer · ${run.contextChars}/${run.budgetChars} context characters.`,
+        summary: `${
+          awaiting
+            ? "Awaiting one material answer"
+            : failed
+              ? "Run failed and remains recoverable by ID"
+              : "Run cancelled with its checkpoint retained"
+        } · ${run.contextChars}/${run.budgetChars} context characters.`,
         observedAt: run.updatedAt,
       }];
       return baseItem(snapshot, {
-        id: `run-decision:${run.id}`,
-        type: "decision-required",
-        state: "awaiting-decision",
-        severity: "high",
-        blocking: true,
-        title: "Codex is waiting for a project decision",
+        id: `run-${run.state}:${run.id}`,
+        type: awaiting ? "decision-required" : failed ? "risk" : "warning",
+        state: awaiting ? "awaiting-decision" : "new",
+        severity: awaiting || failed ? "high" : "info",
+        blocking: awaiting || failed,
+        title: awaiting
+          ? "Codex is waiting for a project decision"
+          : failed
+            ? "A Codex task failed and needs review"
+            : "A Codex task was cancelled safely",
         detected:
-          "The originating run completed with needs-input and remains bound to this checkout.",
+          awaiting
+            ? "The originating run completed with needs-input and remains bound to this checkout."
+            : failed
+              ? "The terminal run audit retained the failure, confirmed sources, and task identity."
+              : "Cancellation reached a terminal state and retained the run audit.",
         whyItMatters:
-          "Only a human answer can unblock this run; starting or resuming another run would lose provenance.",
+          awaiting
+            ? "Only a human answer can unblock this run; starting or resuming another run would lose provenance."
+            : "The run can be recovered or investigated without recreating its source ledger from memory.",
         affectedTask: `Originating Codex run ${run.id.slice(0, 8)}`,
-        consequence: "The originating task remains paused.",
+        consequence: awaiting
+          ? "The originating task remains paused."
+          : failed
+            ? "The originating task did not complete."
+            : "No further execution will occur unless the task is explicitly resumed.",
         recommendation:
-          "Record a concise answer and continue this exact run, or postpone it with explicit scope.",
+          awaiting
+            ? "Record a concise answer and continue this exact run, or postpone it with explicit scope."
+            : failed
+              ? "Open the exact Codex task, review the terminal error, and resume from its checkpoint only after confirming current scope."
+              : "Mark reviewed, or resume this exact task if the cancelled work is still required.",
         source: "agent",
         provenance: [{
           source: "agent",
           canonicalId: run.id,
-          rule: "agent-run-needs-input",
+          rule: `agent-run-${run.state}`,
           observedAt: run.updatedAt,
         }],
         evidence,
@@ -403,7 +429,7 @@ export function buildActionCenterSnapshot(
 ): ActionCenterSnapshot {
   const projected = [
     ...contradictionItems(snapshot),
-    ...awaitingRunItems(snapshot, runs),
+    ...agentRunItems(snapshot, runs),
     ...designItems(snapshot),
     ...memoryRiskItems(snapshot),
     ...missingEvidenceItems(snapshot, capabilities),

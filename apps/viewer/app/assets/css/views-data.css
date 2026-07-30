@@ -378,6 +378,40 @@
   scrollbar-width: thin;
 }
 
+.entity-group-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 7px 6px;
+  color: var(--atlas-ink-faint);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.entity-selection-card {
+  display: grid;
+  gap: 5px;
+  margin: 6px;
+  padding: 12px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: 8px;
+  background: var(--atlas-selection-soft);
+}
+
+.entity-selection-card code,
+.entity-selection-card small {
+  overflow-wrap: anywhere;
+  color: var(--atlas-ink-faint);
+  font-size: 0.72rem;
+}
+
+.entity-selection-card > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .component-row,
 .entity-list > button {
   width: 100%;

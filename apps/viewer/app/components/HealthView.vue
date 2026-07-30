@@ -150,13 +150,20 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
         <span class="health-orb connected" />
         <div>
           <strong>{{ t("Context cost audit") }}</strong>
-          <p>{{ t("{count} measured runs", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.runs ?? 0) }) }}</p>
+          <p>{{ t("{count} instrumented records", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.runs ?? 0) }) }}</p>
           <small>
             {{ t("Median input") }}:
             {{ t("{count} tokens", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.inputTokens.median ?? 0) }) }}
-            Â·
+            ·
             {{ t("P95 input") }}:
             {{ t("{count} tokens", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.inputTokens.p95 ?? 0) }) }}
+            ·
+            {{
+              t("{actual} actual / {estimated} estimated", {
+                actual: contextCost.groups.find((group) => group.taskType === "all")?.sdkRuns ?? 0,
+                estimated: contextCost.groups.find((group) => group.taskType === "all")?.estimatedRuns ?? 0,
+              })
+            }}
           </small>
         </div>
         <span class="status-chip">{{ t("Local-first") }}</span>

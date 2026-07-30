@@ -305,6 +305,7 @@ export interface AgentRunAuditRecord {
     confirmed: number;
     omitted: number;
     unavailable: number;
+    external?: number;
     replaced: number;
   };
   selectedKinds: Array<"code" | "design" | "memory">;
@@ -328,6 +329,8 @@ export interface AgentRunAuditRecord {
 }
 
 export type FrontendEntityKind =
+  | "module"
+  | "service"
   | "composable"
   | "store"
   | "endpoint"
@@ -442,6 +445,8 @@ export interface ContextCostAuditRecord {
     truncated: boolean;
     completed: boolean;
     reworkRequired: boolean;
+    runId?: string;
+    terminalState?: "completed" | "failed" | "cancelled" | "awaiting-input";
   };
   tokens: {
     source: ContextCostTokenSource;
@@ -461,6 +466,8 @@ export interface ContextCostDistribution {
 export interface ContextCostReportGroup {
   taskType: ContextCostTaskType | "all";
   runs: number;
+  sdkRuns: number;
+  estimatedRuns: number;
   inputTokens: ContextCostDistribution;
   cachedInputTokens: ContextCostDistribution;
   outputTokens: ContextCostDistribution;

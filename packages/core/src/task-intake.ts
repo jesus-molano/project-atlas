@@ -35,6 +35,7 @@ export type TaskSourceState =
   | "confirmed"
   | "omitted"
   | "unavailable"
+  | "external"
   | "replaced";
 export type TaskSourceAuthorityRole =
   | "requirement"
@@ -108,6 +109,7 @@ export interface TaskContextSourcePolicy {
   confirmedKinds: TaskSourceKind[];
   omittedKinds: TaskSourceKind[];
   unavailableKinds: TaskSourceKind[];
+  externalKinds: TaskSourceKind[];
   routes?: Array<{
     sourceDecisionId: string;
     authorityRole: TaskSourceAuthorityRole;
@@ -136,6 +138,7 @@ const TASK_SOURCE_STATES: TaskSourceState[] = [
   "confirmed",
   "omitted",
   "unavailable",
+  "external",
   "replaced",
 ];
 const MAX_TASK_SOURCES = 12;
@@ -183,8 +186,47 @@ function normalizedReference(value: string): string {
   return value.trim().replace(/[\]),.;!?}]+$/u, "");
 }
 
+function canonicalTaskSourceReference(
+  kind: TaskSourceKind,
+  reference: string,
+): string {
+  const normalized = normalizedReference(reference);
+  if (kind === "figma") {
+    try {
+      const url = new URL(normalized.replace(/^figma:/u, ""));
+      const match = url.pathname.match(
+        /^\/(?:design|file|proto|board)\/([^/?#]+)/iu,
+      );
+      const fileKey = match?.[1];
+      const nodeId = url.searchParams
+        .get("node-id")
+        ?.trim()
+        .replace(/-/gu, ":");
+      if (fileKey) {
+        return `figma:${decodeURIComponent(fileKey)}${nodeId ? `::${nodeId}` : ""}`;
+      }
+    } catch {
+      // Non-URL Figma references retain the normalized legacy identity.
+    }
+  }
+  if (kind === "openapi" && /^https?:\/\//iu.test(normalized)) {
+    try {
+      const url = new URL(normalized);
+      url.hash = "";
+      url.searchParams.sort();
+      if (url.pathname.length > 1) {
+        url.pathname = url.pathname.replace(/\/+$/u, "");
+      }
+      return url.toString();
+    } catch {
+      // Invalid URLs are rejected by source normalization later.
+    }
+  }
+  return normalized;
+}
+
 export function taskSourceId(kind: TaskSourceKind, reference: string): string {
-  const normalized = normalizedReference(reference).toLowerCase();
+  const normalized = canonicalTaskSourceReference(kind, reference).toLowerCase();
   let hash = 2_166_136_261;
   for (const character of `${kind}\0${normalized}`) {
     hash ^= character.charCodeAt(0);
@@ -763,6 +805,7 @@ export function taskContextSourcePolicy(
     confirmedKinds: kindsFor("confirmed"),
     omittedKinds: kindsFor("omitted"),
     unavailableKinds: kindsFor("unavailable"),
+    externalKinds: kindsFor("external"),
     routes: sources
       .filter((source) => source.state === "confirmed")
       .map((source) => {

@@ -62,11 +62,27 @@ function clearMetrics(): void {
         <input v-model="local.localMetrics" type="checkbox">
       </label>
       <div class="settings-inline-action">
-        <span>{{ t("{count} local records · no telemetry", { count: evaluationCount ?? 0 }) }}</span>
+        <span>
+          {{
+            t(
+              evaluationCount === 1
+                ? "{count} local record · no telemetry"
+                : "{count} local records · no telemetry",
+              { count: evaluationCount ?? 0 },
+            )
+          }}
+        </span>
         <div v-if="confirmMetricsClear" class="destructive-confirmation" role="group" :aria-label="t('Confirm local metrics deletion')">
           <span>{{ t("This removes local content-free evaluation records. It cannot be undone.") }}</span>
           <button class="danger-button" @click="clearMetrics">
-            {{ t("Clear {count} local records", { count: evaluationCount ?? 0 }) }}
+            {{
+              t(
+                evaluationCount === 1
+                  ? "Clear {count} local record"
+                  : "Clear {count} local records",
+                { count: evaluationCount ?? 0 },
+              )
+            }}
           </button>
           <button class="text-button" @click="confirmMetricsClear = false">{{ t("Cancel") }}</button>
         </div>
@@ -82,7 +98,7 @@ function clearMetrics(): void {
       <dl class="policy-list">
         <div>
           <dt>{{ t("Context cost audit") }}</dt>
-          <dd>{{ t("{count} measured runs", { count: formatNumber(contextCostSummary?.runs ?? 0) }) }}</dd>
+          <dd>{{ t("{count} instrumented records", { count: formatNumber(contextCostSummary?.runs ?? 0) }) }}</dd>
         </div>
         <div>
           <dt>{{ t("Median input") }}</dt>
@@ -93,13 +109,26 @@ function clearMetrics(): void {
           <dd>{{ t("{count} tokens", { count: formatNumber(contextCostSummary?.inputTokens.p95 ?? 0) }) }}</dd>
         </div>
       </dl>
+      <p class="muted-copy">
+        {{
+          t("{actual} SDK-actual · {estimated} character-estimated", {
+            actual: formatNumber(contextCostSummary?.sdkRuns ?? 0),
+            estimated: formatNumber(contextCostSummary?.estimatedRuns ?? 0),
+          })
+        }}
+      </p>
+      <p class="muted-copy">
+        {{
+          t("Agent audits are recorded on instrumented terminal run events, not when a user closes a task. Zero records means no local or imported instrumentation was observed; it does not prove that no work occurred.")
+        }}
+      </p>
       <p class="muted-copy">{{ t("Cross-device audits move only through explicit CLI export and import.") }}</p>
     </section>
     <section class="settings-panel">
       <header><span class="eyebrow">{{ t("Storage & privacy") }}</span><h2>{{ t("One core, explicit authority") }}</h2></header>
       <dl class="policy-list">
         <div><dt>{{ t("Derived repository and Figma facts") }}</dt><dd>{{ t("SQLite · automatically reconstructible") }}</dd></div>
-        <div><dt>{{ t("Shared project knowledge") }}</dt><dd>{{ t("Markdown · optionally versioned by the team") }}</dd></div>
+        <div><dt>{{ t("Shared project knowledge") }}</dt><dd>{{ t("Reviewed Markdown in centralized Atlas storage · outside the repository") }}</dd></div>
         <div><dt>{{ t("Personal and episodic memory") }}</dt><dd>{{ t("Local ignored Markdown + SQLite") }}</dd></div>
         <div><dt>{{ t("Hypotheses") }}</dt><dd>{{ t("Marked inferred · never promoted as facts") }}</dd></div>
         <div><dt>{{ t("Secrets") }}</dt><dd>{{ t("Preventive detection · write rejected") }}</dd></div>

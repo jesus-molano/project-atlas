@@ -86,7 +86,7 @@ describe("desktop evidence workspace contract", () => {
     expect(code).toContain("Reuse");
     expect(code).toContain("Change impact");
     expect(code).toContain("Associated tests");
-    expect(design).toContain("Status unavailable from source");
+    expect(design).toContain("Status not exposed by source");
     expect(design).toContain("indexed metadata");
     expect(design).toContain("fixture claims, not live Figma verification");
     expect(design).toContain("Indexed code mappings");

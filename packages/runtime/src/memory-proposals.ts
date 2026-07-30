@@ -262,6 +262,11 @@ function proposalReview(
     target === "canonical"
       ? ("atlas-storage/memory/canonical" as const)
       : ("atlas-storage/memory/local" as const);
+  const absoluteDirectory = path.join(
+    projectStorageDirectory(graph.project.id),
+    "memory",
+    target === "canonical" ? "canonical" : "local",
+  );
   const items = proposal.items.map((draft) => {
     const item = itemFromDraft(
       draft,
@@ -279,6 +284,10 @@ function proposalReview(
       title: item.title,
       scope: item.scope,
       path: `${directory}/${safeFileName(item.id)}.md`,
+      absolutePath: path.join(
+        absoluteDirectory,
+        `${safeFileName(item.id)}.md`,
+      ),
       supersedes: item.supersedes,
     };
   });
@@ -302,6 +311,7 @@ function proposalReview(
     },
     impact: {
       directory,
+      absoluteDirectory,
       itemCount: items.length,
       supersededIds: [
         ...new Set(items.flatMap((item) => item.supersedes)),

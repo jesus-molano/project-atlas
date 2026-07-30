@@ -147,6 +147,8 @@
 
 .launch-dialog {
   padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .launch-dialog h2 {
@@ -216,9 +218,15 @@
 }
 
 .dialog-actions {
+  position: sticky;
+  bottom: -24px;
   display: flex;
   justify-content: flex-end;
   gap: 9px;
+  margin: 18px -24px -24px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--atlas-rule);
+  background: var(--atlas-dialog);
 }
 
 .loading-state {

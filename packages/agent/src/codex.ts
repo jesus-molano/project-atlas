@@ -534,7 +534,7 @@ function buildPrompt(request: AgentRunRequest): string {
     "- Keep authority domains distinct: Jira/Confluence define requirements, Figma defines visual scope, OpenAPI defines the API contract, and repository evidence defines implementation/reuse. A source relation does not transfer identity or authority.",
     "- Use only the bounded `api` context extracted from confirmed OpenAPI/Swagger sources; do not inject or reproduce a full specification.",
     "- Do not follow, infer, or add transitive source references without a new user confirmation.",
-    "- Omitted, unavailable, replaced, and unlisted sources are optional and must not block progress.",
+    "- Omitted, unavailable, externally resolved, replaced, and unlisted sources are optional and must not block progress.",
     "- Do not install or authorize connectors and never read or expose credentials.",
     "- Do not perform external writes, commits, pushes, ticket changes, or documentation publication.",
     "- Ask only when a material decision or contradiction remains. Include evidence and a recommendation.",

@@ -21,6 +21,7 @@ export const taskSourceDecisionSchema = z.object({
     "confirmed",
     "omitted",
     "unavailable",
+    "external",
     "replaced",
   ]),
   required: z.boolean(),

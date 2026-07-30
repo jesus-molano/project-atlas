@@ -293,6 +293,9 @@ function persistRunAudit(record: AgentRunRecord): void {
       unavailable: record.sourceDecisions.filter(
         (source) => source.state === "unavailable",
       ).length,
+      external: record.sourceDecisions.filter(
+        (source) => source.state === "external",
+      ).length,
       replaced: record.sourceDecisions.filter(
         (source) => source.state === "replaced",
       ).length,
@@ -376,6 +379,12 @@ async function persistContextCostAudit(
       truncated: record.truncated,
       completed: record.state === "completed",
       reworkRequired: record.mode === "correct",
+      runId: record.id,
+      terminalState: record.state as
+        | "completed"
+        | "failed"
+        | "cancelled"
+        | "awaiting-input",
     },
     usage:
       record.cost?.inputTokens === undefined
@@ -894,7 +903,7 @@ export function startFigmaSyncRun(input: StartFigmaSyncRunInput) {
     task,
     objectiveConfirmed: input.objectiveConfirmed,
     sources,
-    sourceDecisions,
+    sourceDecisions: [confirmedFigma[0]!],
     sandbox: "read-only",
     budgetChars: 0,
     topK: 1,

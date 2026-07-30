@@ -12,7 +12,7 @@ intake:
   source_ledger:
     - kind: jira | confluence | figma | github | openapi | other
       reference: Exact task-scoped URL or ID
-      state: pending | confirmed | omitted | unavailable | replaced
+      state: pending | confirmed | omitted | unavailable | external | replaced
       origin: explicit | inferred | manual
       relationship: primary | search-candidate | linked-secondary
 mode: new | continue | correct | finish

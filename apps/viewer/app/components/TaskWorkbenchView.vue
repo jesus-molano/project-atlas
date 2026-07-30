@@ -23,6 +23,7 @@ import {
   type AgentRunAuditRecord,
   type ProjectCapabilityReport,
   type ProjectIdentityMetadata,
+  type SourceReceipt,
 } from "@component-atlas/core/browser";
 import type { DesignFileIndex } from "@component-atlas/design";
 import { parseFigmaReference } from "@component-atlas/design/browser";
@@ -208,6 +209,8 @@ const figmaSyncAttemptRunId = ref<string>();
 const figmaSyncAttemptSourceIds = ref<string[]>([]);
 const runEvents = ref<Array<{ cursor: number; event: AgentRunEvent }>>([]);
 const runError = ref("");
+const cancelPending = ref(false);
+const restoredAt = ref("");
 const launchReviewOpen = ref(false);
 const launchSandbox = ref<AgentSandbox>("read-only");
 const answer = ref("");
@@ -245,7 +248,31 @@ const sourceCounts = computed(() => ({
   unavailable: sourceDecisions.value.filter(
     (source) => source.state === "unavailable",
   ).length,
+  external: sourceDecisions.value.filter((source) => source.state === "external")
+    .length,
 }));
+const sourceDecisionProgress = computed(() => ({
+  resolved: sourceDecisions.value.filter((source) => source.state !== "pending")
+    .length,
+  total: sourceDecisions.value.length,
+}));
+const executionMode = computed(
+  () =>
+    Boolean(activeRun.value) &&
+    ["queued", "running", "awaiting-input"].includes(
+      activeRun.value?.state ?? "",
+    ),
+);
+const displayedTaskStatus = computed(() => {
+  if (activeRun.value) return activeRun.value.state;
+  if (runError.value || contextError.value) return "blocked";
+  return intakeAssessment.value.status;
+});
+const codexThreadUrl = computed(() =>
+  activeRun.value?.threadId
+    ? `codex://threads/${encodeURIComponent(activeRun.value.threadId)}`
+    : "",
+);
 const resumableRuns = computed(() =>
   runSummaries.value.filter((run) => run.resumable),
 );
@@ -370,10 +397,17 @@ const figmaSyncState = computed<FigmaSyncState>(() => {
     attemptedRun &&
     ["failed", "cancelled", "awaiting-input"].includes(attemptedRun.state)
   ) {
+    const failure = [...runEvents.value]
+      .reverse()
+      .find((item) => item.event.type === "failed");
     return {
       status: "error",
       message:
-        "Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target.",
+        failure?.event.type === "failed"
+          ? failure.event.message
+          : attemptedRun.state === "cancelled"
+            ? "Figma synchronization was cancelled safely. The confirmed target remains unchanged."
+            : "Figma source synchronization needs input before its receipt can be confirmed.",
     };
   }
   if (!pendingFigmaSources.value.length) {
@@ -509,15 +543,40 @@ const materialQuestion = computed(() => {
   return question?.event.type === "question" ? question.event : undefined;
 });
 
-const progressEvents = computed(() =>
-  runEvents.value.filter(
+const progressEvents = computed(() => {
+  const filtered = runEvents.value.filter(
     (item) =>
       item.event.type === "run-started" ||
       item.event.type === "activity" ||
       item.event.type === "failed" ||
       item.event.type === "cancelled",
-  ),
-);
+  );
+  return filtered.reduce<
+    Array<{
+      cursor: number;
+      event: AgentRunEvent;
+      count: number;
+      lastAt: string;
+    }>
+  >((groups, item) => {
+    const previous = groups.at(-1);
+    if (
+      previous &&
+      previous.event.type === item.event.type &&
+      eventLabel(previous.event) === eventLabel(item.event)
+    ) {
+      previous.count += 1;
+      previous.lastAt = item.event.at;
+      return groups;
+    }
+    groups.push({
+      ...item,
+      count: 1,
+      lastAt: item.event.at,
+    });
+    return groups;
+  }, []);
+});
 
 function addSource(): void {
   const value = sourceValue.value.trim();
@@ -561,7 +620,7 @@ function decideSource(
   id: string,
   state: Extract<
     TaskSourceDecision["state"],
-    "confirmed" | "omitted" | "unavailable"
+    "confirmed" | "omitted" | "unavailable" | "external"
   >,
 ): void {
   const current = sourceDecisions.value.find((source) => source.id === id);
@@ -854,10 +913,14 @@ async function pollRun(): Promise<void> {
       caught instanceof Error ? caught.message : "Agent activity could not refresh.";
     runError.value = message;
     if (/not found|expired/i.test(message)) {
-      activeRun.value = undefined;
+      activeRun.value = {
+        ...activeRun.value,
+        state: "failed",
+        events: [],
+      };
       launchSandbox.value = "read-only";
       runError.value =
-        "The previous task thread expired. The draft and source ledger were kept; start a new read-only preparation.";
+        "The Atlas runtime record expired. The draft, source ledger, run ID, and Codex task link were kept; reopen Codex or start a new read-only preparation.";
     }
   }
 }
@@ -873,15 +936,37 @@ async function refreshRunSummaries(): Promise<void> {
 }
 
 async function cancelRun(): Promise<void> {
+  if (!activeRun.value || cancelPending.value) return;
+  cancelPending.value = true;
+  runError.value = "";
+  try {
+    activeRun.value = await $fetch<RunResponse>(
+      `/api/agent/runs/${activeRun.value.id}/cancel`,
+      {
+        method: "POST",
+        headers: { "x-atlas-session": agentToken.value },
+      },
+    );
+    if (["queued", "running"].includes(activeRun.value.state)) {
+      pollTimer = setTimeout(pollRun, 150);
+    } else {
+      await refreshRunSummaries();
+    }
+  } catch (caught) {
+    runError.value = atlasErrorSource(
+      caught,
+      "Cancellation could not be confirmed. The task ID was kept for recovery.",
+    );
+  } finally {
+    cancelPending.value = false;
+  }
+}
+
+async function copyRunId(): Promise<void> {
   if (!activeRun.value) return;
-  activeRun.value = await $fetch<RunResponse>(
-    `/api/agent/runs/${activeRun.value.id}/cancel`,
-    {
-      method: "POST",
-      headers: { "x-atlas-session": agentToken.value },
-    },
+  await navigator.clipboard.writeText(
+    activeRun.value.threadId ?? activeRun.value.id,
   );
-  pollTimer = setTimeout(pollRun, 150);
 }
 
 async function resumeRun(): Promise<void> {
@@ -970,16 +1055,20 @@ function newTask(): void {
   figmaSyncAttemptSourceIds.value = [];
   runEvents.value = [];
   runError.value = "";
+  contextError.value = "";
+  restoredAt.value = "";
+  localStorage.removeItem(taskSessionKey.value);
   sessionStorage.removeItem(taskSessionKey.value);
 }
 
 function persistTaskSession(): void {
   if (!import.meta.client) return;
-  sessionStorage.setItem(
+  localStorage.setItem(
     taskSessionKey.value,
     JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       scope: "task",
+      persistedAt: new Date().toISOString(),
       task: task.value,
       taskId: taskId.value,
       mode: mode.value,
@@ -991,6 +1080,8 @@ function persistTaskSession(): void {
       figmaSyncAttemptRunId: figmaSyncAttemptRunId.value,
       figmaSyncAttemptSourceIds: figmaSyncAttemptSourceIds.value,
       runEvents: runEvents.value,
+      runError: runError.value,
+      contextError: contextError.value,
       budgetChars: budgetChars.value,
       topK: topK.value,
       figmaFile: figmaFile.value,
@@ -999,12 +1090,15 @@ function persistTaskSession(): void {
 }
 
 function restoreTaskSession(): void {
-  const raw = sessionStorage.getItem(taskSessionKey.value);
+  const raw =
+    localStorage.getItem(taskSessionKey.value) ??
+    sessionStorage.getItem(taskSessionKey.value);
   if (!raw) return;
   try {
     const saved = JSON.parse(raw) as {
       schemaVersion?: number;
       scope?: string;
+      persistedAt?: string;
       task?: string;
       taskId?: string;
       mode?: AgentRunMode;
@@ -1016,11 +1110,15 @@ function restoreTaskSession(): void {
       figmaSyncAttemptRunId?: string;
       figmaSyncAttemptSourceIds?: string[];
       runEvents?: Array<{ cursor: number; event: AgentRunEvent }>;
+      runError?: string;
+      contextError?: string;
       budgetChars?: number;
       topK?: number;
       figmaFile?: string;
     };
-    if (saved.schemaVersion !== 1 || saved.scope !== "task") return;
+    if (![1, 2].includes(saved.schemaVersion ?? 0) || saved.scope !== "task") {
+      return;
+    }
     if (saved.task) task.value = saved.task;
     taskId.value = saved.taskId ?? "";
     mode.value = saved.mode ?? "prepare";
@@ -1032,10 +1130,18 @@ function restoreTaskSession(): void {
     figmaSyncAttemptRunId.value = saved.figmaSyncAttemptRunId;
     figmaSyncAttemptSourceIds.value = saved.figmaSyncAttemptSourceIds ?? [];
     runEvents.value = saved.runEvents ?? [];
+    runError.value = saved.runError ?? "";
+    contextError.value = saved.contextError ?? "";
+    restoredAt.value = saved.persistedAt ?? new Date().toISOString();
     budgetChars.value = saved.budgetChars ?? budgetChars.value;
     topK.value = saved.topK ?? topK.value;
     figmaFile.value = saved.figmaFile ?? "";
+    if (saved.schemaVersion === 1) {
+      persistTaskSession();
+      sessionStorage.removeItem(taskSessionKey.value);
+    }
   } catch {
+    localStorage.removeItem(taskSessionKey.value);
     sessionStorage.removeItem(taskSessionKey.value);
   }
 }
@@ -1060,6 +1166,21 @@ function eventLabel(event: AgentRunEvent): string {
   if (event.type === "failed") return t(event.message);
   if (event.type === "cancelled") return t(event.message);
   return statusLabel(event.type);
+}
+
+function receiptVerificationLabel(receipt: SourceReceipt): string {
+  const identity =
+    receipt.requested.canonicalId === receipt.resolved.canonicalId
+      ? "identity matched"
+      : receipt.derivation
+        ? "identity derived with evidence"
+        : "resolved identity differs";
+  const content = receipt.contentHash ? "content hashed" : "metadata retrieved";
+  return t("{identity} · {content} · {freshness}", {
+    identity: t(identity),
+    content: t(content),
+    freshness: statusLabel(receipt.freshness),
+  });
 }
 
 function toggleFindingAcknowledgement(finding: ContextFinding): void {
@@ -1137,6 +1258,8 @@ watch(
     figmaSyncAttemptRunId,
     figmaSyncAttemptSourceIds,
     runEvents,
+    runError,
+    contextError,
     budgetChars,
     topK,
     figmaFile,

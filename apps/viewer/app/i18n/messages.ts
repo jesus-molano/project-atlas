@@ -53,7 +53,7 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "not-exposed": "no disponible",
   available: "disponible",
   unavailable: "no disponible",
-  unknown: "desconocido",
+  unknown: "no informado",
   degraded: "degradado",
   connected: "conectado",
   detected: "detectado",
@@ -766,7 +766,7 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Name, path, prop, or intent": "Nombre, ruta, prop o intención",
   "Component scope": "Alcance del componente",
   Shared: "Compartidos",
-  Feature: "Función",
+  Feature: "Área funcional",
   Internal: "Internos",
   "Every indexed code node": "Todos los nodos de código indexados",
   "Reusable across features": "Reutilizable entre funciones",
@@ -938,7 +938,7 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Task intake status": "Estado de preparación de la tarea",
   "Task mode": "Modo de tarea",
   Prepare: "Preparar",
-  "{level} risk": "riesgo {level}",
+  "{level} risk": "riesgo de nivel {level}",
   ready: "listo",
   "needs-confirmation": "requiere confirmación",
   "needs-sources": "requiere fuentes",
@@ -1577,5 +1577,54 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "The local diff matches indexed theme evidence.":
     "El diff local coincide con la evidencia visual indexada.",
   "Local diff validation": "Validación del diff local",
+  external: "externo",
+  "Resolve externally in Codex": "Resolver externamente en Codex",
+  "Resolved externally": "Resuelto externamente",
+  "Recovered local task state": "Estado local de la tarea recuperado",
+  "Draft, source decisions, errors, and run identity restored from {date}.":
+    "Borrador, decisiones de fuentes, errores e identidad de ejecución restaurados desde {date}.",
+  Dismiss: "Descartar",
+  "Open in Codex": "Abrir en Codex",
+  "Copy task ID": "Copiar ID de tarea",
+  "Cancelling…": "Cancelando…",
+  "Local browsing · no model call": "Navegación local · sin llamada al modelo",
+  "Agent · estimated input budget": "Agente · presupuesto de entrada estimado",
+  "{count} source receipt": "{count} recibo de fuente",
+  "{count} local record · no telemetry":
+    "{count} registro local · sin telemetría",
+  "Clear {count} local record": "Borrar {count} registro local",
+  "{count} instrumented records": "{count} registros instrumentados",
+  "{actual} SDK-actual · {estimated} character-estimated":
+    "{actual} reales del SDK · {estimated} estimados por caracteres",
+  "{actual} actual / {estimated} estimated":
+    "{actual} reales / {estimated} estimados",
+  "Agent audits are recorded on instrumented terminal run events, not when a user closes a task. Zero records means no local or imported instrumentation was observed; it does not prove that no work occurred.":
+    "Las auditorías del agente se registran en eventos terminales instrumentados, no al cerrar una tarea. Cero registros significa que no se observó instrumentación local ni importada; no demuestra que no se realizara trabajo.",
+  "Reviewed Markdown in centralized Atlas storage · outside the repository":
+    "Markdown revisado en almacenamiento centralizado de Atlas · fuera del repositorio",
+  "not reported in this session": "no informado en esta sesión",
+  "local cache; state and freshness reported separately":
+    "caché local; estado y frescura informados por separado",
+  "Status not exposed by source": "Estado no expuesto por la fuente",
+  "Not observed": "No observado",
+  "status not exposed by source": "estado no expuesto por la fuente",
+  "Source receipts": "Recibos de fuente",
+  Requested: "Solicitado",
+  Resolved: "Resuelto",
+  "Modules & integrations": "Módulos e integraciones",
+  "{shown} of {total}": "{shown} de {total}",
+  "Use {name} at {path} as repository evidence for this task.":
+    "Usa {name} en {path} como evidencia del repositorio para esta tarea.",
+  "Open URL": "Abrir URL",
+  "Copy URL": "Copiar URL",
+  "{resolved} of {total} source decisions resolved":
+    "{resolved} de {total} decisiones de fuentes resueltas",
+  "identity matched": "identidad coincidente",
+  "identity derived with evidence": "identidad derivada con evidencia",
+  "resolved identity differs": "la identidad resuelta difiere",
+  "content hashed": "contenido con hash",
+  "metadata retrieved": "metadatos recuperados",
+  "{identity} · {content} · {freshness}":
+    "{identity} · {content} · {freshness}",
   tokens: "tokens",
 };

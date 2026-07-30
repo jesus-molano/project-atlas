@@ -1,4 +1,4 @@
-  <div class="workbench">
+  <div :class="['workbench', { 'execution-mode': executionMode }]">
     <section class="workbench-composer" aria-labelledby="task-intent-heading">
       <div class="codex-sidecar-note">
         <AtlasIcon name="task" />
@@ -6,6 +6,22 @@
           <strong>{{ t("Codex first · Atlas verifies the handoff") }}</strong>
           <span>{{ t("Use native Codex for conversation and execution. This surface controls scope, source integrity, and traceability.") }}</span>
         </div>
+      </div>
+      <div v-if="restoredAt" class="session-recovery-note" role="status">
+        <AtlasIcon name="history" />
+        <div>
+          <strong>{{ t("Recovered local task state") }}</strong>
+          <span>
+            {{
+              t("Draft, source decisions, errors, and run identity restored from {date}.", {
+                date: formatDate(restoredAt),
+              })
+            }}
+          </span>
+        </div>
+        <button class="text-button" @click="restoredAt = ''">
+          {{ t("Dismiss") }}
+        </button>
       </div>
       <details v-if="props.diffFindings?.length" class="decision-band">
         <summary>
@@ -38,8 +54,8 @@
           <span :class="['capability-pill', risk.level]">
             {{ t("{level} risk", { level: statusLabel(risk.level) }) }}
           </span>
-          <span :class="['capability-pill', intakeAssessment.status]">
-            {{ statusLabel(intakeAssessment.status) }}
+          <span :class="['capability-pill', displayedTaskStatus]">
+            {{ statusLabel(displayedTaskStatus) }}
           </span>
           <button v-if="activeRun" class="text-button" @click="newTask">
             {{ t("New task") }}
@@ -105,7 +121,13 @@
         <div class="source-strip-heading">
           <div>
             <strong>{{ t("Task sources") }}</strong>
-            <span>{{ t("Optional · detected references require an explicit choice") }}</span>
+            <span>
+              {{
+                sourceDecisionProgress.total
+                  ? t("{resolved} of {total} source decisions resolved", sourceDecisionProgress)
+                  : t("Optional · detected references require an explicit choice")
+              }}
+            </span>
           </div>
           <button class="text-button" @click="advancedOpen = !advancedOpen">
             {{ advancedOpen ? t("Hide source controls") : t("Add source") }}
@@ -146,6 +168,13 @@
               <button class="text-button" @click="decideSource(source.id, 'unavailable')">
                 {{ t("Not available") }}
               </button>
+              <button
+                v-if="source.kind === 'openapi'"
+                class="text-button"
+                @click="decideSource(source.id, 'external')"
+              >
+                {{ t("Resolve externally in Codex") }}
+              </button>
               <button class="text-button" @click="beginSourceReplacement(source.id)">
                 {{ t("Replace or add") }}
               </button>
@@ -173,6 +202,13 @@
                 @click="decideSource(source.id, 'omitted')"
               >
                 {{ t("Continue without it") }}
+              </button>
+              <button
+                v-if="source.kind === 'openapi' && source.state !== 'external'"
+                class="text-button"
+                @click="decideSource(source.id, 'external')"
+              >
+                {{ t("Resolve externally in Codex") }}
               </button>
               <button
                 v-if="source.origin === 'manual'"
@@ -264,9 +300,10 @@
           <button
             v-else-if="figmaSyncState.status === 'loading'"
             class="text-button"
+            :disabled="cancelPending"
             @click="cancelRun"
           >
-            {{ t("Cancel safely") }}
+            {{ cancelPending ? t("Cancelling…") : t("Cancel safely") }}
           </button>
         </div>
       </div>
@@ -500,17 +537,34 @@
             <button
               v-if="['queued', 'running'].includes(activeRun.state)"
               class="secondary-button"
+              :disabled="cancelPending"
               @click="cancelRun"
             >
-              {{ t("Cancel safely") }}
+              {{ cancelPending ? t("Cancelling…") : t("Cancel safely") }}
             </button>
           </header>
+          <div class="run-identity">
+            <code>{{ activeRun.threadId ?? activeRun.id }}</code>
+            <a
+              v-if="codexThreadUrl"
+              class="secondary-button"
+              :href="codexThreadUrl"
+            >
+              {{ t("Open in Codex") }}
+            </a>
+            <button class="text-button" @click="copyRunId">
+              {{ t("Copy task ID") }}
+            </button>
+          </div>
           <ol>
             <li v-for="item in progressEvents" :key="item.cursor">
               <span :class="['event-mark', item.event.type]" />
               <div>
                 <strong>{{ eventLabel(item.event) }}</strong>
-                <small>{{ formatDate(item.event.at) }}</small>
+                <small>
+                  {{ formatDate(item.lastAt) }}
+                  <template v-if="item.count > 1">· ×{{ item.count }}</template>
+                </small>
               </div>
             </li>
           </ol>
@@ -564,7 +618,14 @@
             class="receipt-disclosure"
           >
             <summary>
-              {{ t("{count} source receipts", { count: latestResult.sourceReceipts?.length ?? 0 }) }}
+              {{
+                t(
+                  latestResult.sourceReceipts?.length === 1
+                    ? "{count} source receipt"
+                    : "{count} source receipts",
+                  { count: latestResult.sourceReceipts?.length ?? 0 },
+                )
+              }}
             </summary>
             <article
               v-for="receipt in latestResult.sourceReceipts ?? []"
@@ -573,6 +634,7 @@
               <strong>{{ statusLabel(receipt.provider) }} · {{ receipt.id }}</strong>
               <span>{{ receipt.adapter }} · {{ receipt.scope.kind }}:{{ receipt.scope.id }}</span>
               <small>{{ statusLabel(receipt.freshness) }} · {{ formatDate(receipt.observedAt) }}</small>
+              <small>{{ receiptVerificationLabel(receipt) }}</small>
             </article>
           </details>
           <section
@@ -729,6 +791,10 @@
               <strong>{{ sourceCounts.omitted + sourceCounts.unavailable }}</strong>
               <small>{{ t("Omitted or unavailable sources") }}</small>
             </span>
+            <span>
+              <strong>{{ sourceCounts.external }}</strong>
+              <small>{{ t("Resolved externally") }}</small>
+            </span>
           </dd>
         </div>
         <div><dt>{{ t("Context") }}</dt><dd>{{ t("{used} / {budget} chars", { used: formatNumber(context?.metrics.usedChars ?? 0), budget: formatNumber(budgetChars) }) }}</dd></div>
@@ -786,8 +852,8 @@
         </details>
       </section>
       <div class="boundary-legend">
-        <span><i class="local" />{{ t("Local · 0 tokens") }}</span>
-        <span><i class="agent" />{{ t("Agent · reviewed budget") }}</span>
+        <span><i class="local" />{{ t("Local browsing · no model call") }}</span>
+        <span><i class="agent" />{{ t("Agent · estimated input budget") }}</span>
         <span><i class="external" />{{ t("External write · approval") }}</span>
       </div>
     </aside>

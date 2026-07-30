@@ -234,7 +234,7 @@ function nodeStatusLabel(node: DesignIndexNode): string {
     return t("{status} · user confirmed", { status: statusLabel(node.devStatus) });
   }
   if (node.devStatusProvenance === "source-unavailable") {
-    return t("Status unavailable from source");
+    return t("Status not exposed by source");
   }
   if (node.devStatusProvenance === "absent") return t("No dev status observed");
   return t("{status} · indexed metadata", { status: statusLabel(node.devStatus) });
@@ -242,11 +242,11 @@ function nodeStatusLabel(node: DesignIndexNode): string {
 
 function nodeCompactStatusLabel(node: DesignIndexNode): string {
   if (node.devStatusProvenance === "source-unavailable") {
-    return t("Unavailable");
+    return t("Not exposed");
   }
   if (node.devStatus === "ready-for-dev") return t("Ready");
   if (node.devStatus === "completed") return t("Completed");
-  return t("No status");
+  return t("Not observed");
 }
 
 function statusClass(node: DesignIndexNode): string {
@@ -260,7 +260,7 @@ function pageStatusLabel(page: DesignIndexPage): string {
     return t("{status} · user confirmed", { status: statusLabel(page.devStatus) });
   }
   if (page.devStatusProvenance === "source-unavailable") {
-    return t("status unavailable");
+    return t("status not exposed by source");
   }
   if (page.devStatusProvenance === "absent") return t("no dev status observed");
   return t("{status} · indexed metadata", { status: statusLabel(page.devStatus) });
@@ -280,6 +280,11 @@ function durableFigmaUrl(value: string | undefined): string | undefined {
     return undefined;
   }
   return undefined;
+}
+
+async function copySelectedUrl(): Promise<void> {
+  const url = durableFigmaUrl(selectedNode.value?.url);
+  if (url) await navigator.clipboard.writeText(url);
 }
 
 function variableAccessLabel(): string {
@@ -591,8 +596,15 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
               target="_blank"
               rel="noreferrer"
             >
-              {{ t("Open source") }} ↗
+              {{ t("Open URL") }} ↗
             </a>
+            <button
+              v-if="durableFigmaUrl(selectedNode.url)"
+              class="text-button"
+              @click="copySelectedUrl"
+            >
+              {{ t("Copy URL") }}
+            </button>
           </div>
         </header>
         <div class="status-line">
@@ -692,6 +704,26 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
         <p v-if="activeFile?.devStatus.note" class="evidence-note">
           {{ activeFile.devStatus.note }}
         </p>
+      </section>
+      <section v-if="activeFile?.sources.length">
+        <span class="eyebrow">{{ t("Source receipts") }}</span>
+        <div
+          v-for="source in activeFile.sources"
+          :key="source.receipt.id"
+          class="evidence-note"
+        >
+          <strong>
+            {{ statusLabel(source.receipt.coverage) }}
+            · {{ statusLabel(source.receipt.freshness) }}
+          </strong>
+          <code>{{ source.receipt.id }}</code>
+          <small>
+            {{ t("Requested") }}: {{ source.receipt.requested.canonicalId }}
+          </small>
+          <small>
+            {{ t("Resolved") }}: {{ source.receipt.resolved.canonicalId }}
+          </small>
+        </div>
       </section>
       <section>
         <span class="eyebrow">{{ t("Pages") }}</span>

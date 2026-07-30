@@ -86,12 +86,18 @@ export function registerCodeTools(server: McpServer): void {
 
   server.tool(
     "get_reuse_context",
-    "Return a compact mental map of candidates, scopes, APIs, relationships, similarity, and change impact for a frontend intent.",
+    "Return a compact mental map of 1-5 ranked candidates (3 by default), scopes, APIs, relationships, similarity, and change impact for a frontend intent.",
     {
       root_path: z.string(),
       intent: z.string().min(1),
       task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u).optional(),
-      limit: z.number().int().min(1).max(5).optional(),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(5)
+        .optional()
+        .describe("Number of candidates to return: 1-5, default 3."),
       budget_chars: z.number().int().min(800).max(12000).optional(),
       invalidation_reason: z
         .enum([

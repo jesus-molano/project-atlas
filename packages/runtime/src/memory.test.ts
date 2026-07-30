@@ -795,12 +795,18 @@ paths:
       requiresCanonicalConfirmation: true,
       impact: {
         directory: "atlas-storage/memory/canonical",
+        absoluteDirectory: expect.stringMatching(
+          /[/\\]projects[/\\].+[/\\]memory[/\\]canonical$/u,
+        ),
         items: [
           {
             id: "canonical-review-contract",
             scope: "canonical",
             path:
               "atlas-storage/memory/canonical/canonical-review-contract.md",
+            absolutePath: expect.stringMatching(
+              /[/\\]projects[/\\].+[/\\]memory[/\\]canonical[/\\]canonical-review-contract\.md$/u,
+            ),
           },
         ],
       },

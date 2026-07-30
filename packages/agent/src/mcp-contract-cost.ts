@@ -1,8 +1,8 @@
 export const DECLARED_MCP_CONTRACT_COST = {
   mcpToolCount: 34,
-  mcpDescriptionChars: 4_842,
-  mcpSchemaChars: 26_289,
-  mcpSerializedChars: 34_575,
+  mcpDescriptionChars: 4_868,
+  mcpSchemaChars: 26_375,
+  mcpSerializedChars: 34_687,
   mcpContractHash:
-    "63fed9c0627c6fe8a78ee4e1f66d0bcef9477cbf11252821f56794d72ac6f5b1",
+    "bb952944885a90d00f2ef07bce09ae9bc1297bd4f3a23d17d0aeb116db1ee8bf",
 } as const;

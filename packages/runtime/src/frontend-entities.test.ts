@@ -58,6 +58,11 @@ describe("Frontend Code Graph v5", () => {
     );
     await put(
       root,
+      "server/api/orders.get.ts",
+      `export default function listOrders() { return { orders: [] } }`,
+    );
+    await put(
+      root,
       "components/OrderCard.vue",
       `<template><article>Order</article></template>`,
     );
@@ -78,11 +83,21 @@ describe("Frontend Code Graph v5", () => {
       expect.arrayContaining([
         "composable",
         "store",
+        "module",
+        "service",
         "endpoint",
         "story",
         "test",
       ]),
     );
+    expect(
+      graph.entities.find(
+        (entity) => entity.relativePath === "server/api/orders.get.ts",
+      ),
+    ).toMatchObject({
+      kind: "service",
+      resolution: "exact",
+    });
     expect(
       graph.entities.find(
         (entity) =>

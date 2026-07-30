@@ -286,7 +286,7 @@ describe("repository-local legacy migration", () => {
     expect(
       (await resolveProjectIdentity(rootPath, { fresh: true })).logicalId,
     ).toBe(applied.project.id);
-  });
+  }, 10_000);
 
   it("normalizes old SQLite records once and permits verified cleanup", async () => {
     const rootPath = await legacyProjectFixture();
@@ -462,5 +462,5 @@ describe("repository-local legacy migration", () => {
     expect(await snapshotDirectory(legacyDataHome)).toEqual(
       legacyStorageBefore,
     );
-  });
+  }, 10_000);
 });

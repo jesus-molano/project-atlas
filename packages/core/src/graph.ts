@@ -441,6 +441,35 @@ export function searchComponents(
   query: string,
   limit = 10,
 ): ComponentSearchResult[] {
+  const searchable = graph.components.filter(
+    (component) => (component.kind ?? "component") === "component",
+  );
+  const normalizedQuery = query.trim().replace(/\\/gu, "/").toLowerCase();
+  const exactMatches = searchable
+    .map((component) => {
+      const path = component.relativePath.replace(/\\/gu, "/").toLowerCase();
+      const basename = path.split("/").at(-1) ?? path;
+      const exactName =
+        component.name.toLowerCase() === normalizedQuery ||
+        component.effectiveName.toLowerCase() === normalizedQuery;
+      const exactPath =
+        path === normalizedQuery || basename === normalizedQuery;
+      return exactName || exactPath
+        ? {
+            component,
+            score: exactPath ? 102 : 100,
+            reasons: [exactPath ? "exact path" : "exact name"],
+          }
+        : undefined;
+    })
+    .filter((result): result is ComponentSearchResult => Boolean(result))
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.component.name.localeCompare(right.component.name),
+    );
+  if (exactMatches.length > 0) return exactMatches.slice(0, limit);
+
   const queryStopwords = new Set([
     "and",
     "de",
@@ -481,8 +510,7 @@ export function searchComponents(
   ];
   if (terms.length === 0) return [];
 
-  return graph.components
-    .filter((component) => (component.kind ?? "component") === "component")
+  return searchable
     .map((component) => {
       const reasons = terms.flatMap((term) => includesTerm(component, term));
       const nameTokens = tokenize(`${component.name} ${component.effectiveName}`);

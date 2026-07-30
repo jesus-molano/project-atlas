@@ -21,7 +21,8 @@ The skill performs this sequence:
 2. **Source checkpoint.** For every new high-risk task, use one grouped
    confirmation for Jira, Confluence, Figma, and Swagger/OpenAPI before code
    investigation, even when none was detected. Each source can be confirmed,
-   supplied/replaced, or explicitly omitted. Other tasks ask only for a source
+   supplied/replaced, explicitly omitted, or marked for external resolution in
+   Codex without an Atlas retrieval claim. Other tasks ask only for a source
    or decision that can materially change implementation. Persist full
    decisions in the external task source ledger with authority role, primary
    adapter, fallback policy, and any explicit requirement-to-visual-scope

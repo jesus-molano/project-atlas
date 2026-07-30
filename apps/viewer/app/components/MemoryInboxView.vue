@@ -647,7 +647,7 @@ function reviewItem(index: number) {
             <strong>{{ memoryT("exactPaths") }}</strong>
             <ul>
               <li v-for="item in review.impact.items" :key="item.id">
-                <code>{{ item.path }}</code>
+                <code>{{ item.absolutePath }}</code>
               </li>
             </ul>
           </template>
@@ -668,7 +668,14 @@ function reviewItem(index: number) {
           </ul>
         </div>
         <p v-else-if="warningFindings.length" class="approval-warning">
-          {{ memoryT("warningReview", { count: warningFindings.length }) }}
+          {{
+            memoryT(
+              warningFindings.length === 1
+                ? "warningReviewSingular"
+                : "warningReview",
+              { count: warningFindings.length },
+            )
+          }}
         </p>
 
         <button
@@ -701,7 +708,7 @@ function reviewItem(index: number) {
           </p>
           <ul v-if="review">
             <li v-for="item in review.impact.items" :key="item.id">
-              <code>{{ item.path }}</code>
+              <code>{{ item.absolutePath }}</code>
             </li>
           </ul>
           <label

@@ -5,6 +5,7 @@ import {
   similarComponents,
   type ComponentGraph,
   type ComponentNode,
+  type FrontendEntity,
 } from "@component-atlas/core/browser";
 import {
   activateCodeInspectorGoal,
@@ -142,6 +143,53 @@ const filteredComponents = computed(() => {
   );
 });
 
+const filteredEntities = computed(() => {
+  if (scope.value !== "all") return [];
+  const term = query.value.trim().toLowerCase();
+  const entities = props.graph.entities ?? [];
+  if (!term) {
+    const selectedEntity = entities.find((entity) => entity.id === selectedId.value);
+    return [
+      ...(selectedEntity ? [selectedEntity] : []),
+      ...entities.filter((entity) => ["module", "service"].includes(entity.kind)),
+    ]
+      .filter(
+        (entity, index, collection) =>
+          collection.findIndex((candidate) => candidate.id === entity.id) === index,
+      )
+      .slice(0, 12);
+  }
+  return entities
+    .map((entity) => {
+      const path = entity.relativePath.toLowerCase();
+      const name = entity.name.toLowerCase();
+      const endpoint = [
+        entity.endpoint?.method,
+        entity.endpoint?.path,
+        entity.endpoint?.operationId,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const exact =
+        name === term || path === term || path.split("/").at(-1) === term;
+      const score =
+        (exact ? 100 : 0) +
+        (name.includes(term) ? 10 : 0) +
+        (path.includes(term) ? 6 : 0) +
+        (endpoint.includes(term) ? 4 : 0);
+      return { entity, score };
+    })
+    .filter((candidate) => candidate.score > 0)
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.entity.relativePath.localeCompare(right.entity.relativePath),
+    )
+    .map(({ entity }) => entity)
+    .slice(0, 25);
+});
+
 const filteredIds = computed(
   () => new Set(filteredComponents.value.map((component) => component.id)),
 );
@@ -186,6 +234,9 @@ const selected = computed(
       (component) => component.id === selectedId.value,
     ),
 );
+const selectedEntity = computed(() =>
+  (props.graph.entities ?? []).find((entity) => entity.id === selectedId.value),
+);
 
 watch(
   () => props.initialComponentId,
@@ -196,6 +247,15 @@ watch(
     ) {
       selectedId.value = componentId;
       inspectorOpen.value = true;
+      return;
+    }
+    const entity = (props.graph.entities ?? []).find(
+      (candidate) => candidate.id === componentId,
+    );
+    if (entity) {
+      selectedId.value = entity.id;
+      query.value = entity.relativePath;
+      inspectorOpen.value = false;
     }
   },
   { immediate: true },
@@ -208,7 +268,8 @@ watch([query, scope], () => {
     selectedId.value &&
     !filteredComponents.value.some(
       (component) => component.id === selectedId.value,
-    )
+    ) &&
+    !filteredEntities.value.some((entity) => entity.id === selectedId.value)
   ) {
     selectedId.value = undefined;
     inspectorOpen.value = false;
@@ -285,7 +346,9 @@ function apiLabel(component: ComponentNode): string {
 }
 
 function scopeCount(value: (typeof scopeOptions)[number]["value"]): number {
-  if (value === "all") return props.graph.components.length;
+  if (value === "all") {
+    return props.graph.components.length + (props.graph.entities?.length ?? 0);
+  }
   return counts.value[value];
 }
 
@@ -316,6 +379,33 @@ function selectComponent(component: ComponentNode): void {
       if (inspectorIsDrawer.value) inspectorClose.value?.focus();
     });
   }
+}
+
+function selectEntity(entity: FrontendEntity): void {
+  selectedId.value = entity.id;
+  inspectorOpen.value = false;
+}
+
+function entityApiLabel(entity: FrontendEntity): string {
+  if (entity.endpoint?.path) {
+    return `${entity.endpoint.method ?? "CALL"} ${entity.endpoint.path}`;
+  }
+  return statusLabel(entity.kind);
+}
+
+function useEntityInTask(entity: FrontendEntity): void {
+  emit(
+    "useInTask",
+    `code:${entity.id}`,
+    t("Use {name} at {path} as repository evidence for this task.", {
+      name: entity.name,
+      path: entity.relativePath,
+    }),
+  );
+}
+
+async function copyEntityPath(entity: FrontendEntity): Promise<void> {
+  await navigator.clipboard.writeText(entity.relativePath);
 }
 
 function graphSelectionOffset(): number {
@@ -479,7 +569,9 @@ onBeforeUnmount(() => {
           <span class="eyebrow">{{ t("Repository graph") }}</span>
           <h2>{{ t("Code index") }}</h2>
         </div>
-        <span class="result-count">{{ filteredComponents.length }}</span>
+        <span class="result-count">
+          {{ filteredComponents.length + filteredEntities.length }}
+        </span>
       </div>
 
       <details
@@ -523,8 +615,8 @@ onBeforeUnmount(() => {
         <summary>
           <strong>{{ t("Theme fingerprint") }}</strong>
           <span>
-            {{ graph.themeFingerprint.confidence }} Â·
-            {{ graph.themeFingerprint.coverage.tokenCount }} {{ t("tokens") }} Â·
+            {{ graph.themeFingerprint.confidence }} ·
+            {{ graph.themeFingerprint.coverage.tokenCount }} {{ t("tokens") }} ·
             {{ props.diffFindings?.length ?? 0 }} {{ t("diff warnings") }}
           </span>
         </summary>
@@ -571,6 +663,51 @@ onBeforeUnmount(() => {
         tabindex="-1"
         :aria-label="t('Code catalog results')"
       >
+        <article v-if="selectedEntity" class="entity-selection-card">
+          <span class="eyebrow">{{ statusLabel(selectedEntity.kind) }}</span>
+          <strong>{{ selectedEntity.name }}</strong>
+          <code>{{ selectedEntity.relativePath }}</code>
+          <small>
+            {{ statusLabel(selectedEntity.resolution) }}
+            · {{ selectedEntity.provenance.analyzer }}
+          </small>
+          <div>
+            <button class="text-button" @click="copyEntityPath(selectedEntity)">
+              {{ t("Copy path") }}
+            </button>
+            <button class="secondary-button" @click="useEntityInTask(selectedEntity)">
+              {{ t("Use in task") }}
+            </button>
+          </div>
+        </article>
+        <div v-if="filteredEntities.length" class="entity-group-label">
+          <strong>{{ t("Modules & integrations") }}</strong>
+          <span>
+            {{
+              t("{shown} of {total}", {
+                shown: filteredEntities.length,
+                total: graph.entities?.length ?? 0,
+              })
+            }}
+          </span>
+        </div>
+        <button
+          v-for="entity in filteredEntities"
+          :key="entity.id"
+          class="component-row entity-row"
+          :class="{ selected: selectedEntity?.id === entity.id }"
+          :title="`${entity.name} · ${entity.relativePath} · ${entityApiLabel(entity)}`"
+          @click="selectEntity(entity)"
+        >
+          <span class="scope-dot private" />
+          <span class="component-copy">
+            <strong :title="entity.name">{{ entity.name }}</strong>
+            <small :title="entity.relativePath">{{ entity.relativePath }}</small>
+          </span>
+          <span class="api-count" :title="entityApiLabel(entity)">
+            {{ entityApiLabel(entity) }}
+          </span>
+        </button>
         <button
           v-for="component in visibleComponents"
           :key="component.id"
@@ -588,7 +725,10 @@ onBeforeUnmount(() => {
             {{ apiLabel(component) }}
           </span>
         </button>
-        <div v-if="filteredComponents.length === 0" class="empty-results">
+        <div
+          v-if="filteredComponents.length === 0 && filteredEntities.length === 0"
+          class="empty-results"
+        >
           {{ t("No code node matches this evidence.") }}
         </div>
       </div>

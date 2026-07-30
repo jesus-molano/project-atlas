@@ -199,6 +199,21 @@ function declaredEntities(unit: SourceUnit): FrontendEntity[] {
   );
 }
 
+function fileEntity(unit: SourceUnit): FrontendEntity | undefined {
+  if (!/\.[cm]?[jt]sx?$/iu.test(unit.relativePath)) return undefined;
+  const kind: FrontendEntity["kind"] =
+    /(?:^|\/)(?:api|backend|bff|connectors?|integrations?|mcp|server|services?)(?:\/|$)/iu.test(
+      unit.relativePath,
+    )
+      ? "service"
+      : "module";
+  const name = path
+    .basename(unit.relativePath)
+    .replace(/\.[cm]?[jt]sx?$/iu, "");
+  const isExported = unit.ast.statements.some((statement) => exported(statement));
+  return baseEntity(unit, kind, name, unit.ast, isExported);
+}
+
 function endpointEntities(unit: SourceUnit): FrontendEntity[] {
   const entities: FrontendEntity[] = [];
   let index = 0;
@@ -301,6 +316,7 @@ function semanticEdges(
   const edges: GraphEdge[] = [];
   const byName = new Map<string, FrontendEntity[]>();
   for (const entity of entities) {
+    if (!relationKind(entity)) continue;
     for (const name of new Set(
       [entity.name, entity.exportName].filter(Boolean) as string[],
     )) {
@@ -312,8 +328,13 @@ function semanticEdges(
   );
   const checker = program.getTypeChecker();
   for (const unit of units) {
-    const owner =
+  const owner =
       componentByPath.get(unit.relativePath) ??
+      entities.find(
+        (entity) =>
+          entity.relativePath === unit.relativePath &&
+          ["module", "service"].includes(entity.kind),
+      ) ??
       entities.find(
         (entity) =>
           entity.relativePath === unit.relativePath &&
@@ -478,10 +499,14 @@ export async function scanFrontendEntities(
     return ast ? { ...unit, ast } : unit;
   });
   const entities = disambiguateEntityIds(
-    programUnits.flatMap((unit) => [
-      ...declaredEntities(unit),
-      ...endpointEntities(unit),
-    ]),
+    programUnits.flatMap((unit) => {
+      const file = fileEntity(unit);
+      return [
+        ...(file ? [file] : []),
+        ...declaredEntities(unit),
+        ...endpointEntities(unit),
+      ];
+    }),
   )
     .sort((left, right) => left.id.localeCompare(right.id));
   return {

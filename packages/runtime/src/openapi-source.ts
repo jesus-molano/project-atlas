@@ -3,7 +3,8 @@ import { lookup } from "node:dns/promises";
 import { request as requestHttp } from "node:http";
 import { request as requestHttps } from "node:https";
 import { isIP } from "node:net";
-import type { IncomingMessage, RequestOptions } from "node:http";
+import type { LookupFunction } from "node:net";
+import type { IncomingMessage } from "node:http";
 import { parse } from "yaml";
 
 const MAX_REMOTE_BYTES = 1_500_000;
@@ -256,15 +257,7 @@ async function requestPinned(
           "user-agent": "ProjectAtlas/0.1 OpenAPI canonicalizer",
         },
         signal: AbortSignal.timeout(8_000),
-        lookup: ((
-          _hostname: string,
-          _options: unknown,
-          callback: (
-            error: NodeJS.ErrnoException | null,
-            address: string,
-            family: number,
-          ) => void,
-        ) => callback(null, address.address, address.family)) as RequestOptions["lookup"],
+        lookup: pinnedAddressLookup(address),
       },
       async (response) => {
         try {
@@ -302,6 +295,16 @@ async function requestPinned(
   });
 }
 
+export function pinnedAddressLookup(address: PublicAddress): LookupFunction {
+  return (_hostname, options, callback) => {
+    if (typeof options === "object" && options.all) {
+      callback(null, [{ address: address.address, family: address.family }]);
+      return;
+    }
+    callback(null, address.address, address.family);
+  };
+}
+
 export async function readPublicDocument(
   reference: string,
   maximumBytes = MAX_REMOTE_BYTES,
@@ -311,8 +314,17 @@ export async function readPublicDocument(
   let url = new URL(requestedUrl);
   const redirectChain = [requestedUrl];
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-    const addresses = await assertPublicRemoteUrl(url, resolveAddresses);
-    const response = await requestPinned(url, addresses[0]!, maximumBytes);
+    let response: Awaited<ReturnType<typeof requestPinned>>;
+    try {
+      const addresses = await assertPublicRemoteUrl(url, resolveAddresses);
+      response = await requestPinned(url, addresses[0]!, maximumBytes);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `OpenAPI retrieval failed for ${url.origin}${url.pathname}: ${detail}`,
+        { cause: error },
+      );
+    }
     if (response.status >= 300 && response.status < 400) {
       if (!response.location || redirect === MAX_REDIRECTS) {
         throw new Error("The confirmed OpenAPI URL redirected too many times.");

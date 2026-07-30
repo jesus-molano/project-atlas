@@ -19,6 +19,12 @@ checkout. One task-level record joins:
 - actual SDK input, cached-input, and output tokens when available;
 - a clearly labelled four-characters-per-token estimate otherwise.
 
+Agent-side records are emitted by instrumented terminal run events
+(`completed`, `awaiting-input`, `failed`, or `cancelled`), not by closing the
+task UI. Each record retains the originating run ID and terminal state. A
+project with zero records therefore proves only that Atlas observed or imported
+no instrumented records; it does not prove that no tasks were completed.
+
 The SQLite migration is idempotent and retention is bounded. Settings and
 Health show run count plus median and P95 input. The CLI exposes:
 
@@ -65,9 +71,9 @@ checkout snapshot measured:
 
 | Portion | Characters | Fallback token estimate |
 | --- | ---: | ---: |
-| MCP descriptions | 4,842 | 1,211 |
-| MCP input/output schemas | 26,289 | 6,573 |
-| Complete serialized tool list | 34,575 | 8,644 |
+| MCP descriptions | 4,868 | 1,217 |
+| MCP input/output schemas | 26,375 | 6,594 |
+| Complete serialized tool list | 34,687 | 8,672 |
 | Normal loaded frontend skill path | 44,260 | 11,065 |
 
 The fixed 12-case benchmark produced a fallback median input of 20,588 tokens

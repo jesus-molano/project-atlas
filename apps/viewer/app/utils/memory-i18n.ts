@@ -98,14 +98,15 @@ const en = {
   localCopy: "Personal or episodic Markdown, ignored by Git and not shared by cloning.",
   localPath: "ProjectAtlas/projects/<id>/memory/local/*.md",
   canonicalTitle: "Canonical project memory",
-  canonicalCopy: "Team-shareable Markdown that can be reviewed and versioned in the repository.",
-  canonicalPath: "ProjectAtlas/projects/<id>/memory/canonical/*.md",
+  canonicalCopy: "Reviewed team knowledge in centralized Atlas storage, outside the repository and Git history.",
+  canonicalPath: "Absolute path is resolved in the write preview below.",
   loadingImpact: "Calculating exact write impact…",
   impactError: "The write impact could not be calculated.",
   approvalBlocked: "Approval blocked",
   approvalBlockedCopy:
     "Resolve every decision-required finding before this proposal can be applied.",
   warningReview: "{count} warnings require review",
+  warningReviewSingular: "{count} warning requires review",
   reviewApproval: "Review approval",
   confirmTitle: "Confirm durable memory write",
   confirmLocalCopy:
@@ -113,7 +114,7 @@ const en = {
   confirmCanonicalCopy:
     "This writes reviewed canonical Markdown to centralized Project Atlas storage.",
   canonicalAcknowledgement:
-    "I understand these canonical files may be committed and shared with the team.",
+    "I understand this is centralized Atlas storage, not a repository commit or automatic team distribution.",
   confirmLocal: "Confirm local write",
   confirmCanonical: "Confirm canonical write",
   cancel: "Cancel",
@@ -234,14 +235,15 @@ const es: Record<keyof typeof en, string> = {
   localCopy: "Markdown personal o episódico, ignorado por Git y no compartido al clonar.",
   localPath: "ProjectAtlas/projects/<id>/memory/local/*.md",
   canonicalTitle: "Memoria canónica del proyecto",
-  canonicalCopy: "Markdown compartible con el equipo que puede revisarse y versionarse en el repositorio.",
-  canonicalPath: "ProjectAtlas/projects/<id>/memory/canonical/*.md",
+  canonicalCopy: "Conocimiento revisado para el equipo en almacenamiento centralizado de Atlas, fuera del repositorio y del historial de Git.",
+  canonicalPath: "La ruta absoluta se resuelve en la vista previa de escritura.",
   loadingImpact: "Calculando el impacto exacto de escritura…",
   impactError: "No se pudo calcular el impacto de escritura.",
   approvalBlocked: "Aprobación bloqueada",
   approvalBlockedCopy:
     "Resuelve todos los hallazgos que requieren decisión antes de aplicar la propuesta.",
   warningReview: "{count} avisos requieren revisión",
+  warningReviewSingular: "{count} aviso requiere revisión",
   reviewApproval: "Revisar aprobación",
   confirmTitle: "Confirmar escritura de memoria duradera",
   confirmLocalCopy:
@@ -249,7 +251,7 @@ const es: Record<keyof typeof en, string> = {
   confirmCanonicalCopy:
     "Esto escribe Markdown canónico revisado en el almacenamiento centralizado de Project Atlas.",
   canonicalAcknowledgement:
-    "Entiendo que estos archivos canónicos pueden confirmarse en Git y compartirse con el equipo.",
+    "Entiendo que es almacenamiento centralizado de Atlas, no un commit del repositorio ni una distribución automática al equipo.",
   confirmLocal: "Confirmar escritura local",
   confirmCanonical: "Confirmar escritura canónica",
   cancel: "Cancelar",

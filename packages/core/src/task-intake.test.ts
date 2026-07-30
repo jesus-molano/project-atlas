@@ -100,6 +100,55 @@ describe("task intake", () => {
     });
   });
 
+  it("uses semantic identities for equivalent Figma and OpenAPI references", () => {
+    expect(
+      taskSourceId(
+        "figma",
+        "https://www.figma.com/design/FileKey/Old-slug?node-id=39-2731&utm_source=atlas",
+      ),
+    ).toBe(
+      taskSourceId(
+        "figma",
+        "https://www.figma.com/design/FileKey/New-slug?node-id=39:2731",
+      ),
+    );
+    expect(
+      taskSourceId(
+        "openapi",
+        "https://api.example.com/openapi.json?b=2&a=1#operations",
+      ),
+    ).toBe(
+      taskSourceId(
+        "openapi",
+        "https://api.example.com/openapi.json?a=1&b=2",
+      ),
+    );
+  });
+
+  it("allows a source to be resolved externally without claiming retrieval", () => {
+    const objective =
+      "Render catalog cards from https://api.example.com/openapi.json";
+    const sources = detectTaskSources(objective).map((source) => ({
+      ...source,
+      state: "external" as const,
+      decidedAt: new Date(0).toISOString(),
+    }));
+    expect(
+      assessTaskIntake({
+        schemaVersion: 1,
+        scope: "task",
+        objective,
+        objectiveConfirmed: true,
+        risk: assessTaskRisk(objective),
+        sources,
+      }),
+    ).toMatchObject({ status: "ready" });
+    expect(taskContextSourcePolicy(sources)).toMatchObject({
+      confirmedKinds: [],
+      externalKinds: ["openapi"],
+    });
+  });
+
   it("requires the grouped four-source decision before high-risk context", () => {
     const objective = "Change authentication permissions";
     const sources = ensureTaskSourceDecisions(objective, []);
