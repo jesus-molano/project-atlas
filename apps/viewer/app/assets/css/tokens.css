@@ -1,0 +1,143 @@
+:root {
+  color-scheme: dark;
+
+  /* Waypoint Signal primitives: neutral graphite plus coral route markers. */
+  --atlas-neutral-1000: #090a0d;
+  --atlas-neutral-950: #0e1014;
+  --atlas-neutral-900: #14171c;
+  --atlas-neutral-875: #181b21;
+  --atlas-neutral-850: #1b1f26;
+  --atlas-neutral-800: #222731;
+  --atlas-neutral-700: #303540;
+  --atlas-neutral-650: #454b57;
+  --atlas-neutral-600: #5e6673;
+  --atlas-neutral-500: #7f8794;
+  --atlas-neutral-300: #a8afba;
+  --atlas-neutral-100: #f1f3f5;
+  --atlas-signal-500: #ff5b4d;
+  --atlas-signal-400: #ff7469;
+  --atlas-signal-950: #180a08;
+  --atlas-success-400: #73bd8a;
+  --atlas-error-400: #d86f91;
+  --atlas-warning-400: #d8aa5d;
+  --atlas-info-400: #7fa4c0;
+  --atlas-code-400: #83a7c4;
+  --atlas-design-400: #c4a663;
+  --atlas-memory-400: #b98eaa;
+  --atlas-code-border: #4e6475;
+  --atlas-design-border: #6b5a39;
+  --atlas-memory-border: #654e5f;
+
+  /* Semantic surface, text, border, action, and state aliases. */
+  --atlas-ground: var(--atlas-neutral-1000);
+  --atlas-rail: var(--atlas-neutral-950);
+  --atlas-canvas: var(--atlas-neutral-900);
+  --atlas-raised: var(--atlas-neutral-850);
+  --atlas-raised-hover: var(--atlas-neutral-800);
+  --atlas-dialog: var(--atlas-neutral-875);
+  --atlas-rule: var(--atlas-neutral-700);
+  --atlas-rule-strong: var(--atlas-neutral-650);
+  --atlas-control-border: var(--atlas-neutral-600);
+  --atlas-rule-soft: color-mix(in srgb, var(--atlas-neutral-600) 46%, transparent);
+  --atlas-ink: var(--atlas-neutral-100);
+  --atlas-ink-muted: var(--atlas-neutral-300);
+  --atlas-ink-faint: var(--atlas-neutral-500);
+  --atlas-ink-disabled: var(--atlas-neutral-500);
+  --atlas-accent: var(--atlas-signal-500);
+  --atlas-accent-hover: var(--atlas-signal-400);
+  --atlas-accent-ink: var(--atlas-signal-950);
+  --atlas-selection: var(--atlas-signal-500);
+  --atlas-selection-hover: var(--atlas-signal-400);
+  --atlas-focus: var(--atlas-signal-400);
+  --atlas-success: var(--atlas-success-400);
+  --atlas-local: var(--atlas-code-400);
+  --atlas-design: var(--atlas-design-400);
+  --atlas-memory: var(--atlas-memory-400);
+  --atlas-info: var(--atlas-info-400);
+  --atlas-danger: var(--atlas-error-400);
+  --atlas-warning: var(--atlas-warning-400);
+
+  /* Alpha aliases keep every generated surface tied to the palette. */
+  --atlas-surface-hover: color-mix(in srgb, var(--atlas-ink) 4%, transparent);
+  --atlas-surface-subtle: color-mix(in srgb, var(--atlas-ink) 2%, transparent);
+  --atlas-surface-sheen: color-mix(in srgb, var(--atlas-ink) 1.2%, transparent);
+  --atlas-accent-soft: color-mix(in srgb, var(--atlas-accent) 13%, transparent);
+  --atlas-selection-soft: color-mix(in srgb, var(--atlas-selection) 16%, transparent);
+  --atlas-success-soft: color-mix(in srgb, var(--atlas-success) 10%, transparent);
+  --atlas-warning-soft: color-mix(in srgb, var(--atlas-warning) 10%, transparent);
+  --atlas-danger-soft: color-mix(in srgb, var(--atlas-danger) 9%, transparent);
+  --atlas-danger-rule: color-mix(in srgb, var(--atlas-danger) 52%, transparent);
+  --atlas-memory-soft: color-mix(in srgb, var(--atlas-memory) 10%, transparent);
+  --atlas-glass: color-mix(in srgb, var(--atlas-dialog) 96%, transparent);
+  --atlas-canvas-glass: color-mix(in srgb, var(--atlas-canvas) 97%, transparent);
+  --atlas-backdrop: color-mix(in srgb, var(--atlas-neutral-1000) 74%, transparent);
+  --atlas-backdrop-soft: color-mix(in srgb, var(--atlas-neutral-1000) 52%, transparent);
+  --atlas-shadow-color: color-mix(in srgb, var(--atlas-neutral-1000) 58%, transparent);
+  --atlas-shadow: 0 18px 44px var(--atlas-shadow-color);
+  --atlas-panel-shadow: -18px 0 38px var(--atlas-shadow-color);
+  --atlas-scrollbar-thumb: var(--atlas-rule-strong);
+  --atlas-scrollbar-thumb-hover: var(--atlas-control-border);
+  --atlas-scrollbar-track: var(--atlas-ground);
+
+  /* Reusable type, spacing, radius, elevation, and control primitives. */
+  --atlas-text-xs: 0.72rem;
+  --atlas-text-sm: 0.8rem;
+  --atlas-text-control: 0.9rem;
+  --atlas-text-body: 1rem;
+  --atlas-weight-medium: 590;
+  --atlas-weight-semibold: 620;
+  --atlas-weight-bold: 700;
+  --atlas-space-1: 4px;
+  --atlas-space-2: 8px;
+  --atlas-space-3: 12px;
+  --atlas-space-4: 16px;
+  --atlas-space-5: 20px;
+  --atlas-space-6: 24px;
+  --atlas-space-8: 32px;
+  --atlas-radius-sm: 6px;
+  --atlas-radius-md: 8px;
+  --atlas-radius-lg: 12px;
+  --atlas-radius-pill: 999px;
+  --atlas-control-sm: 32px;
+  --atlas-control-md: 38px;
+  --atlas-control-lg: 44px;
+  --atlas-control-check: 16px;
+  --atlas-card-padding: var(--atlas-space-4);
+  --atlas-card-border: 1px solid var(--atlas-rule);
+  --atlas-elevation-raised: 0 8px 24px var(--atlas-shadow-color);
+  --atlas-elevation-dialog: 0 18px 44px var(--atlas-shadow-color);
+
+  /*
+   * Breakpoint references. Media/container queries below mirror compact
+   * 620px, tablet 900px, laptop 1100px, and desktop 1360px.
+   */
+  --atlas-breakpoint-compact: 620px;
+  --atlas-breakpoint-tablet: 900px;
+  --atlas-breakpoint-laptop: 1100px;
+  --atlas-breakpoint-desktop: 1360px;
+
+  /* Canvas graph aliases consumed by Cytoscape. */
+  --atlas-graph-label: var(--atlas-ink-muted);
+  --atlas-graph-label-background: var(--atlas-canvas);
+  --atlas-graph-node: var(--atlas-info);
+  --atlas-graph-node-border: var(--atlas-raised);
+  --atlas-graph-public: var(--atlas-local);
+  --atlas-graph-public-border: var(--atlas-code-border);
+  --atlas-graph-feature: var(--atlas-design);
+  --atlas-graph-feature-border: var(--atlas-design-border);
+  --atlas-graph-private: var(--atlas-memory);
+  --atlas-graph-private-border: var(--atlas-memory-border);
+  --atlas-graph-edge: var(--atlas-neutral-600);
+  --atlas-graph-similar-edge: var(--atlas-info);
+  --atlas-graph-selected: var(--atlas-selection);
+  --atlas-graph-selected-overlay: var(--atlas-selection);
+  --atlas-radius: var(--atlas-radius-md);
+  --atlas-sans:
+    "Segoe UI Variable", "Inter Variable", inter, ui-sans-serif, system-ui,
+    sans-serif;
+  --atlas-mono:
+    "Cascadia Code", "SFMono-Regular", consolas, ui-monospace, monospace;
+  font-family: var(--atlas-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}

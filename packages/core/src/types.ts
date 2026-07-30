@@ -1,4 +1,6 @@
-export const GRAPH_SCHEMA_VERSION = 4 as const;
+import type { AtlasProvenance } from "./task-intake.js";
+
+export const GRAPH_SCHEMA_VERSION = 5 as const;
 
 export type Framework = "vue" | "react" | "astro";
 export type MetaFramework = "next" | "nuxt" | "astro";
@@ -19,7 +21,13 @@ export type EdgeKind =
   | "uses_layout"
   | "route_parent"
   | "hydrates"
-  | "defers";
+  | "defers"
+  | "uses_composable"
+  | "uses_store"
+  | "calls_endpoint"
+  | "demonstrated_by"
+  | "uses_token"
+  | "maps_to_design";
 export type DecisionKind =
   | "reuse"
   | "extend"
@@ -276,7 +284,7 @@ export interface TaskEvaluationRecord {
 }
 
 export interface AgentRunAuditRecord {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   projectId: string;
   checkoutId?: string;
@@ -309,14 +317,187 @@ export interface AgentRunAuditRecord {
   questionCount: number;
   stale: boolean;
   resultStatus?: "completed" | "needs-input";
+  cost?: {
+    promptChars: number;
+    compactContextChars: number;
+    delegatedInputChars: number;
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    outputTokens?: number;
+  };
+}
+
+export type FrontendEntityKind =
+  | "composable"
+  | "store"
+  | "endpoint"
+  | "story"
+  | "test";
+
+export interface FrontendEntity {
+  id: string;
+  kind: FrontendEntityKind;
+  framework: Framework;
+  name: string;
+  sourcePath: string;
+  relativePath: string;
+  exported: boolean;
+  exportName?: string;
+  location: SourceLocation;
+  sourceHash: string;
+  resolution: "exact" | "framework-convention" | "inferred";
+  provenance: {
+    sourcePath: string;
+    symbol?: string;
+    analyzer:
+      | "typescript-program"
+      | "vue-compiler"
+      | "astro-compiler"
+      | "framework-convention"
+      | "heuristic";
+  };
+  endpoint?: {
+    client: "$fetch" | "useFetch" | "fetch" | "axios" | "generated-client";
+    method?: string;
+    path?: string;
+    operationId?: string;
+    openApiStatus?: "confirmed" | "unresolved" | "ambiguous";
+  };
+}
+
+export interface ProjectThemeFingerprint {
+  schemaVersion: 1;
+  generatedAt: string;
+  hash: string;
+  confidence: "high" | "medium" | "low";
+  coverage: {
+    styleFiles: number;
+    tokenCount: number;
+    componentCount: number;
+    figmaVariables: number;
+  };
+  values: {
+    colors: string[];
+    typography: string[];
+    spacing: string[];
+    radii: string[];
+    shadows: string[];
+    breakpoints: string[];
+  };
+  primitives: Array<{ name: string; uses: number; variants: string[] }>;
+  patterns: {
+    forms: string[];
+    interactiveStates: string[];
+    responsive: string[];
+  };
+  representativeSurfaces: Array<{
+    componentId: string;
+    routePath?: string;
+    relativePath: string;
+  }>;
+  provenance: Array<{
+    kind: "css" | "tailwind" | "component" | "figma-variable";
+    source: string;
+    hash: string;
+    receiptId?: string;
+  }>;
+}
+
+export type ContextCostTaskType = "small" | "frontend" | "complex";
+export type ContextCostTokenSource = "sdk" | "character-fallback";
+
+export interface ContextCostAuditRecord {
+  schemaVersion: 1;
+  id: string;
+  projectId: string;
+  checkoutId?: string;
+  recordedAt: string;
+  taskFingerprint: string;
+  taskType: ContextCostTaskType;
+  mode: "prepare" | "implement" | "continue" | "correct" | "benchmark";
+  contract: {
+    mcpToolCount: number;
+    mcpDescriptionChars: number;
+    mcpSchemaChars: number;
+    mcpSerializedChars: number;
+    mcpContractHash: string;
+    skillChars: number;
+    skillReferenceChars: number;
+    skillManifestHash: string;
+    measurement: "exact" | "declared-estimate" | "unavailable";
+  };
+  context: {
+    promptChars: number;
+    compactContextChars: number;
+    capsuleBytes: number;
+    manifestBytes: number;
+    receiptCount: number;
+    receiptBytes: number;
+    delegationInputChars: number;
+    delegationOutputChars: number;
+  };
+  interaction: {
+    questionCount: number;
+    retryCount: number;
+    truncated: boolean;
+    completed: boolean;
+    reworkRequired: boolean;
+  };
+  tokens: {
+    source: ContextCostTokenSource;
+    input: number;
+    cachedInput: number;
+    output: number;
+    estimated: number;
+  };
+}
+
+export interface ContextCostDistribution {
+  count: number;
+  median: number;
+  p95: number;
+}
+
+export interface ContextCostReportGroup {
+  taskType: ContextCostTaskType | "all";
+  runs: number;
+  inputTokens: ContextCostDistribution;
+  cachedInputTokens: ContextCostDistribution;
+  outputTokens: ContextCostDistribution;
+  promptChars: ContextCostDistribution;
+  compactContextChars: ContextCostDistribution;
+  questions: ContextCostDistribution;
+  retries: ContextCostDistribution;
+  completionRate: number;
+}
+
+export interface ContextCostReport {
+  schemaVersion: 1;
+  projectId: string;
+  generatedAt: string;
+  groups: ContextCostReportGroup[];
+}
+
+export interface PortableContextCostRecord
+  extends Omit<ContextCostAuditRecord, "id" | "projectId" | "checkoutId"> {
+  sourceId: string;
+}
+
+export interface ContextCostExportBundle {
+  schemaVersion: 1;
+  exportedAt: string;
+  sourceFingerprint: string;
+  records: PortableContextCostRecord[];
 }
 
 export interface ComponentGraph {
   schemaVersion: typeof GRAPH_SCHEMA_VERSION;
   project: ProjectMetadata;
   components: ComponentNode[];
+  entities: FrontendEntity[];
   edges: GraphEdge[];
   tokens: DesignToken[];
+  themeFingerprint?: ProjectThemeFingerprint;
 }
 
 export interface ComponentSearchResult {
@@ -492,6 +673,12 @@ export interface ComponentDecision {
   decision: DecisionKind;
   selectedComponentIds: string[];
   rejectedComponentIds: string[];
+  consideredCandidates?: Array<{
+    componentId: string;
+    outcome: "selected" | "rejected";
+    reasons: string[];
+    evidence: string[];
+  }>;
   rationale: string;
   author?: string;
   scope?: "project" | "checkout";
@@ -536,4 +723,3 @@ export interface FrameworkAdapter {
   scan(options: ScanOptions): Promise<ComponentNode[]>;
   scanDetailed?(options: ScanOptions): Promise<AdapterScanResult>;
 }
-import type { AtlasProvenance } from "./task-intake.js";

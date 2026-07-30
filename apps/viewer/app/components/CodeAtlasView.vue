@@ -17,6 +17,12 @@ import {
 
 const props = defineProps<{
   graph: ComponentGraph;
+  diffFindings?: Array<{
+    code: string;
+    message: string;
+    file?: string;
+    line?: number;
+  }>;
   initialComponentId?: string;
 }>();
 const emit = defineEmits<{
@@ -362,7 +368,7 @@ function handleGoalKeydown(event: KeyboardEvent, index: number): void {
   activateGoal(goalOptions[nextIndex]!.value);
   nextTick(() => {
     const tabs = inspectorPanel.value?.querySelectorAll<HTMLElement>(
-      '[role="tab"]',
+      "[role=\"tab\"]",
     );
     tabs?.[nextIndex]?.focus();
   });
@@ -400,7 +406,7 @@ function handleInspectorKeyboard(event: KeyboardEvent): void {
   ) {
     const focusable = [
       ...inspectorPanel.value.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])",
       ),
     ];
     if (!focusable.length) return;
@@ -507,6 +513,31 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <p v-else>{{ t("All discovered frontend files were parsed.") }}</p>
+      </details>
+
+      <details
+        v-if="graph.themeFingerprint"
+        class="coverage-strip"
+        :data-tone="props.diffFindings?.length ? 'warning' : 'healthy'"
+      >
+        <summary>
+          <strong>{{ t("Theme fingerprint") }}</strong>
+          <span>
+            {{ graph.themeFingerprint.confidence }} Â·
+            {{ graph.themeFingerprint.coverage.tokenCount }} {{ t("tokens") }} Â·
+            {{ props.diffFindings?.length ?? 0 }} {{ t("diff warnings") }}
+          </span>
+        </summary>
+        <ul v-if="props.diffFindings?.length">
+          <li
+            v-for="finding in props.diffFindings.slice(0, 5)"
+            :key="`${finding.code}:${finding.file}:${finding.line}`"
+          >
+            <strong>{{ finding.code }}</strong>
+            <span>{{ finding.message }}</span>
+          </li>
+        </ul>
+        <p v-else>{{ t("The local diff matches indexed theme evidence.") }}</p>
       </details>
 
       <label class="local-search">

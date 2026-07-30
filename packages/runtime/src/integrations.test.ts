@@ -122,7 +122,7 @@ describe("capability observations and private evaluation metrics", () => {
       rootPath: root,
       figmaUrl: "https://www.figma.com/design/CapabilityFixture/Capability",
       metadata:
-        '<canvas id="1:1" name="Page"><frame id="2:1" name="Card" /></canvas>',
+        "<canvas id=\"1:1\" name=\"Page\"><frame id=\"2:1\" name=\"Card\" /></canvas>",
       format: "figma-mcp-xml",
     });
     expect(

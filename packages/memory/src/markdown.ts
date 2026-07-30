@@ -67,7 +67,7 @@ function scalar(value: string): unknown {
   if (
     (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
     (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    (trimmed.startsWith("\"") && trimmed.endsWith("\""))
   ) {
     try {
       return JSON.parse(trimmed) as unknown;

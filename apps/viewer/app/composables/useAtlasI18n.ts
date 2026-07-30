@@ -70,7 +70,7 @@ export function translateAtlasRuntimeMessage(
 
   const proposalMissing = source.match(/^Memory proposal "(.+)" was not found\.$/);
   if (proposalMissing) {
-    return translateAtlasUi(locale, 'Memory proposal "{id}" was not found.', {
+    return translateAtlasUi(locale, "Memory proposal \"{id}\" was not found.", {
       id: proposalMissing[1] ?? "",
     });
   }
@@ -80,7 +80,7 @@ export function translateAtlasRuntimeMessage(
   if (proposalState) {
     return translateAtlasUi(
       locale,
-      'Memory proposal "{id}" is already {status}.',
+      "Memory proposal \"{id}\" is already {status}.",
       {
         id: proposalState[1] ?? "",
         status: translateAtlasUi(locale, proposalState[2] ?? ""),
@@ -93,7 +93,7 @@ export function translateAtlasRuntimeMessage(
   if (unresolvedProposal) {
     const base = translateAtlasUi(
       locale,
-      'Memory proposal "{id}" has unresolved decision-required findings and cannot be applied.',
+      "Memory proposal \"{id}\" has unresolved decision-required findings and cannot be applied.",
       { id: unresolvedProposal[1] ?? "" },
     );
     return unresolvedProposal[2]

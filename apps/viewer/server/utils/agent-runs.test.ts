@@ -1,4 +1,4 @@
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,7 @@ import {
   startFigmaSyncRun,
 } from "./agent-runs";
 import { loadProjectAtlasSnapshot } from "./project";
+import { copyFixture } from "../../../../scripts/test-fixture-copy.mjs";
 
 const fixture = fileURLToPath(
   new URL("../../../../fixtures/vue-nuxt", import.meta.url),
@@ -90,11 +91,10 @@ class BlockingAdapter extends CompletingAdapter {
     const wait = new Promise<void>((resolve) => {
       this.release = resolve;
     });
-    const owner = this;
     return {
-      cancel() {
-        owner.cancelled = true;
-        owner.release();
+      cancel: () => {
+        this.cancelled = true;
+        this.release();
       },
       events: (async function* (): AsyncGenerator<AgentRunEvent> {
         yield {
@@ -127,7 +127,7 @@ class SchemaFailingAdapter extends CompletingAdapter {
           at: new Date().toISOString(),
           code: "provider",
           message:
-            '{"error":{"code":"invalid_json_schema","message":"codex_output_schema rejected requested.url"}}',
+            "{\"error\":{\"code\":\"invalid_json_schema\",\"message\":\"codex_output_schema rejected requested.url\"}}",
         };
       })(),
     };
@@ -145,7 +145,7 @@ describe.sequential("viewer agent run ownership", () => {
     dataHome = await mkdtemp(path.join(os.tmpdir(), "atlas-agent-data-"));
     previousDataHome = process.env.PROJECT_ATLAS_HOME;
     process.env.PROJECT_ATLAS_HOME = dataHome;
-    await cp(fixture, rootPath, { recursive: true });
+    await copyFixture(fixture, rootPath);
     await scanProject(rootPath);
     process.env.ATLAS_PROJECT_ROOT = rootPath;
   });
@@ -232,7 +232,7 @@ describe.sequential("viewer agent run ownership", () => {
       purpose: "figma-sync",
       mode: "prepare",
       sandbox: "read-only",
-      compactContext: '{"status":"source-gate","contextGenerated":false}',
+      compactContext: "{\"status\":\"source-gate\",\"contextGenerated\":false}",
       contextMetrics: {
         budgetChars: 0,
         usedChars: 0,

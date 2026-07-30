@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
-import { cp, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { copyFixture } from "./test-fixture-copy.mjs";
 
 if (typeof global.gc !== "function") {
   throw new Error("Run this script with node --expose-gc.");
@@ -174,7 +175,7 @@ const metrics = {
 };
 
 try {
-  await cp(sourceFixture, fixtureRoot, { recursive: true });
+  await copyFixture(sourceFixture, fixtureRoot);
   const metadata = await import("node:fs/promises").then(({ readFile }) =>
     readFile(figmaFixture, "utf8"),
   );

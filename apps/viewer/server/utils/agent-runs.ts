@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   CodexAgentAdapter,
+  DECLARED_MCP_CONTRACT_COST,
+  measureFrontendTaskSkillCost,
   type AgentAdapter,
   type AgentAdapterStatus,
   type AgentRunEvent,
@@ -20,6 +22,8 @@ import {
 import { assertMemoryContentSafe } from "@component-atlas/memory";
 import {
   persistSourceReceipts,
+  recordContextCostAudit,
+  loadDesignCoverageLedger,
   writeTaskCheckpoint,
   type TaskJournalMilestone,
   type TaskResumeCapsule,
@@ -99,6 +103,26 @@ interface AgentRunRecord {
   estimatedTokens: number;
   truncated: boolean;
   questionCount: number;
+  retryCount: number;
+  cost?: {
+    promptChars: number;
+    compactContextChars: number;
+    delegatedInputChars: number;
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    outputTokens?: number;
+  };
+  contractCost?: {
+    mcpToolCount: number;
+    mcpDescriptionChars: number;
+    mcpSchemaChars: number;
+    mcpSerializedChars: number;
+    mcpContractHash: string;
+    skillChars: number;
+    skillReferenceChars: number;
+    skillManifestHash: string;
+    measurement: "exact" | "declared-estimate" | "unavailable";
+  };
   resultStatus?: AgentRunAuditRecord["resultStatus"];
   checkpoint?: TaskResumeCapsule;
   cancel?: (reason?: string) => void;
@@ -153,6 +177,11 @@ async function checkpointRun(
     nextSafeAction: string;
   },
 ): Promise<void> {
+  const snapshot = loadProjectAtlasSnapshot();
+  const designLedger = await loadDesignCoverageLedger(
+    record.rootPath,
+    record.id,
+  );
   record.checkpoint = await writeTaskCheckpoint(record.rootPath, {
     taskId: record.id,
     ...(input.status ? { status: input.status } : {}),
@@ -171,6 +200,23 @@ async function checkpointRun(
     remaining: input.remaining ?? record.checkpoint?.scope.remaining ?? [],
     budgetChars: record.budgetChars,
     estimatedTokens: record.estimatedTokens,
+    contextReferences: {
+      ...(snapshot.graph.themeFingerprint
+        ? { themeFingerprintHash: snapshot.graph.themeFingerprint.hash }
+        : {}),
+      ...(designLedger
+        ? {
+            designCoverageLedger: {
+              id: designLedger.id,
+              hash: designLedger.hash,
+              selectedNodeIds: designLedger.regions
+                .filter((region) => region.status === "selected")
+                .map((region) => region.nodeId)
+                .slice(0, 6),
+            },
+          }
+        : {}),
+    },
     nextSafeAction: input.nextSafeAction,
   });
 }
@@ -220,14 +266,15 @@ function trimRuns(): void {
 }
 
 function persistRunAudit(record: AgentRunRecord): void {
-  let stale = false;
-  try {
-    stale = loadProjectAtlasSnapshot().fingerprint !== record.startingFingerprint;
-  } catch {
-    stale = true;
-  }
+  const stale = (() => {
+    try {
+      return loadProjectAtlasSnapshot().fingerprint !== record.startingFingerprint;
+    } catch {
+      return true;
+    }
+  })();
   const audit: AgentRunAuditRecord = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: record.id,
     projectId: record.projectId,
     ...(record.checkoutId ? { checkoutId: record.checkoutId } : {}),
@@ -266,6 +313,24 @@ function persistRunAudit(record: AgentRunRecord): void {
     questionCount: record.questionCount,
     stale,
     ...(record.resultStatus ? { resultStatus: record.resultStatus } : {}),
+    ...(record.cost
+      ? {
+          cost: {
+            promptChars: record.cost.promptChars,
+            compactContextChars: record.cost.compactContextChars,
+            delegatedInputChars: record.cost.delegatedInputChars,
+            ...(record.cost.inputTokens === undefined
+              ? {}
+              : { inputTokens: record.cost.inputTokens }),
+            ...(record.cost.cachedInputTokens === undefined
+              ? {}
+              : { cachedInputTokens: record.cost.cachedInputTokens }),
+            ...(record.cost.outputTokens === undefined
+              ? {}
+              : { outputTokens: record.cost.outputTokens }),
+          },
+        }
+      : {}),
   };
   const store = new AtlasStore(record.projectId);
   try {
@@ -273,6 +338,54 @@ function persistRunAudit(record: AgentRunRecord): void {
   } finally {
     store.close();
   }
+}
+
+async function persistContextCostAudit(
+  record: AgentRunRecord,
+  receipts: Array<{ id: string }> = [],
+): Promise<void> {
+  const sourceKinds = new Set(record.sources.map((source) => source.kind));
+  const taskType =
+    sourceKinds.has("figma") || sourceKinds.has("openapi")
+      ? "complex"
+      : record.task.length <= 180 && record.contextChars <= 2_400
+        ? "small"
+        : "frontend";
+  await recordContextCostAudit({
+    rootPath: record.rootPath,
+    auditId: `${record.id}:${record.retryCount}`,
+    task: record.task,
+    taskType,
+    mode: record.mode,
+    recordedAt: record.updatedAt,
+    contract: record.contractCost,
+    context: {
+      promptChars: record.cost?.promptChars ?? 0,
+      compactContextChars:
+        record.cost?.compactContextChars ?? record.contextChars,
+      capsuleBytes: record.checkpoint
+        ? Buffer.byteLength(JSON.stringify(record.checkpoint), "utf8")
+        : 0,
+      receiptCount: receipts.length,
+      receiptBytes: Buffer.byteLength(JSON.stringify(receipts), "utf8"),
+      delegationInputChars: record.cost?.delegatedInputChars ?? 0,
+    },
+    interaction: {
+      questionCount: record.questionCount,
+      retryCount: record.retryCount,
+      truncated: record.truncated,
+      completed: record.state === "completed",
+      reworkRequired: record.mode === "correct",
+    },
+    usage:
+      record.cost?.inputTokens === undefined
+        ? undefined
+        : {
+            inputTokens: record.cost.inputTokens,
+            cachedInputTokens: record.cost.cachedInputTokens,
+            outputTokens: record.cost.outputTokens,
+          },
+  });
 }
 
 function validateSourceDecisions(
@@ -356,6 +469,21 @@ function pushEvent(record: AgentRunRecord, event: AgentRunEvent): void {
   } else if (event.type === "completed") {
     record.threadId = event.threadId;
     record.resultStatus = event.result.status;
+    record.cost = {
+      promptChars: event.cost?.promptChars ?? 0,
+      compactContextChars:
+        event.cost?.compactContextChars ?? record.contextChars,
+      delegatedInputChars: event.cost?.delegatedInputChars ?? 0,
+      ...(event.usage?.inputTokens === undefined
+        ? {}
+        : { inputTokens: event.usage.inputTokens }),
+      ...(event.usage?.cachedInputTokens === undefined
+        ? {}
+        : { cachedInputTokens: event.usage.cachedInputTokens }),
+      ...(event.usage?.outputTokens === undefined
+        ? {}
+        : { outputTokens: event.usage.outputTokens }),
+    };
     const nextState =
       event.result.status === "needs-input" ? "awaiting-input" : "completed";
     void persistSourceReceipts(record.rootPath, event.result.sourceReceipts)
@@ -377,10 +505,16 @@ function pushEvent(record: AgentRunRecord, event: AgentRunEvent): void {
               : "Task is complete; expand evidence receipts only for audit.",
         }),
       )
-      .then(() => {
+      .then(async () => {
         record.state = nextState;
         record.updatedAt = new Date().toISOString();
         persistRunAudit(record);
+        await persistContextCostAudit(
+          record,
+          event.result.sourceReceipts,
+        ).catch(() => {
+          // Cost instrumentation must never replace a completed terminal state.
+        });
       })
       .catch((error) => {
         record.state = "failed";
@@ -428,6 +562,11 @@ function pushEvent(record: AgentRunRecord, event: AgentRunEvent): void {
     event.type === "cancelled"
   ) {
     persistRunAudit(record);
+    if (event.type === "failed" || event.type === "cancelled") {
+      void persistContextCostAudit(record).catch(() => {
+        // Cost instrumentation must never replace the original terminal state.
+      });
+    }
   }
 }
 
@@ -453,6 +592,17 @@ async function execute(record: AgentRunRecord, answer?: string): Promise<void> {
       },
     );
     const compactContext = JSON.stringify(context);
+    const skillContract = await measureFrontendTaskSkillCost();
+    record.contractCost = {
+      ...DECLARED_MCP_CONTRACT_COST,
+      skillChars: skillContract.skillChars,
+      skillReferenceChars: skillContract.skillReferenceChars,
+      skillManifestHash: skillContract.skillManifestHash,
+      measurement:
+        skillContract.measurement === "exact"
+          ? "declared-estimate"
+          : "unavailable",
+    };
     record.contextChars = context.metrics.usedChars;
     record.estimatedTokens = context.metrics.estimatedTokens;
     record.truncated = context.metrics.truncated;
@@ -510,12 +660,23 @@ async function executeFigmaSync(record: AgentRunRecord): Promise<void> {
   record.state = "running";
   record.updatedAt = new Date().toISOString();
   try {
+    const skillContract = await measureFrontendTaskSkillCost();
+    record.contractCost = {
+      ...DECLARED_MCP_CONTRACT_COST,
+      skillChars: skillContract.skillChars,
+      skillReferenceChars: skillContract.skillReferenceChars,
+      skillManifestHash: skillContract.skillManifestHash,
+      measurement:
+        skillContract.measurement === "exact"
+          ? "declared-estimate"
+          : "unavailable",
+    };
     const handle = adapter.run({
       mode: "prepare",
       purpose: "figma-sync",
       task: record.task,
       rootPath: record.rootPath,
-      compactContext: '{"status":"source-gate","contextGenerated":false}',
+      compactContext: "{\"status\":\"source-gate\",\"contextGenerated\":false}",
       contextMetrics: {
         budgetChars: 0,
         usedChars: 0,
@@ -630,6 +791,7 @@ export function startAgentRun(input: StartAgentRunInput) {
     estimatedTokens: 0,
     truncated: false,
     questionCount: 0,
+    retryCount: 0,
   };
   records.set(record.id, record);
   persistRunAudit(record);
@@ -750,6 +912,7 @@ export function startFigmaSyncRun(input: StartFigmaSyncRunInput) {
     estimatedTokens: 0,
     truncated: false,
     questionCount: 0,
+    retryCount: 0,
   };
   records.set(record.id, record);
   persistRunAudit(record);
@@ -904,6 +1067,7 @@ export function resumeAgentRun(
   }
   record.startingFingerprint = snapshot.fingerprint;
   record.state = "queued";
+  record.retryCount += 1;
   void checkpointRun(
     record,
     input.mode === "implement" ? "risk-boundary" : "decision-confirmed",

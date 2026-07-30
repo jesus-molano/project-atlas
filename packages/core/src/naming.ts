@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import type { Framework } from "./types.js";
 import { slash } from "./text.js";
+
 export { edgeId, pascalCase, slash, tokenize } from "./text.js";
 
 export function componentId(

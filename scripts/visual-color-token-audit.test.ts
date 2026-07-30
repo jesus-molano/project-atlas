@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { readViewerCss } from "./viewer-css";
 
 const appRoot = new URL("../apps/viewer/app", import.meta.url);
 const sourceExtensions = new Set([".css", ".js", ".jsx", ".ts", ".tsx", ".vue"]);
@@ -69,7 +70,7 @@ describe("viewer color token boundary", () => {
   it("routes interactive and semantic states through dedicated aliases", async () => {
     const rootPath = appRoot.pathname.replace(/^\/([A-Z]:)/, "$1");
     const [css, graph] = await Promise.all([
-      readFile(join(rootPath, "assets", "css", "main.css"), "utf8"),
+      readViewerCss(),
       readFile(join(rootPath, "components", "AtlasGraph.client.vue"), "utf8"),
     ]);
 
@@ -92,7 +93,7 @@ describe("viewer color token boundary", () => {
     expect(css).toMatch(
       /\.loader,[\s\S]*border-top-color:\s*var\(--atlas-accent\)/,
     );
-    expect(graph).toContain('graphToken("--atlas-graph-selected-overlay")');
+    expect(graph).toContain("graphToken(\"--atlas-graph-selected-overlay\")");
     expect(graph).not.toMatch(/#[\da-f]{3,8}\b|rgba?\(/i);
   });
 

@@ -31,7 +31,8 @@ import {
 } from "./auth-mocks.js";
 
 const execFileAsync = promisify(execFile);
-const CAPSULE_SCHEMA_VERSION = 2 as const;
+const CAPSULE_SCHEMA_VERSION = 3 as const;
+const PREVIOUS_CAPSULE_SCHEMA_VERSION = 2 as const;
 const LEGACY_CAPSULE_SCHEMA_VERSION = 1 as const;
 const MAX_CAPSULE_BYTES = 4_096;
 const MAX_JOURNAL_EVENT_BYTES = 2_048;
@@ -54,6 +55,7 @@ export type TaskJournalMilestone =
 export interface TaskResumeCapsule {
   schemaVersion:
     | typeof LEGACY_CAPSULE_SCHEMA_VERSION
+    | typeof PREVIOUS_CAPSULE_SCHEMA_VERSION
     | typeof CAPSULE_SCHEMA_VERSION;
   taskId: string;
   status: "active" | "blocked" | "completed";
@@ -98,6 +100,14 @@ export interface TaskResumeCapsule {
     authMode?: "real" | "dev-mock-no-session";
     authMockGuard?: DevelopmentAuthMockGuard;
   };
+  contextReferences?: {
+    themeFingerprintHash?: string;
+    designCoverageLedger?: {
+      id: string;
+      hash: string;
+      selectedNodeIds: string[];
+    };
+  };
   nextSafeAction: string;
 }
 
@@ -117,6 +127,7 @@ export interface TaskCheckpointInput {
   estimatedTokens?: number;
   executionManifest?: TaskResumeCapsule["executionManifest"];
   activePolicy?: TaskResumeCapsule["activePolicy"];
+  contextReferences?: TaskResumeCapsule["contextReferences"];
   nextSafeAction: string;
   head?: string;
   at?: string;
@@ -196,6 +207,7 @@ function validateCapsule(value: unknown): TaskResumeCapsule {
   if (
     ![
       LEGACY_CAPSULE_SCHEMA_VERSION,
+      PREVIOUS_CAPSULE_SCHEMA_VERSION,
       CAPSULE_SCHEMA_VERSION,
     ].includes(capsule.schemaVersion) ||
     !TASK_ID.test(capsule.taskId) ||
@@ -280,6 +292,25 @@ function fitCapsuleStorageBudget(
                   excludedSurfaces: capsule.activePolicy.excludedSurfaces
                     .slice(0, 6)
                     .map((item) => short(item, 80)),
+                }
+              : {}),
+          },
+        }
+      : {}),
+    ...(capsule.contextReferences
+      ? {
+          contextReferences: {
+            ...capsule.contextReferences,
+            ...(capsule.contextReferences.designCoverageLedger
+              ? {
+                  designCoverageLedger: {
+                    ...capsule.contextReferences.designCoverageLedger,
+                    selectedNodeIds:
+                      capsule.contextReferences.designCoverageLedger.selectedNodeIds.slice(
+                        0,
+                        6,
+                      ),
+                  },
                 }
               : {}),
           },
@@ -398,6 +429,8 @@ export async function writeTaskCheckpoint(
   const executionManifest =
     input.executionManifest ?? existingCapsule?.executionManifest;
   const activePolicy = input.activePolicy ?? existingCapsule?.activePolicy;
+  const contextReferences =
+    input.contextReferences ?? existingCapsule?.contextReferences;
   if (input.activePolicy?.authMode === "dev-mock-no-session") {
     if (!input.activePolicy.authMockGuard) {
       throw new Error(
@@ -514,6 +547,7 @@ export async function writeTaskCheckpoint(
     },
     ...(executionManifest ? { executionManifest } : {}),
     ...(activePolicy ? { activePolicy } : {}),
+    ...(contextReferences ? { contextReferences } : {}),
     nextSafeAction: short(input.nextSafeAction, 240),
   });
   validateCapsule(capsule);

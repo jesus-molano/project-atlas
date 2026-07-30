@@ -392,9 +392,9 @@ function useSelectedInTask(): void {
         <h3>{{ enumLabel(selected.provenance.kind) }}</h3>
         <p>
           {{
-            selected.bodyPath ??
-              selected.provenance.uri ??
-              memoryT("episodicStore")
+            selected.bodyPath
+              ?? selected.provenance.uri
+              ?? memoryT("episodicStore")
           }}
         </p>
         <div class="tag-list">

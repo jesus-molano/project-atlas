@@ -1,0 +1,847 @@
+  <div class="workbench">
+    <section class="workbench-composer" aria-labelledby="task-intent-heading">
+      <div class="codex-sidecar-note">
+        <AtlasIcon name="task" />
+        <div>
+          <strong>{{ t("Codex first · Atlas verifies the handoff") }}</strong>
+          <span>{{ t("Use native Codex for conversation and execution. This surface controls scope, source integrity, and traceability.") }}</span>
+        </div>
+      </div>
+      <details v-if="props.diffFindings?.length" class="decision-band">
+        <summary>
+          <strong>{{ t("Local diff validation") }}</strong>
+          <span>{{ t("{count} diff warnings", { count: props.diffFindings.length }) }}</span>
+        </summary>
+        <article
+          v-for="finding in props.diffFindings.slice(0, 5)"
+          :key="finding.code"
+          class="decision-record warning"
+        >
+          <strong>{{ finding.message }}</strong>
+          <p>{{ finding.recommendation }}</p>
+        </article>
+      </details>
+      <div class="task-intake-controls">
+        <div class="mode-switch" :aria-label="t('Task mode')">
+          <button
+            v-for="item in taskModes"
+            :key="item.id"
+            :class="['mode-button', { active: mode === item.id }]"
+            :disabled="item.disabled || Boolean(activeRun)"
+            :aria-pressed="mode === item.id"
+            @click="selectMode(item.id)"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <div class="task-status-row" :aria-label="t('Task intake status')">
+          <span :class="['capability-pill', risk.level]">
+            {{ t("{level} risk", { level: statusLabel(risk.level) }) }}
+          </span>
+          <span :class="['capability-pill', intakeAssessment.status]">
+            {{ statusLabel(intakeAssessment.status) }}
+          </span>
+          <button v-if="activeRun" class="text-button" @click="newTask">
+            {{ t("New task") }}
+          </button>
+        </div>
+      </div>
+
+      <label v-if="mode !== 'prepare'" class="resume-picker">
+        <span>{{ t("Codex task to resume") }}</span>
+        <select
+          v-model="selectedRunId"
+          :disabled="Boolean(activeRun)"
+          @change="selectResumableRun"
+        >
+          <option
+            v-for="run in resumableRuns"
+            :key="run.id"
+            :value="run.id"
+          >
+            {{ runOptionLabel(run) }}
+          </option>
+        </select>
+        <small v-if="selectedRun?.stale">
+          {{ t("The Atlas snapshot changed; the current brief will be checked before resuming.") }}
+        </small>
+      </label>
+
+      <label class="workbench-intent">
+        <span id="task-intent-heading">{{ intentLabel }}</span>
+        <textarea
+          v-model="task"
+          rows="5"
+          :disabled="Boolean(activeRun)"
+          :placeholder="intentPlaceholder"
+        />
+      </label>
+
+      <section
+        v-if="risk.requiresObjectiveConfirmation && !objectiveConfirmed"
+        class="decision-band"
+        aria-labelledby="objective-confirmation"
+      >
+        <span>{{ t("Confirm scope") }}</span>
+        <div>
+          <strong id="objective-confirmation">{{ t("Is this the outcome to prepare?") }}</strong>
+          <p>{{ risk.reasons.map((reason) => t(reason)).join(" · ") }}</p>
+          <button
+            class="secondary-button"
+            :disabled="!task.trim()"
+            @click="objectiveConfirmed = true"
+          >
+            {{ t("Confirm objective") }}
+          </button>
+        </div>
+      </section>
+
+      <div v-if="props.pinnedHandles?.length" class="selection-strip">
+        <span>{{ t("Selected evidence") }}</span>
+        <code v-for="handle in props.pinnedHandles" :key="handle">{{ handle }}</code>
+      </div>
+
+      <div class="source-strip">
+        <div class="source-strip-heading">
+          <div>
+            <strong>{{ t("Task sources") }}</strong>
+            <span>{{ t("Optional · detected references require an explicit choice") }}</span>
+          </div>
+          <button class="text-button" @click="advancedOpen = !advancedOpen">
+            {{ advancedOpen ? t("Hide source controls") : t("Add source") }}
+          </button>
+        </div>
+        <div v-if="sourceDecisions.length" class="source-chips">
+          <article
+            v-for="source in sourceDecisions"
+            :key="source.id"
+            :class="['source-decision', source.state]"
+          >
+            <div :title="source.reference">
+              <span>{{ statusLabel(source.kind) }} · {{ statusLabel(source.state) }}</span>
+              <strong>
+                {{
+                  isMissingTaskSourceReference(source.reference)
+                    ? t("No source supplied")
+                    : source.reference.replace(/^https?:\/\//, "").slice(0, 54)
+                }}
+              </strong>
+              <small>
+                {{ source.required ? t("Required source") : t("Optional source") }}
+                ·
+                {{ source.origin === "manual" ? t("Added by you") : t("Detected in the task") }}
+              </small>
+            </div>
+            <div v-if="source.state === 'pending'" class="source-decision-actions">
+              <button
+                v-if="!isMissingTaskSourceReference(source.reference)"
+                class="secondary-button"
+                @click="decideSource(source.id, 'confirmed')"
+              >
+                {{ t("Yes, use this") }}
+              </button>
+              <button class="text-button" @click="decideSource(source.id, 'omitted')">
+                {{ t("Continue without it") }}
+              </button>
+              <button class="text-button" @click="decideSource(source.id, 'unavailable')">
+                {{ t("Not available") }}
+              </button>
+              <button class="text-button" @click="beginSourceReplacement(source.id)">
+                {{ t("Replace or add") }}
+              </button>
+            </div>
+            <div v-else class="source-decision-actions">
+              <button
+                v-if="
+                  source.state !== 'confirmed'
+                  && !isMissingTaskSourceReference(source.reference)
+                "
+                class="text-button"
+                @click="decideSource(source.id, 'confirmed')"
+              >
+                {{ t("Use instead") }}
+              </button>
+              <button
+                class="text-button"
+                @click="beginSourceReplacement(source.id)"
+              >
+                {{ t("Replace") }}
+              </button>
+              <button
+                v-if="source.state === 'confirmed'"
+                class="text-button"
+                @click="decideSource(source.id, 'omitted')"
+              >
+                {{ t("Continue without it") }}
+              </button>
+              <button
+                v-if="source.origin === 'manual'"
+                class="text-button"
+                :aria-label="t('Remove manually added source')"
+                @click="removeManualSource(source.id)"
+              >
+                {{ t("Remove") }}
+              </button>
+            </div>
+          </article>
+        </div>
+        <div v-if="advancedOpen" class="source-adder">
+          <select v-model="sourceKind" :aria-label="t('Source kind')">
+            <option value="figma">Figma</option>
+            <option value="jira">Jira</option>
+            <option value="confluence">Confluence</option>
+            <option value="github">GitHub</option>
+            <option value="openapi">OpenAPI / Swagger</option>
+            <option value="other">{{ t("Other reference") }}</option>
+          </select>
+          <input
+            v-model="sourceValue"
+            type="text"
+            :placeholder="replacementFor ? t('Paste the replacement URL or ID') : t('Paste one URL or ID')"
+            @keydown.enter.prevent="addSource"
+          >
+          <label class="source-required-toggle">
+            <input v-model="sourceRequired" type="checkbox">
+            <span>{{ t("Required for this task") }}</span>
+          </label>
+          <button class="secondary-button" :disabled="!sourceValue.trim()" @click="addSource">
+            {{ t("Add") }}
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-if="figmaSyncState.status !== 'idle'"
+        :class="['figma-sync-band', figmaSyncState.status]"
+        :role="figmaSyncState.status === 'error' ? 'alert' : 'status'"
+        aria-live="polite"
+      >
+        <span v-if="figmaSyncState.status === 'loading'" class="mini-loader" />
+        <AtlasIcon v-else :name="figmaSyncState.status === 'available' ? 'check' : 'design'" />
+        <div class="figma-sync-copy">
+          <strong>{{ figmaSyncLabel }}</strong>
+          <span>{{ t(figmaSyncState.message) }}</span>
+          <code v-if="figmaSyncTargetLabel">{{ figmaSyncTargetLabel }}</code>
+          <small
+            v-if="['confirmed-unsynced', 'error'].includes(figmaSyncState.status)"
+          >
+            {{ t("Keep Figma Desktop open with access to this file. Atlas will read and map only this exact node; candidates cannot replace it.") }}
+          </small>
+          <small
+            v-if="
+              ['confirmed-unsynced', 'error'].includes(figmaSyncState.status)
+              && figmaSyncBlockReason
+            "
+            class="figma-sync-blocker"
+          >
+            {{ figmaSyncBlockReason }}
+          </small>
+          <small v-if="figmaSyncProgress" class="figma-sync-progress">
+            {{ figmaSyncProgress }}
+          </small>
+          <small v-if="runError && figmaSyncState.status === 'error'" class="inline-error">
+            {{
+              runtimeMessage(
+                runError,
+                "Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target.",
+              )
+            }}
+          </small>
+        </div>
+        <div class="figma-sync-actions">
+          <button
+            v-if="['confirmed-unsynced', 'error'].includes(figmaSyncState.status)"
+            class="secondary-button"
+            :disabled="!canStartFigmaSync"
+            @click="startFigmaSync"
+          >
+            {{
+              figmaSyncState.status === "error"
+                ? t("Retry exact sync")
+                : t("Synchronize exact target")
+            }}
+          </button>
+          <button
+            v-else-if="figmaSyncState.status === 'loading'"
+            class="text-button"
+            @click="cancelRun"
+          >
+            {{ t("Cancel safely") }}
+          </button>
+        </div>
+      </div>
+
+      <div class="capability-line" :aria-label="t('Detected task capabilities')">
+        <span
+          v-for="capability in capabilitySummary"
+          :key="capability.id"
+          :class="['capability-pill', capability.state]"
+          :title="`${capability.detail ?? ''} · ${statusLabel(capability.provenance)}${isSimulatedCapability(capability) ? ` · ${t('fixture claim, not a live connection')}` : ''}`"
+        >
+          {{ capability.id }} · {{ t(capabilityDisplayState(capability)) }}
+        </span>
+        <span v-if="!capabilitySummary.length" class="capability-pill unknown">
+          {{ t("Repository only") }}
+        </span>
+      </div>
+
+      <div class="workbench-actions">
+        <button
+          class="primary-button"
+          :disabled="contextPending || !canGenerateContext"
+          @click="generateContext"
+        >
+          {{ contextPending ? t("Preparing local evidence…") : t("Prepare task") }}
+        </button>
+        <button
+          class="text-button"
+          :aria-expanded="contextOptionsOpen"
+          @click="contextOptionsOpen = !contextOptionsOpen"
+        >
+          {{ contextOptionsOpen ? t("Hide context options") : t("Context options") }}
+        </button>
+      </div>
+      <div v-if="contextOptionsOpen" class="compact-options">
+        <label>
+          {{ t("Design map") }}
+          <select v-model="figmaFile">
+            <option value="">{{ t("None unless confirmed") }}</option>
+            <option
+              v-for="index in designIndexes"
+              :key="index.file.key"
+              :value="index.file.key"
+            >
+              {{ index.file.name ?? index.file.key }}
+            </option>
+          </select>
+        </label>
+        <label>
+          {{ t("Hard cap") }}
+          <select v-model.number="budgetChars">
+            <option :value="2400">{{ t("{chars} chars · ~{tokens} tokens", { chars: formatNumber(2400), tokens: formatNumber(600) }) }}</option>
+            <option :value="3600">{{ t("{chars} chars · ~{tokens} tokens", { chars: formatNumber(3600), tokens: formatNumber(900) }) }}</option>
+            <option :value="6000">{{ t("{chars} chars · ~{tokens} tokens", { chars: formatNumber(6000), tokens: formatNumber(1500) }) }}</option>
+          </select>
+        </label>
+        <label>
+          {{ t("Candidates") }}
+          <select v-model.number="topK">
+            <option :value="3">{{ t("Top {count}", { count: 3 }) }}</option>
+            <option :value="5">{{ t("Top {count}", { count: 5 }) }}</option>
+          </select>
+        </label>
+      </div>
+      <p v-if="contextError" class="inline-error" role="alert">{{ runtimeMessage(contextError) }}</p>
+    </section>
+
+    <section class="workbench-canvas" aria-live="polite">
+      <div v-if="!context" class="workbench-empty">
+        <span>{{ t("WORK / READY") }}</span>
+        <h2>{{ t("Prepare a verified handoff to Codex.") }}</h2>
+        <p>
+          {{ t("Atlas sends only a compact brief, handles, and receipt IDs. Persistent indexes and full evidence stay outside the prompt until Codex requests an exact ID.") }}
+        </p>
+        <ol>
+          <li>{{ t("Describe the task.") }}</li>
+          <li>{{ t("Confirm inferred sources and material scope only when needed.") }}</li>
+          <li>{{ t("Prepare read-only, then explicitly approve editing in the same task.") }}</li>
+        </ol>
+        <section v-if="recentRuns?.length || recentActions?.length" class="recent-runs">
+          <header>
+            <strong>{{ t("Recent local activity") }}</strong>
+            <span>{{ t("metadata only · no task text") }}</span>
+          </header>
+          <div
+            v-for="action in recentActions?.slice(0, 4)"
+            :key="action.id"
+            class="recent-run-row"
+          >
+            <time :datetime="action.resolvedAt">
+              {{ formatDate(action.resolvedAt) }}
+            </time>
+            <strong>{{ statusLabel(action.command) }} · {{ statusLabel(action.state) }}</strong>
+            <span>{{ t("{scope} scope", { scope: statusLabel(action.scope) }) }} · {{ action.itemId }}</span>
+          </div>
+          <div
+            v-for="run in recentRuns?.slice(0, 5)"
+            :key="run.id"
+            class="recent-run-row"
+          >
+            <time :datetime="run.updatedAt">
+              {{ formatDate(run.updatedAt) }}
+            </time>
+            <strong>{{ statusLabel(run.mode) }} · {{ statusLabel(run.state) }}</strong>
+            <span>
+              {{ t("{tokens} tokens · {questions} questions", {
+                tokens: formatNumber(run.estimatedTokens),
+                questions: formatNumber(run.questionCount),
+              }) }}
+            </span>
+          </div>
+        </section>
+      </div>
+
+      <template v-else-if="context">
+        <header class="workbench-result-head">
+          <div>
+            <span class="eyebrow">{{ t("Reviewed local brief") }}</span>
+            <h2>{{ context.task }}</h2>
+          </div>
+          <button class="text-button" @click="copyPackage">
+            {{ copied ? t("Handoff copied") : t("Copy for Codex") }}
+          </button>
+        </header>
+
+        <div class="evidence-lanes">
+          <section>
+            <span>{{ t("Code") }}</span>
+            <strong>{{ t("{count} candidates", { count: context.code?.length ?? 0 }) }}</strong>
+            <p v-if="context.code?.length">
+              {{ context.code.slice(0, 3).map((item) => item.name).join(" · ") }}
+            </p>
+            <p v-else>{{ t("No matching code candidate yet.") }}</p>
+          </section>
+          <section>
+            <span>{{ t("Design") }}</span>
+            <strong>{{ t("{count} candidates", { count: context.design?.candidates?.length ?? 0 }) }}</strong>
+            <p v-if="context.design?.selectionRequired">{{ t("A design source needs selection.") }}</p>
+            <p v-else>{{ context.design?.available ? t("Sparse design evidence available.") : t("Optional / unavailable.") }}</p>
+          </section>
+          <section>
+            <span>{{ t("Memory") }}</span>
+            <strong>{{ t("{count} relevant items", { count: context.memory?.length ?? 0 }) }}</strong>
+            <p>{{ t("{count} findings enter the decision gate.", { count: context.findings?.length ?? 0 }) }}</p>
+          </section>
+          <section v-if="context.api">
+            <span>{{ t("API contract") }}</span>
+            <strong>{{ t("{count} relevant operations", { count: context.api.operations.length }) }}</strong>
+            <p>
+              {{ t(context.api.contracts === 1 ? "{count} contract" : "{count} contracts", { count: context.api.contracts }) }} ·
+              {{ context.api.format }} ·
+              {{ t("{count} authentication schemes", { count: context.api.authentication.length }) }}
+            </p>
+          </section>
+        </div>
+
+        <section v-if="context.findings?.length" class="decision-band">
+          <header>
+            <div>
+              <span class="eyebrow">{{ t("Decision gate") }}</span>
+              <strong>
+                {{ t("{count} findings enter the decision gate.", { count: context.findings.length }) }}
+                ·
+                {{ t("{count} required reviews pending", { count: pendingBlockingFindings.length }) }}
+              </strong>
+            </div>
+            <span :class="['gate-state', displayGateStatus]">
+              {{ statusLabel(displayGateStatus) }}
+            </span>
+          </header>
+          <article
+            v-for="finding in context.findings"
+            :key="finding.id"
+            :class="['decision-record', finding.level]"
+          >
+            <div>
+              <span>{{ statusLabel(finding.level) }}</span>
+              <strong>{{ finding.title }}</strong>
+              <p v-if="finding.question">{{ finding.question }}</p>
+              <p>{{ finding.recommendation }}</p>
+              <ul v-if="finding.evidence?.length">
+                <li v-for="item in finding.evidence.slice(0, 3)" :key="item">
+                  {{ item }}
+                </li>
+              </ul>
+            </div>
+            <button
+              v-if="finding.level === 'decision-required'"
+              class="secondary-button"
+              :aria-pressed="acknowledgedFindingIds.has(finding.id)"
+              @click="toggleFindingAcknowledgement(finding)"
+            >
+              {{
+                acknowledgedFindingIds.has(finding.id)
+                  ? t("Reviewed")
+                  : t("Mark reviewed")
+              }}
+            </button>
+          </article>
+        </section>
+
+        <section v-if="!activeRun" class="launch-row">
+          <div>
+            <strong>{{ t("Experimental embedded runner") }} · {{ agentStatus?.label ?? "Codex" }}</strong>
+            <span>{{ agentStatus?.detail ? t(agentStatus.detail) : t("Checking the local agent adapter…") }}</span>
+            <span v-if="pendingBlockingFindings.length" class="launch-blocker">
+              {{ t("Review every decision-required finding before starting Codex.") }}
+            </span>
+          </div>
+          <button
+            class="secondary-button"
+            :disabled="
+              agentStatus?.state !== 'detected'
+              || pendingBlockingFindings.length > 0
+            "
+            @click="reviewLaunch(mode === 'prepare' ? 'read-only' : (selectedRun?.sandbox ?? 'read-only'))"
+          >
+            {{ launchButtonLabel() }}
+          </button>
+        </section>
+
+        <section v-if="activeRun" class="run-ledger">
+          <header>
+            <div>
+              <span class="eyebrow">{{ t("Agent activity") }} · {{ statusLabel(activeRun.state) }}</span>
+              <h2>{{ activeRun.threadId ? t("Codex task in progress") : t("Starting Codex") }}</h2>
+              <p v-if="activeRun.stale" class="stale-warning">
+                {{ t("Atlas evidence changed after this run was reviewed.") }}
+              </p>
+            </div>
+            <button
+              v-if="['queued', 'running'].includes(activeRun.state)"
+              class="secondary-button"
+              @click="cancelRun"
+            >
+              {{ t("Cancel safely") }}
+            </button>
+          </header>
+          <ol>
+            <li v-for="item in progressEvents" :key="item.cursor">
+              <span :class="['event-mark', item.event.type]" />
+              <div>
+                <strong>{{ eventLabel(item.event) }}</strong>
+                <small>{{ formatDate(item.event.at) }}</small>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section v-if="materialQuestion && activeRun?.state === 'awaiting-input'" class="question-gate">
+          <span class="eyebrow">{{ t("Material question") }}</span>
+          <h2>{{ materialQuestion.prompt }}</h2>
+          <ul>
+            <li v-for="item in materialQuestion.evidence" :key="item">{{ item }}</li>
+          </ul>
+          <p><strong>{{ t("Recommendation") }}:</strong> {{ materialQuestion.recommendation }}</p>
+          <textarea v-model="answer" rows="3" :placeholder="t('Confirm or correct the recommendation')" />
+          <button class="primary-button" :disabled="!answer.trim()" @click="resumeRun">
+            {{ t("Continue this task") }}
+          </button>
+        </section>
+
+        <section v-if="latestResult" class="agent-result">
+          <header>
+            <div>
+              <span class="eyebrow">{{ t("Compact agent result") }}</span>
+              <h2>{{ latestResult.summary }}</h2>
+            </div>
+            <span :class="['result-state', latestResult.status]">{{ statusLabel(latestResult.status) }}</span>
+          </header>
+          <div class="result-ledgers">
+            <section>
+              <span>{{ t("Evidence") }}</span>
+              <p v-for="item in latestResult.evidence" :key="`${item.source}:${item.label}`">
+                <strong>{{ item.source }}</strong> {{ item.label }}
+              </p>
+            </section>
+            <section>
+              <span>{{ t("Decisions") }}</span>
+              <p v-for="item in latestResult.decisions" :key="item.title">
+                <strong>{{ item.status }}</strong> {{ item.title }}
+              </p>
+              <p v-if="!latestResult.decisions.length">{{ t("No new decision claimed.") }}</p>
+            </section>
+            <section>
+              <span>{{ t("Risks") }}</span>
+              <p v-for="item in latestResult.risks" :key="item.title">
+                <strong>{{ item.level }}</strong> {{ item.title }}
+              </p>
+              <p v-if="!latestResult.risks.length">{{ t("No unresolved risk reported.") }}</p>
+            </section>
+          </div>
+          <details
+            v-if="latestResult.sourceReceipts?.length"
+            class="receipt-disclosure"
+          >
+            <summary>
+              {{ t("{count} source receipts", { count: latestResult.sourceReceipts?.length ?? 0 }) }}
+            </summary>
+            <article
+              v-for="receipt in latestResult.sourceReceipts ?? []"
+              :key="receipt.id"
+            >
+              <strong>{{ statusLabel(receipt.provider) }} · {{ receipt.id }}</strong>
+              <span>{{ receipt.adapter }} · {{ receipt.scope.kind }}:{{ receipt.scope.id }}</span>
+              <small>{{ statusLabel(receipt.freshness) }} · {{ formatDate(receipt.observedAt) }}</small>
+            </article>
+          </details>
+          <section
+            :class="[
+              'memory-closeout',
+              { confirmation: latestResult.memoryCloseout.confirmationRequired },
+            ]"
+            aria-labelledby="memory-closeout-heading"
+          >
+            <header>
+              <div>
+                <span class="eyebrow">{{ t("Memory candidates") }}</span>
+                <h3 id="memory-closeout-heading">
+                  {{ statusLabel(latestResult.memoryCloseout.status) }}
+                </h3>
+              </div>
+              <span>
+                {{
+                  latestResult.memoryCloseout.status === "canonical-stored"
+                    ? t("Stored after confirmation")
+                    : t("No automatic memory writes")
+                }}
+              </span>
+            </header>
+            <p>{{ latestResult.memoryCloseout.summary }}</p>
+            <article
+              v-for="candidate in latestResult.memoryCloseout.candidates"
+              :key="`${candidate.type}:${candidate.title}`"
+              class="memory-candidate"
+            >
+              <strong>{{ statusLabel(candidate.type) }} · {{ candidate.title }}</strong>
+              <p>{{ candidate.summary }}</p>
+              <small>
+                {{
+                  t("{scope} · {count}% confidence", {
+                    scope: statusLabel(candidate.scope),
+                    count: Math.round(candidate.confidence * 100),
+                  })
+                }}
+              </small>
+              <ul>
+                <li v-for="evidence in candidate.evidence" :key="evidence">
+                  {{ evidence }}
+                </li>
+              </ul>
+            </article>
+            <article
+              v-if="latestResult.memoryCloseout.localOutcome"
+              class="memory-candidate local"
+            >
+              <strong>{{ t("Local / episodic outcome") }}</strong>
+              <p>{{ latestResult.memoryCloseout.localOutcome.summary }}</p>
+              <ul>
+                <li
+                  v-for="evidence in latestResult.memoryCloseout.localOutcome.evidence"
+                  :key="evidence"
+                >
+                  {{ evidence }}
+                </li>
+              </ul>
+            </article>
+            <p
+              v-if="latestResult.memoryCloseout.confirmationRequired"
+              class="memory-confirmation"
+            >
+              <strong>{{ t("Explicit confirmation required:") }}</strong>
+              {{ latestResult.memoryCloseout.confirmationPrompt }}
+            </p>
+            <div
+              v-if="latestResult.memoryCloseout.confirmationRequired"
+              class="memory-closeout-actions"
+            >
+              <button
+                class="secondary-button"
+                @click="respondToMemoryCloseout('confirm-canonical')"
+              >
+                {{ t("Confirm canonical memory") }}
+              </button>
+              <button
+                class="text-button"
+                @click="respondToMemoryCloseout('decline')"
+              >
+                {{ t("Continue without saving") }}
+              </button>
+            </div>
+          </section>
+          <label class="correction-box">
+            {{ t("Correct or continue without restarting") }}
+            <textarea
+              v-model="correction"
+              rows="3"
+              :placeholder="t('Change the scope, correct a result, or describe the next step')"
+            />
+          </label>
+          <button class="secondary-button" :disabled="!correction.trim()" @click="resumeRun">
+            {{ t("Continue same Codex task") }}
+          </button>
+          <button
+            v-if="activeRun?.mode === 'prepare' && activeRun.state === 'completed' && latestResult.status === 'completed'"
+            class="primary-button"
+            @click="reviewLaunch('workspace-write')"
+          >
+            {{ t("Review implementation") }}
+          </button>
+        </section>
+        <p v-if="runError" class="inline-error" role="alert">{{ runtimeMessage(runError) }}</p>
+      </template>
+    </section>
+
+    <aside class="workbench-inspector">
+      <span class="eyebrow">{{ t("Context inspector") }}</span>
+      <strong class="token-total">
+        {{ context ? t("{count} tokens", { count: formatNumber(context.metrics.estimatedTokens) }) : t("No agent context") }}
+      </strong>
+      <div class="budget-meter">
+        <span
+          :style="{
+            width: context
+              ? `${Math.min(100, (context.metrics.usedChars / context.metrics.budgetChars) * 100)}%`
+              : '0%',
+          }"
+        />
+      </div>
+      <dl>
+        <div><dt>{{ t("Project") }}</dt><dd :title="projectName">{{ projectName }}</dd></div>
+        <div>
+          <dt>{{ t("Branch") }}</dt>
+          <dd :title="identity?.branch ?? t('detached / unknown')">
+            {{ identity?.branch ?? t("detached / unknown") }}
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t("Checkout") }}</dt>
+          <dd :title="identity?.checkoutId ?? t('path scoped')">
+            {{ identity?.checkoutId.slice(0, 8) ?? t("path scoped") }}
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t("Snapshot") }}</dt>
+          <dd :title="reviewFingerprint">{{ reviewFingerprint.slice(0, 8) }}</dd>
+        </div>
+        <div class="source-count-row">
+          <dt>{{ t("Sources") }}</dt>
+          <dd class="source-count-summary">
+            <span>
+              <strong>{{ sourceCounts.confirmed }}</strong>
+              <small>{{ t("Confirmed sources") }}</small>
+            </span>
+            <span>
+              <strong>{{ sourceCounts.pending }}</strong>
+              <small>{{ t("Pending sources") }}</small>
+            </span>
+            <span>
+              <strong>{{ sourceCounts.omitted + sourceCounts.unavailable }}</strong>
+              <small>{{ t("Omitted or unavailable sources") }}</small>
+            </span>
+          </dd>
+        </div>
+        <div><dt>{{ t("Context") }}</dt><dd>{{ t("{used} / {budget} chars", { used: formatNumber(context?.metrics.usedChars ?? 0), budget: formatNumber(budgetChars) }) }}</dd></div>
+        <div><dt>{{ t("Truncated") }}</dt><dd>{{ context?.metrics.truncated ? t("Yes") : t("No") }}</dd></div>
+        <div>
+          <dt>{{ t("Retrieval") }}</dt>
+          <dd>
+            {{
+              context?.metrics.retrieval
+                ? t("{hits} hits · {misses} misses · {retries} retries", {
+                    hits: context.metrics.retrieval.hits,
+                    misses: context.metrics.retrieval.misses,
+                    retries: context.metrics.retrieval.retries,
+                  })
+                : t("Not prepared")
+            }}
+          </dd>
+        </div>
+        <div><dt>{{ t("Decision gate") }}</dt><dd>{{ statusLabel(displayGateStatus) }}</dd></div>
+        <div>
+          <dt>{{ t("Run evidence") }}</dt>
+          <dd>{{ activeRun?.stale || selectedRun?.stale ? t("snapshot changed") : t("current") }}</dd>
+        </div>
+      </dl>
+      <details v-if="activeCheckpoint" class="checkpoint-disclosure">
+        <summary>
+          {{ t("Resume capsule") }} · {{ statusLabel(activeCheckpoint.status) }}
+        </summary>
+        <p>
+          <strong>{{ t("Next safe action") }}</strong>
+          <span>{{ t(activeCheckpoint.nextSafeAction) }}</span>
+        </p>
+        <dl>
+          <div><dt>{{ t("Covered") }}</dt><dd>{{ activeCheckpoint.scope.covered.length }}</dd></div>
+          <div><dt>{{ t("Remaining") }}</dt><dd>{{ activeCheckpoint.scope.remaining.length }}</dd></div>
+          <div><dt>{{ t("Receipts") }}</dt><dd>{{ activeCheckpoint.sourceReceiptIds.length }}</dd></div>
+          <div><dt>{{ t("HEAD") }}</dt><dd>{{ activeCheckpoint.workspace.head.slice(0, 8) }}</dd></div>
+        </dl>
+        <small>{{ t("Details expand by ID only; no transcript or full index is stored here.") }}</small>
+      </details>
+      <section class="inspector-sources">
+        <span>{{ t("Confirmed references") }}</span>
+        <p v-if="!sources.length">{{ t("Repository + Atlas only") }}</p>
+        <p v-for="source in sources" :key="`${source.kind}:${source.value}`">
+          <strong>{{ statusLabel(source.kind) }}</strong>
+          <span :title="source.value">
+            {{ source.value.replace(/^https?:\/\//, "").slice(0, 46) }}
+          </span>
+        </p>
+        <details v-if="context?.sourceReceiptIds?.length" class="receipt-id-list">
+          <summary>{{ t("Receipt IDs") }} · {{ context.sourceReceiptIds.length }}</summary>
+          <code v-for="receiptId in context.sourceReceiptIds" :key="receiptId">
+            {{ receiptId }}
+          </code>
+        </details>
+      </section>
+      <div class="boundary-legend">
+        <span><i class="local" />{{ t("Local · 0 tokens") }}</span>
+        <span><i class="agent" />{{ t("Agent · reviewed budget") }}</span>
+        <span><i class="external" />{{ t("External write · approval") }}</span>
+      </div>
+    </aside>
+
+    <div v-if="launchReviewOpen" class="dialog-backdrop" @click.self="launchReviewOpen = false">
+      <section class="launch-dialog" role="dialog" aria-modal="true" aria-labelledby="launch-title">
+        <span class="eyebrow">
+          {{
+            mode === "continue" || mode === "correct"
+              ? t("Review before Codex resumes")
+              : t("Review before Codex starts")
+          }}
+        </span>
+        <h2 id="launch-title">{{ t(activeAction?.intent ?? "") }}</h2>
+        <p>{{ t(activeAction?.description ?? "") }}</p>
+        <dl>
+          <div><dt>{{ t("Project") }}</dt><dd>{{ projectName }}</dd></div>
+          <div><dt>{{ t("Worktree") }}</dt><dd>{{ projectRoot }}</dd></div>
+          <div><dt>{{ t("Branch") }}</dt><dd>{{ identity?.branch ?? t("unknown") }}</dd></div>
+          <div><dt>{{ t("Snapshot") }}</dt><dd>{{ reviewFingerprint.slice(0, 8) }}</dd></div>
+          <div><dt>{{ t("Permission") }}</dt><dd>{{ statusLabel(launchSandbox) }}</dd></div>
+          <div><dt>{{ t("Risk") }}</dt><dd>{{ statusLabel(activeAction?.risk ?? risk.level) }}</dd></div>
+          <div><dt>{{ t("Context") }}</dt><dd>{{ t("{count} estimated tokens", { count: formatNumber(context?.metrics.estimatedTokens ?? 0) }) }}</dd></div>
+          <div><dt>{{ t("Decision reviews") }}</dt><dd>{{ blockingFindings.length }}</dd></div>
+          <div><dt>{{ t("Possible writes") }}</dt><dd>{{ activeAction?.possibleWrites.map(statusLabel).join(", ") || t("none") }}</dd></div>
+          <div><dt>{{ t("External writes") }}</dt><dd>{{ t("prohibited in this run") }}</dd></div>
+        </dl>
+        <section class="launch-review-section">
+          <strong>{{ t("Exact sources") }}</strong>
+          <p v-if="!sources.length">{{ t("Repository + Atlas only") }}</p>
+          <ul v-else>
+            <li v-for="source in sources" :key="`${source.kind}:${source.value}`">
+              <span>{{ statusLabel(source.kind) }}</span>
+              <code>{{ source.value }}</code>
+            </li>
+          </ul>
+        </section>
+        <section
+          v-if="activeAction?.expectedQuestions.length"
+          class="launch-review-section"
+        >
+          <strong>{{ t("Codex may pause for") }}</strong>
+          <ul>
+            <li v-for="question in activeAction.expectedQuestions" :key="question">
+              {{ t(question) }}
+            </li>
+          </ul>
+        </section>
+        <div class="dialog-actions">
+          <button class="secondary-button" @click="launchReviewOpen = false">{{ t("Back") }}</button>
+          <button class="primary-button" @click="confirmLaunch">
+            {{ launchActionLabel }}
+          </button>
+        </div>
+      </section>
+    </div>
+  </div>

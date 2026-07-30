@@ -113,21 +113,21 @@ function renderGraph(): void {
         },
       },
       {
-        selector: 'node[visibility = "public"]',
+        selector: "node[visibility = \"public\"]",
         style: {
           "background-color": graphColors.publicNode,
           "border-color": graphColors.publicBorder,
         },
       },
       {
-        selector: 'node[visibility = "feature"]',
+        selector: "node[visibility = \"feature\"]",
         style: {
           "background-color": graphColors.featureNode,
           "border-color": graphColors.featureBorder,
         },
       },
       {
-        selector: 'node[visibility = "private"]',
+        selector: "node[visibility = \"private\"]",
         style: {
           "background-color": graphColors.privateNode,
           "border-color": graphColors.privateBorder,
@@ -145,7 +145,7 @@ function renderGraph(): void {
         },
       },
       {
-        selector: 'edge[kind = "similar_to"]',
+        selector: "edge[kind = \"similar_to\"]",
         style: {
           "line-style": "dashed",
           "line-color": graphColors.similarEdge,
@@ -154,7 +154,7 @@ function renderGraph(): void {
         },
       },
       {
-        selector: 'edge[resolution = "framework-convention"]',
+        selector: "edge[resolution = \"framework-convention\"]",
         style: {
           "line-style": "dashed",
           opacity: 0.32,

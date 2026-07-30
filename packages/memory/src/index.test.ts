@@ -70,7 +70,7 @@ describe("Project Atlas memory primitives", () => {
       relations: [],
     }).replace(
       "relations: []",
-      'relations: [{"kind":"unknown_relation","targetId":"elsewhere"}]',
+      "relations: [{\"kind\":\"unknown_relation\",\"targetId\":\"elsewhere\"}]",
     );
     expect(
       parseMemoryMarkdown(withUnknownRelation, {

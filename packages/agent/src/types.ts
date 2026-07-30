@@ -276,6 +276,11 @@ export type AgentRunEvent =
         cachedInputTokens: number;
         outputTokens: number;
       };
+      cost?: {
+        promptChars: number;
+        compactContextChars: number;
+        delegatedInputChars: number;
+      };
     }
   | {
       type: "failed";

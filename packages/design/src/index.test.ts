@@ -386,7 +386,7 @@ describe("Figma Design Index", () => {
     const base = buildFigmaDesignIndex({
       figmaUrl: "https://www.figma.com/design/VariablesFixture/Variables",
       metadata:
-        '<canvas id="1:1" name="Page"><frame id="2:1" name="Card" /></canvas>',
+        "<canvas id=\"1:1\" name=\"Page\"><frame id=\"2:1\" name=\"Card\" /></canvas>",
       format: "figma-mcp-xml",
       enrichment: { variableCatalog: expanded },
     });
@@ -457,7 +457,7 @@ describe("Figma Design Index", () => {
     const index = buildFigmaDesignIndex({
       figmaUrl: "https://www.figma.com/design/BoundedVariables/Bounded",
       metadata:
-        '<canvas id="1:1" name="Page"><frame id="2:1" name="Card" /></canvas>',
+        "<canvas id=\"1:1\" name=\"Page\"><frame id=\"2:1\" name=\"Card\" /></canvas>",
       format: "figma-mcp-xml",
       enrichment: { variableCatalog: catalog },
     });
@@ -670,7 +670,7 @@ describe("Figma Design Index", () => {
     });
     const withoutStatus = buildFigmaDesignIndex({
       figmaUrl: "https://www.figma.com/design/StorefrontKey/Storefront",
-      metadata: xml.replace(' dev-status="READY_FOR_DEV"', ""),
+      metadata: xml.replace(" dev-status=\"READY_FOR_DEV\"", ""),
       format: "figma-mcp-xml",
       version: "v42",
       scopeNodeId: "0:3",
@@ -835,7 +835,7 @@ describe("Figma Design Index", () => {
     const upgraded = normalizeDesignIndex(
       legacy as unknown as Parameters<typeof normalizeDesignIndex>[0],
     );
-    expect(upgraded.schemaVersion).toBe(4);
+    expect(upgraded.schemaVersion).toBe(5);
     expect(upgraded.devStatus.availability).toBe("available");
     expect(upgraded.nodes.find((node) => node.id === "10:1")).toMatchObject({
       devStatusAvailability: "available",
@@ -883,7 +883,7 @@ describe("Figma Design Index", () => {
     const index = buildFigmaDesignIndex({
       figmaUrl: "https://www.figma.com/design/ManualStatusFixture/Manual-status",
       metadata:
-        '<canvas id="1:1" name="Page"><frame id="2:1" name="Secure form" /></canvas>',
+        "<canvas id=\"1:1\" name=\"Page\"><frame id=\"2:1\" name=\"Secure form\" /></canvas>",
       format: "figma-mcp-xml",
       enrichment: {
         devStatusAvailability: "source-unavailable",

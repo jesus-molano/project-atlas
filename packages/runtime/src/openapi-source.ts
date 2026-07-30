@@ -447,7 +447,7 @@ export async function canonicalizePublicOpenApiReference(
     );
   }
   const evidence = [confirmed.content];
-  let derivationKind = discovery.kind;
+  const derivationKind = discovery.kind;
   let target = new URL(discovery.reference, confirmed.finalUrl);
   assertSameOriginTransition(confirmed.finalUrl, target, "derived source");
 

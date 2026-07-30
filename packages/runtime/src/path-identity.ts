@@ -12,7 +12,7 @@ export function canonicalFilesystemPath(value: string): string {
 
 export function filesystemPathKey(value: string): string {
   const resolved = canonicalFilesystemPath(value);
-  let real = resolved;
+  let real: string;
   try {
     real = realpathSync.native(resolved);
   } catch {

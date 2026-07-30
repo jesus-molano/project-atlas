@@ -1,4 +1,4 @@
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,7 @@ import {
   scanProject,
 } from "../packages/runtime/src/index.js";
 import { loadProjectAtlasSnapshot } from "../apps/viewer/server/utils/project.js";
+import { copyFixture } from "./test-fixture-copy.mjs";
 
 const fixtureRoot = fileURLToPath(
   new URL("../fixtures/vue-nuxt", import.meta.url),
@@ -24,7 +25,7 @@ describe.sequential("viewer snapshot consistency", () => {
     dataHome = await mkdtemp(path.join(os.tmpdir(), "project-atlas-data-"));
     previousDataHome = process.env.PROJECT_ATLAS_HOME;
     process.env.PROJECT_ATLAS_HOME = dataHome;
-    await cp(fixtureRoot, rootPath, { recursive: true });
+    await copyFixture(fixtureRoot, rootPath);
     previousRoot = process.env.ATLAS_PROJECT_ROOT;
     process.env.ATLAS_PROJECT_ROOT = rootPath;
   });

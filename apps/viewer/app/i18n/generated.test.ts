@@ -113,5 +113,4 @@ describe("generated Atlas copy localization", () => {
     });
     expect(localizeSourceHealth(source, "en").detail).toBe(source.detail);
   });
-
 });

@@ -476,8 +476,8 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Decisions & guardrails": "Decisiones y salvaguardas",
   "Attempts & outcomes": "Intentos y resultados",
   "Plans & project language": "Planes y lenguaje del proyecto",
-  'Use the project knowledge "{title}" as reviewed evidence for this task.':
-    'Usa el conocimiento del proyecto «{title}» como evidencia revisada para esta tarea.',
+  "Use the project knowledge \"{title}\" as reviewed evidence for this task.":
+    "Usa el conocimiento del proyecto «{title}» como evidencia revisada para esta tarea.",
   "Project Memory is at cold start": "Project Memory está en inicio en frío",
   "Code Atlas remains usable. Add canonical Markdown when the project has a durable decision, convention, or domain concept worth recalling.":
     "Code Atlas sigue disponible. Añade Markdown canónico cuando el proyecto tenga una decisión, convención o concepto de dominio duradero que merezca recordarse.",
@@ -937,12 +937,12 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "Retry workspace": "Reintentar espacio de trabajo",
   "Task intake status": "Estado de preparación de la tarea",
   "Task mode": "Modo de tarea",
-  "Prepare": "Preparar",
+  Prepare: "Preparar",
   "{level} risk": "riesgo {level}",
   ready: "listo",
   "needs-confirmation": "requiere confirmación",
   "needs-sources": "requiere fuentes",
-  "blocked": "bloqueado",
+  blocked: "bloqueado",
   "New task": "Nueva tarea",
   "What needs to change?": "¿Qué debe cambiar?",
   "Describe the frontend outcome. Add links only when they are useful.":
@@ -1415,12 +1415,12 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
     "No se encontró una de las propuestas de memoria.",
   "Only pending memory proposals can be combined.":
     "Solo se pueden combinar propuestas de memoria pendientes.",
-  'Memory proposal "{id}" was not found.':
-    'No se encontró la propuesta de memoria "{id}".',
-  'Memory proposal "{id}" is already {status}.':
-    'La propuesta de memoria "{id}" ya está {status}.',
-  'Memory proposal "{id}" has unresolved decision-required findings and cannot be applied.':
-    'La propuesta de memoria "{id}" tiene hallazgos sin resolver que requieren una decisión y no puede aplicarse.',
+  "Memory proposal \"{id}\" was not found.":
+    "No se encontró la propuesta de memoria \"{id}\".",
+  "Memory proposal \"{id}\" is already {status}.":
+    "La propuesta de memoria \"{id}\" ya está {status}.",
+  "Memory proposal \"{id}\" has unresolved decision-required findings and cannot be applied.":
+    "La propuesta de memoria \"{id}\" tiene hallazgos sin resolver que requieren una decisión y no puede aplicarse.",
   "Memory proposal item {index} is invalid.":
     "El elemento {index} de la propuesta de memoria no es válido.",
   "Canonical Project Memory writes require canonicalConfirmed=true after reviewing the centralized Atlas storage paths.":
@@ -1565,4 +1565,17 @@ export const SPANISH_UI_MESSAGES: Readonly<Record<string, string>> = {
   "The confirmed Figma node is backed only by stale or unknown evidence. Refresh the exact node through the confirmed source before implementation.":
     "El nodo confirmado de Figma solo está respaldado por evidencia obsoleta o desconocida. Actualiza el nodo exacto mediante la fuente confirmada antes de implementar.",
   "Not Reviewed": "Sin revisar",
+  "Context cost audit": "Auditoría de coste de contexto",
+  "{count} measured runs": "{count} ejecuciones medidas",
+  "Median input": "Entrada mediana",
+  "P95 input": "Entrada P95",
+  "Cross-device audits move only through explicit CLI export and import.":
+    "Las auditorías entre equipos se transfieren únicamente mediante exportación e importación explícitas por CLI.",
+  "Theme fingerprint": "Huella visual del proyecto",
+  "diff warnings": "avisos del diff",
+  "{count} diff warnings": "{count} avisos del diff",
+  "The local diff matches indexed theme evidence.":
+    "El diff local coincide con la evidencia visual indexada.",
+  "Local diff validation": "Validación del diff local",
+  tokens: "tokens",
 };

@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +25,7 @@ import {
   searchProjectMemory,
   syncFigmaDesignVariables,
 } from "./index.js";
+import { copyFixture } from "../../../scripts/test-fixture-copy.mjs";
 
 const vueFixture = fileURLToPath(
   new URL("../../../fixtures/vue-nuxt", import.meta.url),
@@ -46,8 +47,8 @@ describe.sequential("Project Atlas runtime", () => {
     dataHome = await mkdtemp(path.join(os.tmpdir(), "project-atlas-data-"));
     previousDataHome = process.env.PROJECT_ATLAS_HOME;
     process.env.PROJECT_ATLAS_HOME = dataHome;
-    await cp(vueFixture, rootPath, { recursive: true });
-    await cp(vueFixture, emptyRoot, { recursive: true });
+    await copyFixture(vueFixture, rootPath);
+    await copyFixture(vueFixture, emptyRoot);
     await rm(path.join(emptyRoot, "project-memory"), {
       recursive: true,
       force: true,

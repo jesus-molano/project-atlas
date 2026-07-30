@@ -337,7 +337,7 @@ class AsyncEventQueue implements AsyncIterable<AgentRunEvent> {
     for (const wake of this.waiters.splice(0)) wake();
   }
 
-  async *[Symbol.asyncIterator](): AsyncIterator<AgentRunEvent> {
+  async* [Symbol.asyncIterator](): AsyncIterator<AgentRunEvent> {
     while (!this.closed || this.events.length > 0) {
       const event = this.events.shift();
       if (event) {
@@ -517,7 +517,7 @@ function buildPrompt(request: AgentRunRequest): string {
     `Risk classification: ${request.risk.level} (${request.risk.reasons.join("; ")})`,
     "",
     "Reviewed compact Project Atlas context:",
-    request.compactContext || '{"status":"no-local-context"}',
+    request.compactContext || "{\"status\":\"no-local-context\"}",
     "",
     ...delegatedEvidence,
     ...figmaIngestion,
@@ -822,7 +822,11 @@ export class CodexAgentAdapter implements AgentAdapter {
       const thread = request.threadId
         ? client.resumeThread(request.threadId, threadOptions)
         : client.startThread(threadOptions);
-      const streamed = await thread.runStreamed(buildPrompt(request), {
+      const prompt = buildPrompt(request);
+      const delegatedInputChars = request.delegation
+        ? compactDelegatedEvidence(request.delegation).length
+        : 0;
+      const streamed = await thread.runStreamed(prompt, {
         outputSchema: resultSchema,
         signal: controller.signal,
       });
@@ -875,6 +879,11 @@ export class CodexAgentAdapter implements AgentAdapter {
         threadId,
         result,
         ...(usage ? { usage: usageSummary(usage)! } : {}),
+        cost: {
+          promptChars: prompt.length,
+          compactContextChars: request.compactContext.length,
+          delegatedInputChars,
+        },
       });
     } catch (error) {
       if (isCancelled()) {

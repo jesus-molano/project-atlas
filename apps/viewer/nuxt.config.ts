@@ -8,9 +8,8 @@ const vueSfcParser = resolveFromVueAdapter.resolve(
 );
 
 export default defineNuxtConfig({
-  compatibilityDate: "2026-01-01",
+
   devtools: { enabled: false },
-  css: ["~/assets/css/main.css"],
   app: {
     head: {
       title: "Project Atlas",
@@ -31,6 +30,7 @@ export default defineNuxtConfig({
       ],
     },
   },
+  css: ["~/assets/css/main.css"], compatibilityDate: "2026-01-01",
   nitro: {
     preset: "node-server",
     alias: {

@@ -680,9 +680,9 @@ function resetResolutionForm(): void {
                 :class="
                   commandNeedsConfirmation(command)
                     ? 'danger-button'
-                    : command === 'save-decision-and-continue' ||
-                        command === 'resolve-decision' ||
-                        command === 'resolve-contradiction'
+                    : command === 'save-decision-and-continue'
+                        || command === 'resolve-decision'
+                        || command === 'resolve-contradiction'
                       ? 'primary-button'
                       : 'secondary-button'
                 "

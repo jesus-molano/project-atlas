@@ -13,7 +13,7 @@ const specification = JSON.stringify({
     "/login/challenge": {
       post: {
         operationId: "createLoginChallenge",
-        responses: { "204": {} },
+        responses: { 204: {} },
       },
     },
   },
@@ -92,7 +92,7 @@ describe("secure Swagger UI canonicalization", () => {
   it("fails closed for cross-origin derivation, redirects, and ambiguous specs", async () => {
     const crossOrigin = loader({
       "https://api.example.com/docs":
-        '<script>SwaggerUIBundle({url:"https://other.example/openapi.json"})</script>',
+        "<script>SwaggerUIBundle({url:\"https://other.example/openapi.json\"})</script>",
     });
     await expect(
       canonicalizePublicOpenApiReference(
@@ -111,7 +111,7 @@ describe("secure Swagger UI canonicalization", () => {
 
     const ambiguous = loader({
       "https://api.example.com/docs":
-        '<script>SwaggerUIBundle({urls:[{url:"/a.json"},{url:"/b.json"}]})</script>',
+        "<script>SwaggerUIBundle({urls:[{url:\"/a.json\"},{url:\"/b.json\"}]})</script>",
     });
     await expect(
       canonicalizePublicOpenApiReference(

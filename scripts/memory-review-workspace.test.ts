@@ -5,17 +5,27 @@ import {
   memoryEnumLabel,
   memoryText,
 } from "../apps/viewer/app/utils/memory-i18n";
+import { readViewerCss } from "./viewer-css";
 
 async function source(relativePath: string): Promise<string> {
+  if (relativePath.endsWith("/assets/css/main.css")) {
+    return readViewerCss();
+  }
   return readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
 }
 
 describe("Memory review workspace contract", () => {
   it("keeps the hard approval gate and canonical acknowledgement in runtime", async () => {
     const [runtime, route, mcp] = await Promise.all([
-      source("packages/runtime/src/memory.ts"),
+      Promise.all([
+        source("packages/runtime/src/memory.ts"),
+        source("packages/runtime/src/memory-proposals.ts"),
+      ]).then((parts) => parts.join("\n")),
       source("apps/viewer/server/api/memory-proposal.post.ts"),
-      source("packages/mcp/src/index.ts"),
+      Promise.all([
+        source("packages/mcp/src/index.ts"),
+        source("packages/mcp/src/memory-tools.ts"),
+      ]).then((parts) => parts.join("\n")),
     ]);
     expect(runtime).toContain("reviewMemoryProposal");
     expect(runtime).toContain("unresolved decision-required findings");
@@ -37,12 +47,12 @@ describe("Memory review workspace contract", () => {
       "review.impact.items",
       "canonicalAcknowledged",
       "blockingFindings",
-      'type="radio"',
-      'role="dialog"',
-      'role="status"',
-      'role="alert"',
+      "type=\"radio\"",
+      "role=\"dialog\"",
+      "role=\"status\"",
+      "role=\"alert\"",
       "localizeMemoryFinding",
-      '"x-atlas-session": session.token',
+      "\"x-atlas-session\": session.token",
     ]) {
       expect(view).toContain(contract);
     }
@@ -50,7 +60,7 @@ describe("Memory review workspace contract", () => {
 
   it("uses a three-pane sticky layout and a compact sticky action gate", async () => {
     const css = await source("apps/viewer/app/assets/css/main.css");
-    expect(css).toContain('grid-template-areas: "index detail actions"');
+    expect(css).toContain("grid-template-areas: \"index detail actions\"");
     expect(css).toMatch(
       /\.inbox-layout > \.proposal-actions\s*\{[^}]*position:\s*sticky/s,
     );
@@ -67,11 +77,11 @@ describe("Memory review workspace contract", () => {
       "apps/viewer/app/components/ProjectMemoryView.vue",
     );
     expect(page).toContain("useAtlasI18n()");
-    expect(page).toContain(':memory-items="workspace.memoryItems"');
+    expect(page).toContain(":memory-items=\"workspace.memoryItems\"");
     expect(i18n).toContain("htmlAttrs:");
     expect(i18n).toContain("lang: locale.value");
     expect(memory).toContain(":aria-pressed");
-    expect(memory).toContain('aria-live="polite"');
+    expect(memory).toContain("aria-live=\"polite\"");
     expect(memoryText("es", "reviewApproval")).toBe("Revisar aprobación");
     expect(memoryEnumLabel("es", "decision-required")).toBe(
       "Requiere decisión",

@@ -10,7 +10,7 @@ import type {
 } from "@component-atlas/core";
 import { AtlasStore } from "@component-atlas/store";
 import { assertMemoryContentSafe } from "@component-atlas/memory";
-import { loadProjectGraph } from "./index.js";
+import { loadProjectGraph } from "./scan.js";
 
 const CONNECTORS = new Set<ConnectorKind>([
   "figma",

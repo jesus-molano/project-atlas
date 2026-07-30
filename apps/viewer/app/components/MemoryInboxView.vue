@@ -430,9 +430,9 @@ function reviewItem(index: number) {
                   <dd>
                     {{
                       enumLabel(
-                        reviewItem(index)?.scope ??
-                          item.scope ??
-                          (target === "canonical" ? "canonical" : "local"),
+                        reviewItem(index)?.scope
+                          ?? item.scope
+                          ?? (target === "canonical" ? "canonical" : "local"),
                       )
                     }}
                   </dd>

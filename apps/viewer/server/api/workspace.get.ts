@@ -3,9 +3,11 @@ import type { ProjectAtlasSnapshot } from "@component-atlas/runtime";
 import { designIndexSummary } from "@component-atlas/design";
 import {
   buildProjectOverviewViewModel,
+  contextCostReport,
   getProjectCapabilities,
   listAgentRunAudits,
   listTaskEvaluations,
+  validateDiff,
 } from "@component-atlas/runtime";
 import { agentAdapterStatus } from "../utils/agent-runs";
 import {
@@ -129,11 +131,27 @@ function projectRisks(snapshot: ProjectAtlasSnapshot) {
 
 export default defineEventHandler(async () => {
   const snapshot = loadProjectAtlasSnapshot();
-  const [capabilities, evaluations, agentRuns, agent] = await Promise.all([
+  const [
+    capabilities,
+    evaluations,
+    agentRuns,
+    agent,
+    contextCost,
+    diffValidation,
+  ] =
+    await Promise.all([
     getProjectCapabilities(snapshot.graph.project.rootPath),
     listTaskEvaluations(snapshot.graph.project.rootPath, 20),
     listAgentRunAudits(snapshot.graph.project.rootPath, 12),
     agentAdapterStatus(),
+    contextCostReport(snapshot.graph.project.rootPath, 500),
+    validateDiff(snapshot.graph.project.rootPath).catch(() => ({
+      schemaVersion: 1 as const,
+      files: 0,
+      additions: 0,
+      findings: [],
+      blocking: false as const,
+    })),
   ]);
   const currentDecisions = [
     ...snapshot.componentDecisions.map((decision) => ({
@@ -185,6 +203,8 @@ export default defineEventHandler(async () => {
     agent,
     evaluations,
     agentRuns,
+    contextCost,
+    diffValidation,
     actionResolutions: actionResolutions.slice(0, 12),
     actionCenterCounts: actionCenter.counts,
     git: projectGitState(),

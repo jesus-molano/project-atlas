@@ -1,10 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { readViewerCss } from "./viewer-css";
 
-const css = await readFile(
-  new URL("../apps/viewer/app/assets/css/main.css", import.meta.url),
-  "utf8",
-);
+const css = await readViewerCss();
 
 function tokenValue(name: string): string {
   const declaration = css.match(

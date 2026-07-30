@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import type { SourceHealthViewModel } from "@component-atlas/runtime";
-import type { ProjectCapabilityReport } from "@component-atlas/core/browser";
+import type {
+  ContextCostReport,
+  ProjectCapabilityReport,
+} from "@component-atlas/core/browser";
 import type { AgentAdapterStatus } from "@component-atlas/agent";
 import {
   capabilityDisplayState,
@@ -12,13 +15,15 @@ defineProps<{
   sources: SourceHealthViewModel[];
   capabilities: ProjectCapabilityReport;
   agent: AgentAdapterStatus;
+  contextCost: ContextCostReport;
   rootPath: string;
 }>();
 const emit = defineEmits<{ refreshed: [] }>();
 const pending = ref("");
 const message = ref("");
 const error = ref("");
-const { formatDate, locale, runtimeMessage, statusLabel, t } = useAtlasI18n();
+const { formatDate, formatNumber, locale, runtimeMessage, statusLabel, t } =
+  useAtlasI18n();
 const sourceCopy = (source: SourceHealthViewModel) =>
   localizeSourceHealth(source, locale.value);
 const labels: Record<string, string> = {
@@ -140,6 +145,21 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
           </small>
         </div>
         <span class="status-chip">{{ statusLabel(agent.state) }}</span>
+      </article>
+      <article class="health-record optional">
+        <span class="health-orb connected" />
+        <div>
+          <strong>{{ t("Context cost audit") }}</strong>
+          <p>{{ t("{count} measured runs", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.runs ?? 0) }) }}</p>
+          <small>
+            {{ t("Median input") }}:
+            {{ t("{count} tokens", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.inputTokens.median ?? 0) }) }}
+            Â·
+            {{ t("P95 input") }}:
+            {{ t("{count} tokens", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.inputTokens.p95 ?? 0) }) }}
+          </small>
+        </div>
+        <span class="status-chip">{{ t("Local-first") }}</span>
       </article>
       <header class="workspace-toolbar"><div><span class="eyebrow">{{ t("Observed capabilities") }}</span><h2>{{ t("Connectors") }}</h2></div></header>
       <article v-for="source in capabilities.observations.filter((item) => item.kind === 'connector')" :key="source.id" class="health-record optional">

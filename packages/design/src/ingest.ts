@@ -97,18 +97,13 @@ function persistentResourceUrl(value: string): boolean {
   }
 }
 
-function values(value: unknown): unknown[] {
-  const item = record(value);
-  return item ? Object.values(item) : array(value);
-}
-
 function normalizedType(value: string): string {
   return value.replaceAll("-", "_").toUpperCase();
 }
 
 function decodeXml(value: string): string {
   return value
-    .replaceAll("&quot;", '"')
+    .replaceAll("&quot;", "\"")
     .replaceAll("&apos;", "'")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")

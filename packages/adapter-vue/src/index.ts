@@ -1,6 +1,12 @@
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { baseParse, NodeTypes, type RootNode, type TemplateChildNode } from "@vue/compiler-dom";
+import {
+  baseParse,
+  NodeTypes,
+  parserOptions,
+  type RootNode,
+  type TemplateChildNode,
+} from "@vue/compiler-dom";
 import { parse as parseSfc } from "@vue/compiler-sfc";
 import fg from "fast-glob";
 import ts from "typescript";
@@ -20,6 +26,13 @@ import {
   type FrameworkAdapter,
   type ScanOptions,
 } from "@component-atlas/core";
+import {
+  collectTestFacts,
+  importBindings,
+  importedTypeDeclarations,
+  resolveSourceImport,
+  testsFor,
+} from "./source-analysis.js";
 
 interface ScriptFacts {
   props: ComponentProp[];
@@ -38,13 +51,6 @@ interface TemplateFacts {
   slots: string[];
   slotContracts: ComponentSlotContract[];
   errors: string[];
-}
-
-interface TestFacts {
-  path: string;
-  resolvedImports: Set<string>;
-  importedNames: Set<string>;
-  mountedNames: Set<string>;
 }
 
 const SOURCE_PATTERNS = [
@@ -586,6 +592,7 @@ function parseTemplate(template: string): TemplateFacts {
   const errors: string[] = [];
   try {
     root = baseParse(template, {
+      ...parserOptions,
       onError(error) {
         errors.push(error.message);
       },
@@ -731,260 +738,6 @@ function classify(relativePath: string): {
   return first
     ? { visibility: "feature", feature: first }
     : { visibility: "feature" };
-}
-
-function sourceCandidates(
-  specifier: string,
-  fromFile: string,
-  rootPath: string,
-): string[] {
-  const bases: string[] = [];
-  if (specifier.startsWith(".")) {
-    bases.push(path.resolve(path.dirname(fromFile), specifier));
-  } else if (specifier.startsWith("~~/") || specifier.startsWith("@@/")) {
-    bases.push(path.resolve(rootPath, specifier.slice(3)));
-  } else if (specifier.startsWith("~/") || specifier.startsWith("@/")) {
-    const relative = specifier.slice(2);
-    bases.push(path.resolve(rootPath, relative));
-    bases.push(path.resolve(rootPath, "app", relative));
-    bases.push(path.resolve(rootPath, "src", relative));
-  }
-  return [...new Set(
-    bases.flatMap((base) => [
-      base,
-      `${base}.ts`,
-      `${base}.tsx`,
-      `${base}.d.ts`,
-      `${base}.vue`,
-      path.join(base, "index.ts"),
-      path.join(base, "index.d.ts"),
-    ]),
-  )];
-}
-
-async function resolveSourceImport(
-  specifier: string,
-  fromFile: string,
-  rootPath: string,
-): Promise<string | undefined> {
-  for (const candidate of sourceCandidates(specifier, fromFile, rootPath)) {
-    try {
-      await access(candidate);
-      return candidate;
-    } catch {
-      // Continue through deterministic local candidates.
-    }
-  }
-  return undefined;
-}
-
-async function importBindings(
-  script: string,
-  sourcePath: string,
-  rootPath: string,
-): Promise<ComponentImportBinding[]> {
-  if (!script.trim()) return [];
-  const source = ts.createSourceFile(
-    sourcePath,
-    script,
-    ts.ScriptTarget.Latest,
-    true,
-    /\.tsx$/iu.test(sourcePath) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  );
-  const bindings: ComponentImportBinding[] = [];
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
-      continue;
-    }
-    const specifier = statement.moduleSpecifier.text;
-    const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath);
-    const clause = statement.importClause;
-    if (clause?.name) {
-      bindings.push({
-        local: clause.name.text,
-        imported: "default",
-        specifier,
-        ...(resolvedPath ? { resolvedPath: path.resolve(resolvedPath) } : {}),
-      });
-    }
-    if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const binding of clause.namedBindings.elements) {
-        bindings.push({
-          local: binding.name.text,
-          imported: binding.propertyName?.text ?? binding.name.text,
-          specifier,
-          ...(resolvedPath ? { resolvedPath: path.resolve(resolvedPath) } : {}),
-        });
-      }
-    } else if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-      bindings.push({
-        local: clause.namedBindings.name.text,
-        imported: "*",
-        specifier,
-        ...(resolvedPath ? { resolvedPath: path.resolve(resolvedPath) } : {}),
-      });
-    }
-  }
-  return bindings;
-}
-
-function declarationsIn(source: ts.SourceFile) {
-  return source.statements.filter(
-    (
-      statement,
-    ): statement is ts.InterfaceDeclaration | ts.TypeAliasDeclaration =>
-      ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement),
-  );
-}
-
-async function importedTypeDeclarations(
-  script: string,
-  sourcePath: string,
-  rootPath: string,
-) {
-  const source = ts.createSourceFile(
-    sourcePath,
-    script,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind(sourcePath),
-  );
-  const declarations = new Map<
-    string,
-    ts.InterfaceDeclaration | ts.TypeAliasDeclaration
-  >();
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement)) continue;
-    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    const importedPath = await resolveSourceImport(
-      statement.moduleSpecifier.text,
-      sourcePath,
-      rootPath,
-    );
-    if (!importedPath || !/\.d?tsx?$/i.test(importedPath)) continue;
-    const importedSource = ts.createSourceFile(
-      importedPath,
-      await readFile(importedPath, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-      importedPath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-    );
-    const available = declarationsIn(importedSource);
-    for (const declaration of available) {
-      declarations.set(declaration.name.text, declaration);
-    }
-    const bindings = statement.importClause?.namedBindings;
-    if (bindings && ts.isNamedImports(bindings)) {
-      for (const binding of bindings.elements) {
-        const importedName = binding.propertyName?.text ?? binding.name.text;
-        const declaration = available.find(
-          (candidate) => candidate.name.text === importedName,
-        );
-        if (declaration) declarations.set(binding.name.text, declaration);
-      }
-    }
-    const defaultName = statement.importClause?.name?.text;
-    if (defaultName) {
-      const declaration = available.find((candidate) =>
-        candidate.modifiers?.some(
-          (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword,
-        ),
-      );
-      if (declaration) declarations.set(defaultName, declaration);
-    }
-  }
-  return declarations;
-}
-
-async function collectTestFacts(
-  rootPath: string,
-  testPaths: string[],
-): Promise<TestFacts[]> {
-  return Promise.all(
-    testPaths.map(async (testPath) => {
-      const absolutePath = path.resolve(rootPath, testPath);
-      const sourceText = await readFile(absolutePath, "utf8");
-      const source = ts.createSourceFile(
-        absolutePath,
-        sourceText,
-        ts.ScriptTarget.Latest,
-        true,
-        /\.tsx$/i.test(testPath) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-      );
-      const resolvedImports = new Set<string>();
-      const importedNames = new Set<string>();
-      const mountedNames = new Set<string>();
-
-      for (const statement of source.statements) {
-        if (!ts.isImportDeclaration(statement)) continue;
-        const clause = statement.importClause;
-        if (clause?.name) importedNames.add(clause.name.text);
-        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-          for (const binding of clause.namedBindings.elements) {
-            importedNames.add(binding.name.text);
-          }
-        }
-        if (ts.isStringLiteral(statement.moduleSpecifier)) {
-          const imported = await resolveSourceImport(
-            statement.moduleSpecifier.text,
-            absolutePath,
-            rootPath,
-          );
-          if (imported?.toLowerCase().endsWith(".vue")) {
-            resolvedImports.add(slash(path.relative(rootPath, imported)).toLowerCase());
-          }
-        }
-      }
-
-      const visit = (node: ts.Node): void => {
-        if (
-          ts.isCallExpression(node) &&
-          ts.isIdentifier(node.expression) &&
-          /^(?:mount|mountSuspended|shallowMount|render)$/i.test(
-            node.expression.text,
-          )
-        ) {
-          const target = node.arguments[0];
-          if (target && ts.isIdentifier(target)) mountedNames.add(target.text);
-        }
-        ts.forEachChild(node, visit);
-      };
-      visit(source);
-
-      return {
-        path: slash(testPath),
-        resolvedImports,
-        importedNames,
-        mountedNames,
-      };
-    }),
-  );
-}
-
-function testsFor(
-  componentPath: string,
-  componentName: string,
-  effectiveName: string,
-  tests: TestFacts[],
-): string[] {
-  const rootParts = componentRoot(componentPath);
-  const relativeStem = slash(
-    [...rootParts.slice(0, -1), path.basename(rootParts.at(-1) ?? "", ".vue")]
-      .join("/"),
-  ).toLowerCase();
-  const normalizedComponentPath = slash(componentPath).toLowerCase();
-  const names = new Set([componentName, effectiveName]);
-  return tests.filter((test) => {
-    if (test.resolvedImports.has(normalizedComponentPath)) return true;
-    const normalized = `/${test.path.toLowerCase()}`;
-    const mirrored =
-      normalized.includes(`/components/${relativeStem}.test.`) ||
-      normalized.includes(`/components/${relativeStem}.spec.`);
-    const referenced = [...names].some(
-      (name) => test.importedNames.has(name) && test.mountedNames.has(name),
-    );
-    return referenced || mirrored;
-  }).map((test) => test.path);
 }
 
 function fileRoutePath(relativePath: string, directory: "pages" | "layouts"): string {

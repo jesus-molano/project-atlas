@@ -23,6 +23,7 @@ import {
 } from "node:fs/promises";
 import { createError } from "h3";
 import path from "node:path";
+import type { ProjectRepositoryState } from "./git-worktrees";
 
 const launchProjectRoot = process.env.ATLAS_PROJECT_ROOT
   ? canonicalFilesystemPath(process.env.ATLAS_PROJECT_ROOT)
@@ -158,7 +159,7 @@ async function readRecentProjectsFile(): Promise<RecentProjectsFile> {
 export async function listRecentProjects(): Promise<{
   activeRoot?: string;
   projects: RecentProject[];
-  repository?: import("./git-worktrees").ProjectRepositoryState;
+  repository?: ProjectRepositoryState;
 }> {
   const file = await readRecentProjectsFile();
   const projects = file.projects.map((project) => ({
@@ -367,7 +368,7 @@ export interface ProjectDestinationPreview {
   name: string;
   available: true;
   git: ProjectGitState;
-  repository?: import("./git-worktrees").ProjectRepositoryState;
+  repository?: ProjectRepositoryState;
 }
 
 export async function inspectProjectRoot(

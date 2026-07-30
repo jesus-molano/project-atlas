@@ -37,7 +37,7 @@ async function fixtureRepository(): Promise<{
   run(rootPath, ["config", "user.email", "atlas@example.test"]);
   await writeFile(
     path.join(rootPath, "package.json"),
-    '{"name":"worktree-fixture","private":true}\n',
+    "{\"name\":\"worktree-fixture\",\"private\":true}\n",
     "utf8",
   );
   await writeFile(path.join(rootPath, "README.md"), "main\n", "utf8");

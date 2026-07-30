@@ -34,7 +34,7 @@ function request(rootPath: string): AgentRunRequest {
     mode: "prepare",
     task: "Add a filter to the local catalogue.",
     rootPath,
-    compactContext: '{"code":[{"id":"catalogue-filter"}]}',
+    compactContext: "{\"code\":[{\"id\":\"catalogue-filter\"}]}",
     contextMetrics: {
       budgetChars: 3_600,
       usedChars: 43,
@@ -399,7 +399,7 @@ describe("Codex Agent Adapter", () => {
     const reference =
       "https://www.figma.com/design/atlas-file/Problem-Tags?node-id=10-20";
     input.purpose = "figma-sync";
-    input.compactContext = '{"status":"source-gate","contextGenerated":false}';
+    input.compactContext = "{\"status\":\"source-gate\",\"contextGenerated\":false}";
     input.contextMetrics = {
       budgetChars: 0,
       usedChars: 0,

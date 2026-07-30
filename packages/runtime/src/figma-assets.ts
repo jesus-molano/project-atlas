@@ -408,7 +408,9 @@ export async function captureFigmaAsset(
     const existing = await readFile(storedAsset);
     const existingHash = createHash("sha256").update(existing).digest("hex");
     if (existingHash !== digest) {
-      throw new Error("Figma asset handle collision detected.");
+      throw new Error("Figma asset handle collision detected.", {
+        cause: error,
+      });
     }
   }
   try {

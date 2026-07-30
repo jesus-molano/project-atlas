@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { ContextCostReport } from "@component-atlas/core/browser";
+
 interface SettingsModel {
   budgetChars: number;
   topK: number;
@@ -9,6 +11,7 @@ interface SettingsModel {
 const props = defineProps<{
   modelValue: SettingsModel;
   evaluationCount?: number;
+  contextCost: ContextCostReport;
 }>();
 const emit = defineEmits<{
   "update:modelValue": [value: SettingsModel];
@@ -16,6 +19,9 @@ const emit = defineEmits<{
 }>();
 const { formatNumber, t } = useAtlasI18n();
 const local = reactive({ ...props.modelValue });
+const contextCostSummary = computed(() =>
+  props.contextCost.groups.find((group) => group.taskType === "all"),
+);
 const confirmMetricsClear = ref(false);
 watch(local, (value) => emit("update:modelValue", { ...value }), { deep: true });
 watch(
@@ -73,6 +79,21 @@ function clearMetrics(): void {
           {{ t("Clear local metrics") }}
         </button>
       </div>
+      <dl class="policy-list">
+        <div>
+          <dt>{{ t("Context cost audit") }}</dt>
+          <dd>{{ t("{count} measured runs", { count: formatNumber(contextCostSummary?.runs ?? 0) }) }}</dd>
+        </div>
+        <div>
+          <dt>{{ t("Median input") }}</dt>
+          <dd>{{ t("{count} tokens", { count: formatNumber(contextCostSummary?.inputTokens.median ?? 0) }) }}</dd>
+        </div>
+        <div>
+          <dt>{{ t("P95 input") }}</dt>
+          <dd>{{ t("{count} tokens", { count: formatNumber(contextCostSummary?.inputTokens.p95 ?? 0) }) }}</dd>
+        </div>
+      </dl>
+      <p class="muted-copy">{{ t("Cross-device audits move only through explicit CLI export and import.") }}</p>
     </section>
     <section class="settings-panel">
       <header><span class="eyebrow">{{ t("Storage & privacy") }}</span><h2>{{ t("One core, explicit authority") }}</h2></header>

@@ -1,0 +1,326 @@
+/* Project launcher */
+
+.project-launcher {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 100dvh;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 15% 0%, var(--atlas-accent-soft), transparent 30%),
+    var(--atlas-ground);
+}
+
+.launcher-brand {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--atlas-rule);
+}
+
+.launcher-brand strong,
+.launcher-brand small {
+  display: block;
+}
+
+.launcher-brand small {
+  color: var(--atlas-ink-faint);
+  font-size: 0.78rem;
+}
+
+.launcher-content {
+  width: min(100% - 36px, 800px);
+  margin: 0 auto;
+  padding: 70px 0;
+}
+
+.launcher-content h1 {
+  max-width: 17ch;
+  margin: 9px 0 14px;
+  font-size: clamp(2.4rem, 6vw, 4rem);
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  line-height: 1.02;
+}
+
+.launcher-content > p {
+  max-width: 63ch;
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.open-project-form {
+  margin: 36px 0 42px;
+}
+
+.open-project-form > div {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border: 1px solid var(--atlas-rule-strong);
+  border-radius: 9px;
+  background: var(--atlas-canvas);
+}
+
+.open-project-form > div.has-folder-picker {
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+}
+
+.open-project-form input {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.open-project-form .primary-button {
+  min-height: 46px;
+  margin: 3px;
+}
+
+.recent-projects {
+  border-top: 1px solid var(--atlas-rule);
+}
+
+.recent-projects > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 2px 10px;
+}
+
+.recent-projects > header > div {
+  min-width: 0;
+}
+
+.recent-projects h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.recent-projects header span,
+.recent-project-row time {
+  color: var(--atlas-ink-faint);
+  font-size: 0.78rem;
+}
+
+.recent-cleanup-button,
+.recent-project-unlink {
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: var(--atlas-radius-2);
+  background: var(--atlas-surface);
+  color: var(--atlas-ink-muted);
+  font-weight: 700;
+}
+
+.recent-cleanup-button:hover,
+.recent-project-unlink:hover {
+  border-color: var(--atlas-accent);
+  color: var(--atlas-accent);
+}
+
+.recent-cleanup-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 4px 0 10px;
+  padding: 12px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: var(--atlas-radius-2);
+  background: var(--atlas-surface-subtle);
+}
+
+.recent-cleanup-confirmation p {
+  margin: 0;
+  color: var(--atlas-ink-muted);
+  font-size: 0.84rem;
+}
+
+.recent-cleanup-confirmation > div {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.recent-project-row {
+  width: 100%;
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto minmax(84px, auto);
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid var(--atlas-rule-soft);
+  background: transparent;
+  padding: 0 2px;
+  text-align: left;
+}
+
+.recent-project-open {
+  grid-column: 1 / -1;
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto 20px;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.recent-project-open:hover {
+  background: var(--atlas-surface-subtle);
+}
+
+.recent-projects strong,
+.recent-projects small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-projects small,
+.recent-projects time,
+.recent-projects em {
+  color: var(--atlas-ink-faint);
+  font-size: 0.78rem;
+}
+
+.recent-project-row.is-unavailable {
+  padding-block: 10px;
+}
+
+.recent-project-row.is-unavailable em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  white-space: normal;
+}
+
+.launcher-diagnostic {
+  margin-top: 38px !important;
+  padding-top: 18px;
+  border-top: 1px solid var(--atlas-rule);
+  color: var(--atlas-ink-faint) !important;
+  font-family: var(--atlas-mono);
+  font-size: 0.72rem !important;
+}
+
+.launcher-recovery {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--atlas-danger-rule);
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-danger-soft);
+}
+
+.launcher-recovery > svg {
+  color: var(--atlas-danger);
+}
+
+.launcher-recovery strong,
+.launcher-recovery p {
+  overflow-wrap: anywhere;
+}
+
+.launcher-recovery p {
+  margin: 3px 0 0;
+  color: var(--atlas-ink-muted);
+}
+
+@media (max-width: 620px) {
+  .launcher-recovery {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .launcher-recovery > button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+.project-destination-preview {
+  min-width: 0;
+  margin: 18px 0 28px;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid var(--atlas-rule-strong);
+  border-radius: 10px;
+  background: var(--atlas-dialog);
+  box-shadow: 0 12px 30px var(--atlas-shadow-color);
+}
+
+.project-destination-preview > header,
+.project-destination-preview > footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.project-destination-preview > header > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.project-destination-preview h3 {
+  max-width: 100%;
+  overflow: hidden;
+  margin: 4px 0 0;
+  font-size: 1.05rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.availability-chip {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--atlas-success-soft);
+  color: var(--atlas-success);
+  font-size: 0.7rem;
+}
+
+.project-destination-preview > code {
+  display: block;
+  overflow: hidden;
+  color: var(--atlas-ink-faint);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-destination-preview > p {
+  margin: 10px 0 16px;
+  font-size: 0.8rem;
+}
+
+.project-destination-preview > footer {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.project-popover .project-destination-preview {
+  margin-bottom: 12px;
+  padding: 14px;
+  box-shadow: none;
+}
+
+.project-popover .worktree-creation-preview {
+  margin: 14px 0 0;
+}
+
+.destination-repository-summary {
+  color: var(--atlas-ink-muted);
+  font-weight: 620;
+}

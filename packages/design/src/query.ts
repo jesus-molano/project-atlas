@@ -2,6 +2,7 @@ import { tokenize } from "@component-atlas/core";
 import { decisionGate, designIndexFindings } from "./findings.js";
 import { parseFigmaReference } from "./figma-url.js";
 import { DESIGN_INDEX_SCHEMA_VERSION } from "./types.js";
+import { buildDesignRetrievalPlan } from "./planner.js";
 import type {
   DesignCandidate,
   DesignCandidateResult,
@@ -971,6 +972,7 @@ export function inspectDesignNode(
     )
     .slice(0, 8)
     .map((child) => child.id);
+  const retrievalPlan = buildDesignRetrievalPlan(index, node);
   return {
     file: index.file,
     node,
@@ -993,6 +995,7 @@ export function inspectDesignNode(
     relatedVariants: relatedVariants(index, node),
     findings: relevantFindings,
     gate: decisionGate(relevantFindings),
+    retrievalPlan,
     deepContextRequest: {
       confirmedNodeId: node.id,
       figmaUrl: node.url,

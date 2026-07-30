@@ -15,7 +15,7 @@ import {
 } from "@component-atlas/design";
 import { AtlasStore } from "@component-atlas/store";
 import { resolveProjectIdentity } from "./identity.js";
-import { getTaskContext } from "./memory.js";
+import { getTaskContext } from "./memory-task-context.js";
 import {
   loadConfirmedOpenApiContext,
   type ConfirmedOpenApiSource,

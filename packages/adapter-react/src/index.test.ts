@@ -26,8 +26,8 @@ describe("ReactAdapter", () => {
         expect.objectContaining({ name: "children", required: true }),
         expect.objectContaining({
           name: "variant",
-          type: '"primary" | "danger"',
-          defaultValue: '"primary"',
+          type: "\"primary\" | \"danger\"",
+          defaultValue: "\"primary\"",
         }),
         expect.objectContaining({ name: "disabled", required: false }),
       ]),

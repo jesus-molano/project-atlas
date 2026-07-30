@@ -1,0 +1,464 @@
+/* Action Center consumes semantic Waypoint Signal tokens only. */
+.action-center {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.action-toolbar,
+.guided-banner,
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-raised);
+}
+
+.action-toolbar h2,
+.action-toolbar p {
+  margin-bottom: 0;
+}
+
+.guided-banner {
+  border-color: var(--atlas-info);
+}
+
+.guided-banner > span {
+  color: var(--atlas-ink-muted);
+}
+
+.bulk-bar {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.bulk-bar > span {
+  display: grid;
+  margin-right: auto;
+}
+
+.bulk-bar small {
+  color: var(--atlas-ink-faint);
+}
+
+.action-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.action-filters label,
+.resolution-panel > label {
+  display: grid;
+  gap: 5px;
+  color: var(--atlas-ink-faint);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.action-filters select,
+.resolution-panel select,
+.resolution-panel input:not([type="radio"], [type="checkbox"]),
+.resolution-panel textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--atlas-control-border);
+  border-radius: calc(var(--atlas-radius) - 2px);
+  background: var(--atlas-canvas);
+  color: var(--atlas-ink);
+}
+
+.action-layout {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(420px, 1.35fr);
+  gap: 14px;
+}
+
+.action-list,
+.action-inspector {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--atlas-rule);
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-canvas);
+}
+
+.action-list {
+  align-content: start;
+  display: grid;
+}
+
+.action-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  border-bottom: 1px solid var(--atlas-rule-soft);
+}
+
+.action-row:last-child {
+  border-bottom: 0;
+}
+
+.action-row.selected {
+  box-shadow: inset 3px 0 0 var(--atlas-accent);
+  background: var(--atlas-raised);
+}
+
+.action-row.stale {
+  box-shadow: inset 3px 0 0 var(--atlas-warning);
+}
+
+.action-select {
+  display: grid;
+  place-items: start center;
+  padding-top: 18px;
+}
+
+.action-select input {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  min-height: 15px;
+}
+
+.action-row-main {
+  min-width: 0;
+  padding: 14px 14px 14px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.action-row-main:hover {
+  background: var(--atlas-surface-hover);
+}
+
+.action-row-main > strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--atlas-ink);
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.action-row-main p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.action-row-main small {
+  color: var(--atlas-ink-faint);
+  overflow-wrap: anywhere;
+}
+
+.action-row-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--atlas-ink-faint);
+  font-family: var(--atlas-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.action-row-top > strong {
+  color: var(--atlas-danger);
+}
+
+.action-severity {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: 999px;
+  color: var(--atlas-ink-muted);
+  font-family: var(--atlas-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.action-severity.critical,
+.action-severity.high {
+  border-color: var(--atlas-danger);
+  color: var(--atlas-danger);
+}
+
+.action-severity.medium,
+.action-severity.low {
+  border-color: var(--atlas-warning);
+  color: var(--atlas-warning);
+}
+
+.action-severity.info {
+  border-color: var(--atlas-info);
+  color: var(--atlas-info);
+}
+
+.action-inspector {
+  padding: 18px;
+  overflow-wrap: anywhere;
+}
+
+.action-inspector > header,
+.evidence-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.action-inspector h2,
+.evidence-panel h3 {
+  margin-bottom: 0;
+}
+
+.action-explanation,
+.resolution-audit dl {
+  display: grid;
+  gap: 0;
+  margin: 18px 0;
+  border: 1px solid var(--atlas-rule-soft);
+  border-radius: var(--atlas-radius);
+}
+
+.action-explanation > div,
+.resolution-audit dl > div {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.34fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--atlas-rule-soft);
+}
+
+.action-explanation > div:last-child,
+.resolution-audit dl > div:last-child {
+  border-bottom: 0;
+}
+
+.action-explanation dt,
+.resolution-audit dt {
+  color: var(--atlas-ink-faint);
+  font-size: 0.78rem;
+}
+
+.action-explanation dd,
+.resolution-audit dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--atlas-ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.evidence-panel,
+.resolution-panel,
+.resolution-audit {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--atlas-rule);
+}
+
+.evidence-panel > div {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.evidence-panel > div.evidence-compare {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.evidence-panel article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--atlas-rule-soft);
+  border-radius: calc(var(--atlas-radius) - 2px);
+  background: var(--atlas-raised);
+}
+
+.evidence-panel article > span {
+  display: block;
+  color: var(--atlas-ink-faint);
+  font-family: var(--atlas-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.evidence-panel article > strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.evidence-panel article p {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+
+.resolution-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.resolution-panel > .eyebrow {
+  color: var(--atlas-section-accent);
+}
+
+.resolution-scope {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.resolution-scope label,
+.confirmation-check {
+  min-width: 0;
+  display: flex !important;
+  align-items: flex-start;
+  gap: 9px !important;
+  padding: 10px 11px;
+  border: 1px solid var(--atlas-rule-soft);
+  border-radius: calc(var(--atlas-radius) - 2px);
+  background: var(--atlas-raised);
+  color: var(--atlas-ink-muted) !important;
+  font-size: 0.84rem !important;
+  font-weight: 500 !important;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.resolution-scope label:hover,
+.confirmation-check:hover {
+  border-color: var(--atlas-control-border);
+  background: var(--atlas-surface-hover);
+}
+
+.resolution-scope label:focus-within,
+.confirmation-check:focus-within {
+  border-color: var(--atlas-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--atlas-focus) 18%, transparent);
+}
+
+.resolution-scope label:has(input:checked),
+.confirmation-check:has(input:checked) {
+  border-color: var(--atlas-selection);
+  background: var(--atlas-selection-soft);
+  color: var(--atlas-ink) !important;
+}
+
+.resolution-scope label > span,
+.confirmation-check > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.scope-note,
+.resolution-audit > p {
+  margin: 0;
+  color: var(--atlas-ink-faint);
+  font-size: 0.8rem;
+}
+
+.action-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.action-buttons > button {
+  min-width: 0;
+  height: auto;
+  min-height: 40px;
+  padding-block: 8px;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.stale-callout {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--atlas-warning);
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-warning-soft);
+}
+
+.stale-callout strong {
+  color: var(--atlas-warning);
+}
+
+.stale-callout p {
+  margin: 3px 0 0;
+}
+
+.action-state {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px;
+  border: 1px solid var(--atlas-rule);
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-canvas);
+}
+
+.action-state.error {
+  border-color: var(--atlas-danger);
+}
+
+.action-state.empty {
+  border-style: dashed;
+}
+
+.action-state h2,
+.action-state p {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 960px) {
+  .action-filters {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .action-layout {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .action-list,
+  .action-inspector {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 620px) {
+  .action-toolbar,
+  .guided-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .action-filters,
+  .resolution-scope,
+  .evidence-panel > div.evidence-compare,
+  .action-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .action-explanation > div,
+  .resolution-audit dl > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+}

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { readViewerCssSync } from "./viewer-css";
 
 const page = readFileSync(
   fileURLToPath(
@@ -8,42 +9,37 @@ const page = readFileSync(
   ),
   "utf8",
 );
-const css = readFileSync(
-  fileURLToPath(
-    new URL("../apps/viewer/app/assets/css/main.css", import.meta.url),
-  ),
-  "utf8",
-);
+const css = readViewerCssSync();
 
 describe("no-project launcher recovery", () => {
   it("treats a missing active root as launcher state without requesting a workspace", () => {
-    expect(page.indexOf('useFetch<ProjectsResponse>("/api/projects")')).toBeLessThan(
-      page.indexOf('useFetch<WorkspaceSnapshot>("/api/workspace"'),
+    expect(page.indexOf("useFetch<ProjectsResponse>(\"/api/projects\")")).toBeLessThan(
+      page.indexOf("useFetch<WorkspaceSnapshot>(\"/api/workspace\""),
     );
     expect(page).toContain("immediate: Boolean(projects.value?.activeRoot)");
     expect(page).toContain(
-      'v-if="!projects?.activeRoot || workspaceError"',
+      "v-if=\"!projects?.activeRoot || workspaceError\"",
     );
     expect(page).not.toContain(
-      '<p class="launcher-diagnostic">{{ t(workspaceError.message) }}</p>',
+      "<p class=\"launcher-diagnostic\">{{ t(workspaceError.message) }}</p>",
     );
   });
 
   it("offers a translated retry for a genuine active-workspace failure", () => {
     expect(page).toContain("workspaceError && projects?.activeRoot");
-    expect(page).toContain('t("Workspace could not be loaded")');
-    expect(page).toContain('@click="refreshWorkspace()"');
-    expect(page).toContain('t("Retry workspace")');
+    expect(page).toContain("t(\"Workspace could not be loaded\")");
+    expect(page).toContain("@click=\"refreshWorkspace()\"");
+    expect(page).toContain("t(\"Retry workspace\")");
   });
 
   it("previews a project/worktree/branch destination before activation", () => {
-    expect(page).toContain('"/api/projects/inspect"');
+    expect(page).toContain("\"/api/projects/inspect\"");
     expect(page).toContain("<ProjectDestinationPreview");
-    expect(page).toContain('@confirm="activateProject()"');
+    expect(page).toContain("@confirm=\"activateProject()\"");
     expect(page).toContain(":title=\"workspace.git.worktreePath");
     expect(page).toContain(":title=\"workspace.git.branch");
     expect(page).toContain(
-      '<code :title="overview.data.project.rootPath">',
+      "<code :title=\"overview.data.project.rootPath\">",
     );
   });
 

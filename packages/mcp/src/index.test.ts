@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +8,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { taskSourceId } from "@component-atlas/core";
 import { describe, expect, it } from "vitest";
 import { createMcpServer } from "./index.js";
+import { DECLARED_MCP_CONTRACT_COST } from "../../agent/src/mcp-contract-cost.js";
+import { copyFixture } from "../../../scripts/test-fixture-copy.mjs";
 
 describe("Project Atlas MCP surface", () => {
   it("exposes the complete compact Project Atlas tool contract", async () => {
@@ -24,8 +27,28 @@ describe("Project Atlas MCP surface", () => {
     try {
       const tools = await client.listTools();
       const names = tools.tools.map((tool) => tool.name);
+      const serialized = JSON.stringify(tools.tools);
+      expect({
+        mcpToolCount: tools.tools.length,
+        mcpDescriptionChars: tools.tools.reduce(
+          (total, tool) => total + (tool.description?.length ?? 0),
+          0,
+        ),
+        mcpSchemaChars: tools.tools.reduce(
+          (total, tool) =>
+            total +
+            JSON.stringify(tool.inputSchema ?? {}).length +
+            JSON.stringify(tool.outputSchema ?? {}).length,
+          0,
+        ),
+        mcpSerializedChars: serialized.length,
+        mcpContractHash: createHash("sha256")
+          .update(serialized)
+          .digest("hex"),
+      }).toMatchObject(DECLARED_MCP_CONTRACT_COST);
       expect(names).toContain("get_reuse_context");
       expect(names).toContain("get_change_surface");
+      expect(names).toContain("validate_diff");
       expect(names).toContain("scan_repository");
       expect(names).toContain("map_figma_file");
       expect(names).toContain("capture_figma_asset");
@@ -181,7 +204,7 @@ describe("Project Atlas MCP surface", () => {
     const source = fileURLToPath(
       new URL("../../../fixtures/vue-nuxt", import.meta.url),
     );
-    await cp(source, rootPath, { recursive: true });
+    await copyFixture(source, rootPath);
     const metadata = await readFile(
       new URL(
         "../../../fixtures/figma/personal-no-dev-mode.xml",

@@ -8,6 +8,7 @@ import {
   type ComponentDecision,
   type ComponentGraph,
   type ComponentNode,
+  type ContextCostAuditRecord,
   type DesignToken,
   type Framework,
   type GraphEdge,
@@ -19,6 +20,7 @@ import {
 } from "@component-atlas/core";
 import {
   normalizeDesignIndex,
+  type DesignLinkRecord,
   type DesignFileIndex,
 } from "@component-atlas/design";
 import type {
@@ -30,6 +32,27 @@ import type {
 import {
   projectStoragePath,
 } from "./storage.js";
+import {
+  loadSemanticNodes,
+  migrateSemanticNodes,
+  replaceSemanticNodes,
+} from "./semantic-nodes.js";
+import {
+  loadThemeFingerprint,
+  migrateThemeFingerprints,
+  saveThemeFingerprint,
+} from "./theme-fingerprints.js";
+import {
+  listDesignLinks,
+  migrateDesignLinks,
+  saveDesignLink,
+} from "./design-links.js";
+import {
+  clearContextCostAudits,
+  listContextCostAudits,
+  migrateContextCostAudits,
+  saveContextCostAudit,
+} from "./context-cost.js";
 
 export {
   PROJECT_ATLAS_HOME_ENV,
@@ -282,6 +305,10 @@ export class AtlasStore {
       CREATE INDEX IF NOT EXISTS action_resolutions_scope
         ON action_resolutions(project_id, checkout_id, item_id, resolved_at DESC);
     `);
+    migrateContextCostAudits(this.database);
+    migrateSemanticNodes(this.database);
+    migrateThemeFingerprints(this.database);
+    migrateDesignLinks(this.database);
     const memoryColumns = this.database
       .prepare("PRAGMA table_info(memory_items)")
       .all() as unknown as Array<{ name: string }>;
@@ -339,6 +366,12 @@ export class AtlasStore {
         .run(graph.project.id);
       this.database.prepare("DELETE FROM edges WHERE project_id = ?").run(graph.project.id);
       this.database.prepare("DELETE FROM tokens WHERE project_id = ?").run(graph.project.id);
+      replaceSemanticNodes(this.database, graph.project.id, graph.entities ?? []);
+      saveThemeFingerprint(
+        this.database,
+        graph.project.id,
+        graph.themeFingerprint,
+      );
       for (const component of graph.components) {
         componentStatement.run(
           component.id,
@@ -522,12 +555,15 @@ export class AtlasStore {
         ? { packageManager: project.package_manager }
         : {}),
     };
+    const themeFingerprint = loadThemeFingerprint(this.database, projectId);
     return {
       schemaVersion: GRAPH_SCHEMA_VERSION,
       project: metadata,
       components: components.map((row) => JSON.parse(row.payload) as ComponentNode),
+      entities: loadSemanticNodes(this.database, projectId),
       edges: edges.map((row) => JSON.parse(row.payload) as GraphEdge),
       tokens: tokens.map((row) => JSON.parse(row.payload) as DesignToken),
+      ...(themeFingerprint ? { themeFingerprint } : {}),
     };
   }
 
@@ -754,6 +790,29 @@ export class AtlasStore {
         .prepare("DELETE FROM agent_run_audits WHERE project_id = ?")
         .run(projectId).changes,
     );
+  }
+
+  saveDesignLink(link: DesignLinkRecord): void {
+    saveDesignLink(this.database, link);
+  }
+
+  listDesignLinks(projectId: string, fileKey?: string): DesignLinkRecord[] {
+    return listDesignLinks(this.database, projectId, fileKey);
+  }
+
+  saveContextCostAudit(record: ContextCostAuditRecord, retention = 500): void {
+    saveContextCostAudit(this.database, record, retention);
+  }
+
+  listContextCostAudits(
+    projectId: string,
+    limit = 100,
+  ): ContextCostAuditRecord[] {
+    return listContextCostAudits(this.database, projectId, limit);
+  }
+
+  clearContextCostAudits(projectId: string): number {
+    return clearContextCostAudits(this.database, projectId);
   }
 
   saveActionResolution(resolution: ActionResolution): ActionResolution {
@@ -1129,7 +1188,7 @@ export class AtlasStore {
     if (!terms || terms.length === 0) {
       return this.listMemoryItems(projectId, checkoutId).slice(0, limit);
     }
-    const match = terms.map((term) => `"${term.replaceAll('"', '""')}"*`).join(" OR ");
+    const match = terms.map((term) => `"${term.replaceAll("\"", "\"\"")}"*`).join(" OR ");
     try {
       const rows = this.database
         .prepare(`

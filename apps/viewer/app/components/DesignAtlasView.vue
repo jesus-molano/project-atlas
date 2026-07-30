@@ -385,7 +385,7 @@ function handleNodeKeydown(event: KeyboardEvent, index: number): void {
   const nextNode = filteredNodes.value[nextIndex];
   if (!nextNode) return;
   selectNode(nextNode);
-  focusIndexedControl(entityList.value, '[role="option"]', nextIndex);
+  focusIndexedControl(entityList.value, "[role=\"option\"]", nextIndex);
 }
 
 function handleVariableCollectionKeydown(
@@ -409,7 +409,7 @@ function handleVariableCollectionKeydown(
   selectedVariableCollectionId.value = nextCollection.id;
   focusIndexedControl(
     inspectorPane.value,
-    '.variable-collection-tabs [role="tab"]',
+    ".variable-collection-tabs [role=\"tab\"]",
     nextIndex,
   );
 }
@@ -431,7 +431,7 @@ function handleVariableKeydown(event: KeyboardEvent, index: number): void {
   selectedVariableId.value = nextVariable.id;
   focusIndexedControl(
     inspectorPane.value,
-    '.variable-token-list [role="option"]',
+    ".variable-token-list [role=\"option\"]",
     nextIndex,
   );
 }
@@ -519,7 +519,7 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
       </label>
       <label class="filter-input">
         <span>{{ t("Filter") }}</span>
-        <input v-model="query" type="search" :placeholder="t('Frame, page, component…')" >
+        <input v-model="query" type="search" :placeholder="t('Frame, page, component…')">
       </label>
       <div
         id="design-result-summary"
@@ -759,8 +759,8 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
                   t("{count} tokens · {modes}", {
                     count: collection.variableCount,
                     modes:
-                      collection.modes.map((mode) => mode.name).join(" / ") ||
-                      t("No modes exposed"),
+                      collection.modes.map((mode) => mode.name).join(" / ")
+                      || t("No modes exposed"),
                   })
                 }}
               </span>
@@ -840,8 +840,8 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
               </dl>
               <template
                 v-if="
-                  activeFile?.variables.valuesIncluded &&
-                  selectedVariable.valuesByMode
+                  activeFile?.variables.valuesIncluded
+                  && selectedVariable.valuesByMode
                 "
               >
                 <span class="field-label">{{ t("Authorized mode values") }}</span>

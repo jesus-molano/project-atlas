@@ -5,7 +5,8 @@ Validated locally on 2026-07-29 without corporate data:
 - relative documentation links and the five-minute installation command;
 - production build: Nuxt 4.5.0, Vite 8.1.5, Vue 3.5.40;
 - TypeScript build/typecheck for every package and the viewer;
-- 219 tests across 54 files covering Code Atlas, Design Atlas, Project Memory,
+- The current test and surface counts are generated in
+  [the Project Atlas quality summary](./generated-quality-summary.md), covering Code Atlas, Design Atlas, Project Memory,
   runtime, MCP, the viewer, and the `frontend-task` source precheck;
 - cold start and idempotent Markdown rebuild;
 - active versus superseded knowledge;
@@ -116,6 +117,14 @@ non-trivial templates and changes one component. Three local runs measured
 432–477 ms for the safe delta path versus 508–528 ms for a forced full parse
 (1.06–1.19×). This is a workload measurement, not a promised threshold: small
 repositories can be dominated by reliable file discovery and hashing.
+
+The content-cost baseline is `pnpm benchmark:context-cost`. It builds an
+isolated Vue/Nuxt fixture, adds confirmed Figma and OpenAPI evidence, executes
+four small, four normal frontend, and four complex cases, and reports median/P95
+from content-free numeric records. The temporary checkout and private data home
+are removed afterward. Real work-computer records remain local unless the user
+explicitly runs the non-overwriting `context-cost export` command and imports
+that sanitized JSON elsewhere.
 
 The fixture deliberately contains contradictory search-filter decisions, so the
 task and pre-change gates correctly return `blocked` with a specific question,

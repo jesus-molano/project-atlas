@@ -223,7 +223,16 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 - [Project Memory and write policy](docs/project-memory.md)
 - [Centralized storage and diagnostics](docs/storage.md)
 - [Token budgets](docs/token-budgets.md)
+- [Context-cost measurement and cross-computer workflow](docs/phase-2-context-cost-assessment.md)
+- [Phases 3–5 implementation record](docs/phases-3-5-implementation.md)
+
 - [Security and validation boundary](docs/validation.md)
 - [Quality audit, stress tests, and performance baseline](docs/quality-audit.md)
+- [Generated quality summary](docs/generated-quality-summary.md)
 - [`frontend-task` capability routing](docs/frontend-task-integration.md)
 - [Installer internals and recovery options](frontend-codex-kit/README.md)
+
+Context-cost metrics are private and local by default. Inspect them with
+`pnpm atlas:cli -- context-cost report .`; move only the content-free numeric
+bundle between computers with `context-cost export` and `context-cost import`.
+Run the reproducible 12-case baseline with `pnpm benchmark:context-cost`.

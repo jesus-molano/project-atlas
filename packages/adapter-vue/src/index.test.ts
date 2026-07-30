@@ -10,6 +10,10 @@ const fixture = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../fixtures/vue-nuxt",
 );
+const repositoryRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+);
 
 describe("VueAdapter", () => {
   it("indexes Nuxt runtime names, macros, auto-imports, and local components", async () => {
@@ -51,14 +55,14 @@ describe("VueAdapter", () => {
         }),
         expect.objectContaining({
           name: "density",
-          type: '"compact" | "comfortable"',
+          type: "\"compact\" | \"comfortable\"",
           required: false,
-          defaultValue: '"comfortable"',
+          defaultValue: "\"comfortable\"",
         }),
         expect.objectContaining({
           name: "label",
           required: false,
-          defaultValue: '"Account settings"',
+          defaultValue: "\"Account settings\"",
         }),
         expect.objectContaining({
           name: "locked",
@@ -134,13 +138,62 @@ describe("VueAdapter", () => {
     }
   });
 
+  it("accepts HTML void elements without degrading Vue template coverage", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-vue-void-"));
+    try {
+      await mkdir(path.join(root, "src"), { recursive: true });
+      await writeFile(
+        path.join(root, "src", "VoidElements.vue"),
+        [
+          "<template>",
+          "  <form>",
+          "    <input name=\"query\">",
+          "    <img src=\"/preview.png\" alt=\"\">",
+          "    <br>",
+          "    <hr>",
+          "    <meta itemprop=\"status\" content=\"ready\">",
+          "    <link itemprop=\"help\" href=\"/help\">",
+          "  </form>",
+          "</template>",
+        ].join("\n"),
+        "utf8",
+      );
+      const result = await scanVueProjectDetailed({ rootPath: root });
+      expect(result.coverage).toMatchObject({
+        candidateFiles: 1,
+        parsedFiles: 1,
+        errorFiles: 0,
+        complete: true,
+      });
+      expect(result.coverage.diagnostics).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("self-scans every Project Atlas viewer SFC without false syntax errors", async () => {
+    const result = await scanVueProjectDetailed({
+      rootPath: repositoryRoot,
+      include: ["apps/viewer/**/*.vue"],
+    });
+    expect(result.components).toHaveLength(result.coverage.candidateFiles);
+    expect(result.coverage.candidateFiles).toBeGreaterThanOrEqual(17);
+    expect(result.coverage).toMatchObject({
+      parsedFiles: result.coverage.candidateFiles,
+      skippedFiles: 0,
+      errorFiles: 0,
+      complete: true,
+    });
+    expect(result.coverage.diagnostics).toEqual([]);
+  });
+
   it("marks unsupported SFC block languages as skipped coverage", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-vue-pug-"));
     try {
       await mkdir(path.join(root, "src"), { recursive: true });
       await writeFile(
         path.join(root, "src", "PugCard.vue"),
-        '<script>export default { props: ["title"] }</script><template lang="pug">article {{ title }}</template>',
+        "<script>export default { props: [\"title\"] }</script><template lang=\"pug\">article {{ title }}</template>",
         "utf8",
       );
       const result = await scanVueProjectDetailed({ rootPath: root });

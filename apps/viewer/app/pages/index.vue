@@ -3,6 +3,7 @@ import type {
   ActionResolution,
   ComponentGraph,
   AgentRunAuditRecord,
+  ContextCostReport,
   ProjectCapabilityReport,
   TaskEvaluationRecord,
 } from "@component-atlas/core/browser";
@@ -129,6 +130,20 @@ interface WorkspaceSnapshot {
   agent: AgentAdapterStatus;
   evaluations: TaskEvaluationRecord[];
   agentRuns: AgentRunAuditRecord[];
+  contextCost: ContextCostReport;
+  diffValidation: {
+    files: number;
+    additions: number;
+    findings: Array<{
+      code: string;
+      severity: "warning";
+      file?: string;
+      line?: number;
+      message: string;
+      evidence: string[];
+      recommendation: string;
+    }>;
+  };
   actionResolutions: ActionResolution[];
   actionCenterCounts: {
     materialBlockers: number;
@@ -1503,10 +1518,10 @@ onBeforeUnmount(() => {
                   type="submit"
                   class="secondary-button"
                   :disabled="
-                    !newBranchName.trim() ||
-                    !selectedNewBranchBase?.hasProjectManifest ||
-                    newBranchPreviewPending ||
-                    projectSwitchPending
+                    !newBranchName.trim()
+                    || !selectedNewBranchBase?.hasProjectManifest
+                    || newBranchPreviewPending
+                    || projectSwitchPending
                   "
                 >
                   {{
@@ -1563,11 +1578,11 @@ onBeforeUnmount(() => {
                     type="button"
                     class="branch-action"
                     :disabled="
-                      branchAction(branch) === 'current' ||
-                      branchAction(branch) === 'unsupported' ||
-                      projectSwitchPending ||
-                      projectInspectPending ||
-                      Boolean(worktreePreviewPendingBranch)
+                      branchAction(branch) === 'current'
+                      || branchAction(branch) === 'unsupported'
+                      || projectSwitchPending
+                      || projectInspectPending
+                      || Boolean(worktreePreviewPendingBranch)
                     "
                     :aria-label="
                       t(
@@ -1616,10 +1631,10 @@ onBeforeUnmount(() => {
                   :key="worktree.path"
                   type="button"
                   :disabled="
-                    worktree.isCurrent ||
-                    !worktree.available ||
-                    projectSwitchPending ||
-                    projectInspectPending
+                    worktree.isCurrent
+                    || !worktree.available
+                    || projectSwitchPending
+                    || projectInspectPending
                   "
                   @click="reviewProject(worktree.path)"
                 >
@@ -1856,7 +1871,7 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'code'" class="section-workspace code-section">
           <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Explore / Code") }}</span><h1>{{ t("What can I reuse, change, or test?") }}</h1><p>{{ t("Navigate exact consumers separately from explainable similarity.") }}</p></div><button class="secondary-button" :disabled="Boolean(localAction)" @click="runLocalAction('repository')"><AtlasIcon name="refresh" />{{ t("Rescan code") }}</button></header>
-          <LazyCodeAtlasView :graph="graph" :initial-component-id="selectedComponentId" @use-in-task="useEvidenceInTask" />
+          <LazyCodeAtlasView :graph="graph" :diff-findings="workspace.diffValidation.findings" :initial-component-id="selectedComponentId" @use-in-task="useEvidenceInTask" />
         </section>
 
         <section v-else-if="activeSection === 'design'" class="section-workspace design-section">
@@ -1871,7 +1886,7 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'task'" class="section-workspace task-section">
           <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("Work / Codex handoff") }}</span><h1>{{ t("Prepare the next move.") }}</h1><p>{{ t("Conversation and execution stay in Codex. Atlas verifies scope, sources, and the compact handoff.") }}</p></div><span :class="['heading-count', { warning: workspace.git.dirty }]">{{ workspace.git.dirty ? t("{count} changed", { count: workspace.git.changedFiles }) : t("Clean checkout") }}</span></header>
-          <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" @update-task="taskSeed = $event" @workspace-changed="refreshSnapshot" @figma-sync-state="designSyncState = $event" />
+          <LazyTaskWorkbenchView :design-indexes="workspace.designIndexes" :capabilities="workspace.capabilities" :workspace-fingerprint="workspace.fingerprint" :project-name="overview.projectName" :project-root="overview.data.project.rootPath" :identity="graph.project.identity" :default-budget="preferences.budgetChars" :default-top-k="preferences.topK" :initial-task="taskSeed" :pinned-handles="pinnedHandles" :local-metrics-enabled="preferences.localMetrics" :recent-runs="workspace.agentRuns" :recent-actions="workspace.actionResolutions" :diff-findings="workspace.diffValidation.findings" @update-task="taskSeed = $event" @workspace-changed="refreshSnapshot" @figma-sync-state="designSyncState = $event" />
         </section>
 
         <section v-else-if="activeSection === 'decisions'" class="section-workspace">
@@ -1890,12 +1905,12 @@ onBeforeUnmount(() => {
 
         <section v-else-if="activeSection === 'connections'" class="section-workspace">
           <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("System / Connections") }}</span><h1>{{ t("What evidence can Atlas actually reach?") }}</h1><p>{{ t("Connector state, optional capabilities, permissions, and cached evidence remain distinct.") }}</p></div><span class="heading-count">{{ t("Local-first") }}</span></header>
-          <LazyHealthView :sources="overview.data.sources" :capabilities="workspace.capabilities" :agent="workspace.agent" :root-path="overview.data.project.rootPath" @refreshed="refreshSnapshot" />
+          <LazyHealthView :sources="overview.data.sources" :capabilities="workspace.capabilities" :agent="workspace.agent" :context-cost="workspace.contextCost" :root-path="overview.data.project.rootPath" @refreshed="refreshSnapshot" />
         </section>
 
         <section v-else class="section-workspace">
           <header class="workspace-heading compact"><div><span class="eyebrow">{{ t("System / Settings") }}</span><h1>{{ t("How much context may leave Atlas?") }}</h1><p>{{ t("Browsing stays complete locally; agent packages remain hard-capped and reviewable.") }}</p></div><span class="heading-count">{{ t("Local preferences") }}</span></header>
-          <LazySettingsView v-model="preferences" :evaluation-count="workspace.evaluations.length + workspace.agentRuns.length" @clear-metrics="clearLocalMetrics" />
+          <LazySettingsView v-model="preferences" :evaluation-count="workspace.evaluations.length + workspace.agentRuns.length + (workspace.contextCost.groups[0]?.runs ?? 0)" :context-cost="workspace.contextCost" @clear-metrics="clearLocalMetrics" />
         </section>
       </section>
 

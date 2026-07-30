@@ -4,13 +4,17 @@ packages:
 
 allowBuilds:
   esbuild: true
+  unrs-resolver: true
 
 minimumReleaseAgeExclude:
   - '@hono/node-server@2.0.12'
 
 onlyBuiltDependencies:
   - esbuild
+  - unrs-resolver
 
 overrides:
   "@hono/node-server@<2.0.5": 2.0.12
-  "brace-expansion@<=5.0.7": 5.0.8
+  "brace-expansion@>=2.0.0 <2.1.2": 2.1.2
+  "glob@>=10.0.0 <13.0.0": 13.0.6
+  "readdir-glob@>=1.0.0 <3.0.0": 3.0.0

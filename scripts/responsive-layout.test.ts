@@ -1,13 +1,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { readViewerComponentSync } from "./viewer-component";
+import { readViewerCssSync } from "./viewer-css";
 
-const css = readFileSync(
-  fileURLToPath(
-    new URL("../apps/viewer/app/assets/css/main.css", import.meta.url),
-  ),
-  "utf8",
-);
+const css = readViewerCssSync();
 const codeAtlas = readFileSync(
   fileURLToPath(
     new URL("../apps/viewer/app/components/CodeAtlasView.vue", import.meta.url),
@@ -62,14 +59,13 @@ const actionCenter = readFileSync(
   ),
   "utf8",
 );
-const taskWorkbench = readFileSync(
+const taskWorkbench = readViewerComponentSync(
   fileURLToPath(
     new URL(
       "../apps/viewer/app/components/TaskWorkbenchView.vue",
       import.meta.url,
     ),
   ),
-  "utf8",
 );
 const i18nComposable = readFileSync(
   fileURLToPath(
@@ -113,10 +109,10 @@ describe("evidence workspace responsive layout", () => {
   });
 
   it("uses compact, accessible icon controls for the graph viewport", () => {
-    expect(codeAtlas).toContain(':aria-label="inspectorActionLabel"');
-    expect(codeAtlas).toContain(':title="inspectorActionLabel"');
-    expect(codeAtlas).toContain('"Inspect selected component"');
-    expect(codeAtlas).toContain('"Hide component details"');
+    expect(codeAtlas).toContain(":aria-label=\"inspectorActionLabel\"");
+    expect(codeAtlas).toContain(":title=\"inspectorActionLabel\"");
+    expect(codeAtlas).toContain("\"Inspect selected component\"");
+    expect(codeAtlas).toContain("\"Hide component details\"");
     for (const label of ["Fit selection", "Fit graph", "Reset graph view"]) {
       expect(codeAtlas).toContain(`:aria-label="t('${label}')"`);
       expect(codeAtlas).toContain(`:title="t('${label}')"`);
@@ -130,10 +126,10 @@ describe("evidence workspace responsive layout", () => {
     expect(codeAtlas).not.toMatch(
       /filteredComponents\.value\.find\([\s\S]*?\)\s*\?\?\s*filteredComponents\.value\[0\]/,
     );
-    expect(atlasGraph).toContain('"text-wrap": "wrap"');
-    expect(atlasGraph).toContain('"text-max-width": "100px"');
-    expect(atlasGraph).toContain('(?<=[a-z0-9])(?=[A-Z])');
-    expect(atlasGraph).toContain('"text-margin-y": 13');
+    expect(atlasGraph).toContain("\"text-wrap\": \"wrap\"");
+    expect(atlasGraph).toContain("\"text-max-width\": \"100px\"");
+    expect(atlasGraph).toContain("(?<=[a-z0-9])(?=[A-Z])");
+    expect(atlasGraph).toContain("\"text-margin-y\": 13");
   });
 
   it.each([
@@ -156,7 +152,7 @@ describe("evidence workspace responsive layout", () => {
     );
     expect(css).toContain("flex: 0 0 var(--atlas-control-check)");
     expect(css).toContain(
-      'input:not([type="checkbox"]):not([type="radio"]):not([type="range"])',
+      "input:not([type=\"checkbox\"], [type=\"radio\"], [type=\"range\"])",
     );
   });
 
@@ -199,10 +195,10 @@ describe("evidence workspace responsive layout", () => {
   });
 
   it("keeps the mobile source summary bounded and the exact Figma gate actionable", () => {
-    expect(taskWorkbench).toContain('class="source-count-summary"');
-    expect(taskWorkbench).toContain('t("Synchronize exact target")');
-    expect(taskWorkbench).toContain('t("Retry exact sync")');
-    expect(taskWorkbench).toContain('aria-live="polite"');
+    expect(taskWorkbench).toContain("class=\"source-count-summary\"");
+    expect(taskWorkbench).toContain("t(\"Synchronize exact target\")");
+    expect(taskWorkbench).toContain("t(\"Retry exact sync\")");
+    expect(taskWorkbench).toContain("aria-live=\"polite\"");
     expect(taskWorkbench).toContain("pendingFigmaSources.value.length === 0");
     expect(css).toMatch(
       /@container atlas-workspace \(max-width: 900px\)[\s\S]*?\.workbench-inspector dl > \.source-count-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
@@ -232,10 +228,10 @@ describe("evidence workspace responsive layout", () => {
       /\.figma-sync-actions\s*\{[^}]*grid-column:\s*2;[^}]*border-top:\s*1px solid var\(--atlas-rule-soft\)/,
     );
     expect(taskWorkbench).toContain(
-      '"Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target."',
+      "\"Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target.\"",
     );
-    expect(taskWorkbench).toContain('class="task-intake-controls"');
-    expect(taskWorkbench).toContain('class="task-status-row"');
+    expect(taskWorkbench).toContain("class=\"task-intake-controls\"");
+    expect(taskWorkbench).toContain("class=\"task-status-row\"");
     expect(taskWorkbench).toContain(`:aria-label="t('Task mode')"`);
     expect(taskWorkbench).toContain("t(activeCheckpoint.nextSafeAction)");
     expect(css).toMatch(
@@ -248,19 +244,19 @@ describe("evidence workspace responsive layout", () => {
       /\.decision-record > div > span\s*\{[^}]*display:\s*block;[^}]*margin-bottom:\s*4px/,
     );
     expect(i18nComposable).toContain(
-      'if (value === "clear") return t("No blockers")',
+      "if (value === \"clear\") return t(\"No blockers\")",
     );
   });
 
   it("keeps Memory Inbox decisions before long content on tablet and compact layouts", () => {
-    expect(memoryInbox).toContain('class="proposal-actions"');
+    expect(memoryInbox).toContain("class=\"proposal-actions\"");
     expect(memoryInbox).toContain("openApprovalConfirmation");
-    expect(memoryInbox).toContain('type="radio"');
+    expect(memoryInbox).toContain("type=\"radio\"");
     expect(memoryInbox).toContain("confirmationOpen");
     expect(memoryInbox).toContain("decisionZone.value?.focus");
     expect(memoryInbox).toContain("decisionZone.value?.scrollIntoView");
-    expect(memoryInbox).toContain('action: "apply"');
-    expect(memoryInbox).toContain('action: "reject"');
+    expect(memoryInbox).toContain("action: \"apply\"");
+    expect(memoryInbox).toContain("action: \"reject\"");
     expect(css).toMatch(
       /@container atlas-workspace \(max-width: 900px\)[\s\S]*?\.atlas-workspace\.inbox-layout[\s\S]*?grid-template-areas:\s*"index"\s*"actions"\s*"detail"/,
     );
@@ -270,27 +266,27 @@ describe("evidence workspace responsive layout", () => {
   });
 
   it("makes unavailable recent projects explicitly removable without implying navigation", () => {
-    expect(viewerPage).toContain('class="recent-project-unlink"');
+    expect(viewerPage).toContain("class=\"recent-project-unlink\"");
     expect(viewerPage).toContain(
       `t('Remove {name} from recent projects', {`,
     );
     expect(viewerPage).toContain(
-      '? "Remove {count} unavailable project"',
+      "? \"Remove {count} unavailable project\"",
     );
     expect(viewerPage).toContain(
-      ': "Remove {count} unavailable projects"',
+      ": \"Remove {count} unavailable projects\"",
     );
     expect(viewerPage).toContain(
-      '"This only removes unavailable links from recent-projects.json. Repositories and Project Atlas data are not deleted."',
+      "\"This only removes unavailable links from recent-projects.json. Repositories and Project Atlas data are not deleted.\"",
     );
     expect(viewerPage).toContain(
-      '"Removing this link keeps the repository and Project Atlas data untouched."',
+      "\"Removing this link keeps the repository and Project Atlas data untouched.\"",
     );
     const unavailableRow = viewerPage.match(
       /<template v-else>([\s\S]*?)<\/template>/,
     )?.[1];
-    expect(unavailableRow).toContain('class="recent-project-unlink"');
-    expect(unavailableRow).not.toContain('name="arrow-right"');
+    expect(unavailableRow).toContain("class=\"recent-project-unlink\"");
+    expect(unavailableRow).not.toContain("name=\"arrow-right\"");
     expect(css).toMatch(
       /@media \(max-width: 560px\)[\s\S]*?\.recent-project-row\.is-unavailable\s*\{[^}]*grid-template-columns:\s*22px minmax\(0,\s*1fr\) auto/,
     );
@@ -305,13 +301,13 @@ describe("evidence workspace responsive layout", () => {
     expect(scrollToTop).toContain("observedTarget.scrollTop");
     expect(scrollToTop).toContain(`:aria-label="t('Back to top')"`);
     expect(scrollToTop).toContain(`:title="t('Back to top')"`);
-    expect(scrollToTop).toContain('<span aria-hidden="true">↑</span>');
-    expect(scrollToTop).not.toContain('<span>{{ t("Back to top") }}</span>');
-    expect(viewerPage).toContain(':target="launcherScroller"');
-    expect(viewerPage).toContain(':target="workspaceScroller"');
-    expect(viewerPage).toContain('ref="inboxHeading"');
-    expect(codeAtlas).toContain(':target="componentList"');
-    expect(actionCenter).toContain(':target="actionInspector"');
+    expect(scrollToTop).toContain("<span aria-hidden=\"true\">↑</span>");
+    expect(scrollToTop).not.toContain("<span>{{ t(\"Back to top\") }}</span>");
+    expect(viewerPage).toContain(":target=\"launcherScroller\"");
+    expect(viewerPage).toContain(":target=\"workspaceScroller\"");
+    expect(viewerPage).toContain("ref=\"inboxHeading\"");
+    expect(codeAtlas).toContain(":target=\"componentList\"");
+    expect(actionCenter).toContain(":target=\"actionInspector\"");
     expect(css).toContain(".scroll-to-top-button");
     expect(css).toContain(".scroll-to-top-button.panel");
   });

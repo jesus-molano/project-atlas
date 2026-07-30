@@ -1,10 +1,11 @@
-import { access, cp, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeProjectAtlasArguments } from "./project-atlas-arguments.mjs";
+import { copyFixture } from "./test-fixture-copy.mjs";
 
 const cliEntry = fileURLToPath(
   new URL("../packages/cli/dist/index.js", import.meta.url),
@@ -48,7 +49,7 @@ describe.sequential("CLI compact contracts", () => {
     process.env.PROJECT_ATLAS_HOME = storageHome;
     process.env.COMPONENT_ATLAS_HOME = legacyHome;
     rootPath = await mkdtemp(path.join(os.tmpdir(), "project-atlas-cli-"));
-    await cp(codeFixture, rootPath, { recursive: true });
+    await copyFixture(codeFixture, rootPath);
     expect(cli(["scan", rootPath]).status).toBe(0);
   });
 
@@ -106,7 +107,7 @@ describe.sequential("CLI compact contracts", () => {
     const legacyRoot = await mkdtemp(
       path.join(os.tmpdir(), "project-atlas-cli-legacy-"),
     );
-    await cp(legacyFixture, legacyRoot, { recursive: true });
+    await copyFixture(legacyFixture, legacyRoot, { includeAtlasState: true });
     try {
       const result = cli([
         "storage",

@@ -1,8 +1,17 @@
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { readViewerComponent } from "./viewer-component";
+import { readViewerCss } from "./viewer-css";
 
 async function source(relativePath: string): Promise<string> {
-  return readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
+  if (relativePath.endsWith("/assets/css/main.css")) {
+    return readViewerCss();
+  }
+  const url = new URL(`../${relativePath}`, import.meta.url);
+  return relativePath.endsWith(".vue")
+    ? readViewerComponent(fileURLToPath(url))
+    : readFile(url, "utf8");
 }
 
 describe("desktop evidence workspace contract", () => {
@@ -26,13 +35,13 @@ describe("desktop evidence workspace contract", () => {
     expect(page).toContain(
       `:aria-label="t('Search code, design, memory, and tasks')"`,
     );
-    expect(page).toContain('t("Recent projects")');
-    expect(page).toContain('t("Open another folder")');
-    expect(page).toContain('"/api/projects/activate"');
-    expect(page).toContain('"/api/projects/select-directory"');
+    expect(page).toContain("t(\"Recent projects\")");
+    expect(page).toContain("t(\"Open another folder\")");
+    expect(page).toContain("\"/api/projects/activate\"");
+    expect(page).toContain("\"/api/projects/select-directory\"");
     expect(page).toContain("projectPathFromDrop");
-    expect(page).toContain('t("Choose folder…")');
-    expect(page).toContain('t("Atlas never uploads the project.")');
+    expect(page).toContain("t(\"Choose folder…\")");
+    expect(page).toContain("t(\"Atlas never uploads the project.\")");
     expect(page).toContain("chooseDesktopProjectFolder");
     expect(page).toContain("projectMenuOpen.value = false");
     const css = await source("apps/viewer/app/assets/css/main.css");
@@ -72,8 +81,8 @@ describe("desktop evidence workspace contract", () => {
       expect(view).toContain("Use in task");
     }
     expect(memory).toContain("useInTask");
-    expect(memory).toContain('memoryT("useInTask")');
-    expect(memoryI18n).toContain('useInTask: "Use in task"');
+    expect(memory).toContain("memoryT(\"useInTask\")");
+    expect(memoryI18n).toContain("useInTask: \"Use in task\"");
     expect(code).toContain("Reuse");
     expect(code).toContain("Change impact");
     expect(code).toContain("Associated tests");
@@ -81,11 +90,11 @@ describe("desktop evidence workspace contract", () => {
     expect(design).toContain("indexed metadata");
     expect(design).toContain("fixture claims, not live Figma verification");
     expect(design).toContain("Indexed code mappings");
-    expect(memory).toContain('memoryT("conceptMap")');
-    expect(memory).toContain('memoryT("timeline")');
-    expect(memory).toContain('memoryT("activeDefault")');
-    expect(memoryI18n).toContain('conceptMap: "Concept map"');
-    expect(memoryI18n).toContain('conceptMap: "Mapa conceptual"');
+    expect(memory).toContain("memoryT(\"conceptMap\")");
+    expect(memory).toContain("memoryT(\"timeline\")");
+    expect(memory).toContain("memoryT(\"activeDefault\")");
+    expect(memoryI18n).toContain("conceptMap: \"Concept map\"");
+    expect(memoryI18n).toContain("conceptMap: \"Mapa conceptual\"");
     expect(workbench).toContain("Review before Codex starts");
     expect(workbench).toContain("Review before Codex resumes");
     expect(workbench).toContain("Cancel safely");
@@ -95,7 +104,7 @@ describe("desktop evidence workspace contract", () => {
     expect(workbench).toContain("Mark reviewed");
     expect(workbench).toContain("Exact sources");
     expect(workbench).toContain("Codex may pause for");
-    expect(workbench).toContain('value="openapi"');
+    expect(workbench).toContain("value=\"openapi\"");
     expect(workbench).toContain("Context inspector");
     expect(workbench).toContain("Memory candidates");
     expect(workbench).toContain("No automatic memory writes");
@@ -104,8 +113,8 @@ describe("desktop evidence workspace contract", () => {
     expect(workbench).toContain("memoryCloseoutActionMessage");
     expect(workbench).toContain("Confirm canonical memory");
     expect(workbench).toContain("Continue without saving");
-    expect(workbench).toContain('from "@component-atlas/agent/browser"');
-    expect(agentBrowser).toContain('export * from "./memory-closeout.js"');
+    expect(workbench).toContain("from \"@component-atlas/agent/browser\"");
+    expect(agentBrowser).toContain("export * from \"./memory-closeout.js\"");
     expect(agentBrowser).not.toContain("./codex.js");
     expect(JSON.parse(agentPackageSource).exports["./browser"]).toEqual({
       types: "./dist/browser.d.ts",
@@ -128,10 +137,10 @@ describe("desktop evidence workspace contract", () => {
     ]) {
       expect(workbench).toContain(status);
     }
-    expect(workbench).toContain('emit("workspaceChanged")');
+    expect(workbench).toContain("emit(\"workspaceChanged\")");
     expect(workbench).toContain("pendingFigmaSources");
-    expect(page).toContain('@workspace-changed="refreshSnapshot"');
-    expect(page).toContain(':sync-state="designSyncState"');
+    expect(page).toContain("@workspace-changed=\"refreshSnapshot\"");
+    expect(page).toContain(":sync-state=\"designSyncState\"");
     expect(design).toContain("Synchronizing confirmed Figma source");
     expect(design).toContain("Figma source could not be synchronized");
     expect(design).toContain("Figma source confirmed, not synchronized");
@@ -184,16 +193,16 @@ describe("desktop evidence workspace contract", () => {
     expect(code).toContain("Fit selection");
     expect(code).toContain("Fit graph");
     expect(code).toContain("Reset");
-    expect(code).toContain('role="tablist"');
-    expect(code).toContain('role="tabpanel"');
+    expect(code).toContain("role=\"tablist\"");
+    expect(code).toContain("role=\"tabpanel\"");
     expect(code).toContain("activateCodeInspectorGoal");
     expect(code.indexOf("inspector-goal-nav")).toBeGreaterThan(
-      code.indexOf('aria-label="Component details"'),
+      code.indexOf("aria-label=\"Component details\""),
     );
-    expect(code).toContain('"Inspect selected component"');
-    expect(code).toContain('"Hide component details"');
+    expect(code).toContain("\"Inspect selected component\"");
+    expect(code).toContain("\"Hide component details\"");
     expect(code).toContain(`:aria-label="t('Close component details')"`);
-    expect(code).toContain('event.key === "Escape"');
+    expect(code).toContain("event.key === \"Escape\"");
     expect(code).toContain("inspectorReturnFocus");
     expect(css).toMatch(/\.code-section\s*\{[^}]*overflow:\s*hidden/s);
     expect(css).toMatch(
@@ -229,10 +238,10 @@ describe("desktop evidence workspace contract", () => {
     ]);
 
     expect(page).toContain("section-workspace design-section");
-    expect(design).toContain('class="atlas-workspace three-pane design-atlas"');
-    expect(design).toContain('ref="entityList"');
-    expect(design).toContain('role="listbox"');
-    expect(design).toContain('role="option"');
+    expect(design).toContain("class=\"atlas-workspace three-pane design-atlas\"");
+    expect(design).toContain("ref=\"entityList\"");
+    expect(design).toContain("role=\"listbox\"");
+    expect(design).toContain("role=\"option\"");
     expect(design).toContain("handleNodeKeydown");
     expect(design).toContain("handleVariableCollectionKeydown");
     expect(design).toContain("handleVariableKeydown");
@@ -240,7 +249,7 @@ describe("desktop evidence workspace contract", () => {
     expect(design).toContain("syncNoticeVisible");
     expect(css).toMatch(/\.design-section\s*\{[^}]*overflow:\s*hidden/s);
     expect(css).toMatch(
-      /\.design-atlas \.entity-list\s*\{[^}]*flex:\s*1[^}]*overflow-y:\s*auto/s,
+      /\.design-atlas \.entity-list\s*\{[^}]*flex:\s*1[^}]*overflow:\s*hidden auto/s,
     );
     expect(css).toMatch(
       /\.design-atlas > \.detail-pane,[\s\S]*?\.design-atlas > \.inspector-pane\s*\{[^}]*overflow-y:\s*auto/s,

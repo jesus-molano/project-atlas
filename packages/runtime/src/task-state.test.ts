@@ -123,7 +123,7 @@ describe("task checkpoint and resume", () => {
       "figma-asset:task-42:0123456789abcdef01234567",
       "memory:contract-rule",
     ]);
-    expect(capsule?.schemaVersion).toBe(2);
+    expect(capsule?.schemaVersion).toBe(3);
     expect(capsule?.activePolicy).toMatchObject({
       visualMode: "fidelity",
       inventionBudget: 0,
@@ -263,7 +263,7 @@ describe("task checkpoint and resume", () => {
       ),
       "utf8",
     );
-    expect(finalReceipt).toContain('"head": "def456"');
+    expect(finalReceipt).toContain("\"head\": \"def456\"");
   });
 
   it("compacts dense checkpoints into the strict capsule budget", async () => {

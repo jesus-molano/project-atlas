@@ -108,7 +108,7 @@ describe("Figma asset handles", () => {
   it("keeps SVG bodies out of transport and materializes only an explicit asset", async () => {
     const before = await readdir(rootPath);
     const svg = Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M1 1h18v18H1z"/></svg>',
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 20\"><path d=\"M1 1h18v18H1z\"/></svg>",
     );
     const load = vi.fn(async () => ({
       body: svg,
@@ -194,7 +194,7 @@ describe("Figma asset handles", () => {
         },
         async () => ({
           body: Buffer.from(
-            '<svg><script src="http://localhost:3845/x.js"/></svg>',
+            "<svg><script src=\"http://localhost:3845/x.js\"/></svg>",
           ),
           contentType: "image/svg+xml",
         }),

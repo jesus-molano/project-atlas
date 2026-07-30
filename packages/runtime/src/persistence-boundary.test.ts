@@ -81,7 +81,7 @@ describe("checkout persistence boundary", () => {
       figmaUrl:
         "https://www.figma.com/design/BoundaryFile/Boundary?node-id=10-1",
       metadata:
-        '<canvas id="1:1" name="Login"><frame id="10:1" name="Login desktop" width="1440" height="900" /></canvas>',
+        "<canvas id=\"1:1\" name=\"Login\"><frame id=\"10:1\" name=\"Login desktop\" width=\"1440\" height=\"900\" /></canvas>",
       format: "figma-mcp-xml",
       indexedAt: "2026-07-29T12:00:00.000Z",
     });

@@ -1,6 +1,6 @@
 import type { SourceReceipt } from "@component-atlas/core";
 
-export const DESIGN_INDEX_SCHEMA_VERSION = 4 as const;
+export const DESIGN_INDEX_SCHEMA_VERSION = 5 as const;
 
 export type DesignMetadataFormat = "auto" | "figma-mcp-xml" | "figma-rest";
 export type DesignMetadataSource = Exclude<DesignMetadataFormat, "auto">;
@@ -253,6 +253,84 @@ export interface DesignFileIndex {
     variableCollections: number;
     variables: number;
   };
+  retrievalPlanRefs?: string[];
+  coverageLedgerRefs?: string[];
+  designLinkRegistryRef?: string;
+}
+
+export type DesignCoverageStatus =
+  | "analyzed"
+  | "selected"
+  | "omitted"
+  | "failed"
+  | "unavailable";
+
+export interface DesignRetrievalPlanRegion {
+  nodeId: string;
+  status: DesignCoverageStatus;
+  reason: string;
+  confidence: DesignCandidateConfidence;
+  hash: string;
+}
+
+export interface DesignRetrievalPlanCall {
+  tool:
+    | "get_metadata"
+    | "get_code_connect_map"
+    | "get_design_context"
+    | "get_screenshot";
+  nodeId: string;
+  purpose: string;
+}
+
+export interface DesignRetrievalPlan {
+  schemaVersion: 1;
+  id: string;
+  fileKey: string;
+  targetNodeId: string;
+  strategy: "metadata-first-bounded-subtrees";
+  regions: DesignRetrievalPlanRegion[];
+  selectedNodeIds: string[];
+  calls: DesignRetrievalPlanCall[];
+  adaptivePolicy: {
+    preserveTarget: true;
+    onTruncatedOrExcessive: "split-selected-node-into-smaller-children";
+    repeatSameCall: false;
+  };
+}
+
+export interface DesignCoverageLedger {
+  schemaVersion: 1;
+  id: string;
+  taskId: string;
+  fileKey: string;
+  targetNodeId: string;
+  planId: string;
+  updatedAt: string;
+  hash: string;
+  receiptIds: string[];
+  regions: DesignRetrievalPlanRegion[];
+}
+
+export type DesignLinkSource =
+  | "code-connect-exact"
+  | "local-confirmed"
+  | "task-inferred";
+
+export interface DesignLinkRecord {
+  schemaVersion: 1;
+  id: string;
+  projectId: string;
+  fileKey: string;
+  nodeId: string;
+  componentId: string;
+  source: DesignLinkSource;
+  scope: "project" | "task";
+  commit?: string;
+  taskId?: string;
+  confidence: DesignCandidateConfidence;
+  receiptIds: string[];
+  createdAt: string;
 }
 
 export interface DesignIndexEnrichment {
@@ -409,6 +487,7 @@ export interface DesignNodeInspection {
   }>;
   findings: DesignFinding[];
   gate: DesignDecisionGate;
+  retrievalPlan: DesignRetrievalPlan;
   deepContextRequest: {
     confirmedNodeId: string;
     figmaUrl: string;
