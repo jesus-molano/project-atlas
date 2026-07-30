@@ -263,6 +263,35 @@ function relationKind(entity: FrontendEntity): GraphEdge["kind"] | undefined {
   return undefined;
 }
 
+function disambiguateEntityIds(
+  discovered: FrontendEntity[],
+): FrontendEntity[] {
+  const totals = new Map<string, number>();
+  for (const entity of discovered) {
+    totals.set(entity.id, (totals.get(entity.id) ?? 0) + 1);
+  }
+  const used = new Set(
+    discovered
+      .filter((entity) => totals.get(entity.id) === 1)
+      .map((entity) => entity.id),
+  );
+  return discovered.map((entity) => {
+    if ((totals.get(entity.id) ?? 0) === 1) {
+      return entity;
+    }
+    const location = entity.location;
+    const callsiteId = `${entity.id}@${location.line}:${location.column}`;
+    let id = callsiteId;
+    let occurrence = 1;
+    while (used.has(id)) {
+      occurrence += 1;
+      id = `${callsiteId}:${occurrence}`;
+    }
+    used.add(id);
+    return { ...entity, id };
+  });
+}
+
 function semanticEdges(
   units: SourceUnit[],
   components: ComponentNode[],
@@ -448,8 +477,12 @@ export async function scanFrontendEntities(
     const ast = program.getSourceFile(unit.absolutePath);
     return ast ? { ...unit, ast } : unit;
   });
-  const entities = programUnits
-    .flatMap((unit) => [...declaredEntities(unit), ...endpointEntities(unit)])
+  const entities = disambiguateEntityIds(
+    programUnits.flatMap((unit) => [
+      ...declaredEntities(unit),
+      ...endpointEntities(unit),
+    ]),
+  )
     .sort((left, right) => left.id.localeCompare(right.id));
   return {
     entities,

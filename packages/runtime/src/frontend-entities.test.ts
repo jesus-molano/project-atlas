@@ -52,6 +52,7 @@ describe("Frontend Code Graph v5", () => {
        const orders = useOrders();
        const account = useAccountStore();
        const list = await useFetch("/api/orders");
+       const refreshed = await useFetch("/api/orders");
        const detail = await $fetch(\`/api/orders/\${orders.id}\`);
        </script><template><main>Orders</main></template>`,
     );
@@ -91,6 +92,12 @@ describe("Frontend Code Graph v5", () => {
       resolution: "exact",
       endpoint: { client: "useFetch", method: "GET", openApiStatus: "unresolved" },
     });
+    const orderEndpoints = graph.entities.filter(
+      (entity) =>
+        entity.kind === "endpoint" && entity.endpoint?.path === "/api/orders",
+    );
+    expect(orderEndpoints).toHaveLength(2);
+    expect(new Set(orderEndpoints.map((entity) => entity.id)).size).toBe(2);
     expect(
       graph.entities.find(
         (entity) =>
@@ -112,6 +119,17 @@ describe("Frontend Code Graph v5", () => {
         .filter((edge) => edge.resolution === "exact")
         .every((edge) => edge.kind === "calls_endpoint"),
     ).toBe(true);
+
+    const rescanned = await scanProject(root, { writeArtifacts: false });
+    expect(
+      rescanned.entities
+        .filter(
+          (entity) =>
+            entity.kind === "endpoint" &&
+            entity.endpoint?.path === "/api/orders",
+        )
+        .map((entity) => entity.id),
+    ).toEqual(orderEndpoints.map((entity) => entity.id));
   });
 
   it.each([
