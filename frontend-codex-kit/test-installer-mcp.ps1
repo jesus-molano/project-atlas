@@ -85,22 +85,30 @@ function Invoke-RealInstallerFixture(
 }
 
 function Test-FnmStableResolution {
-  $applicationNode = (Get-Command node -CommandType Application -ErrorAction Stop).Source
+  $applicationNode = Get-Command node `
+    -CommandType Application `
+    -ErrorAction Stop |
+    Select-Object -First 1
   $existingNodeFunction = Get-Item Function:\node -ErrorAction SilentlyContinue
   $existingFnmFunction = Get-Item Function:\fnm -ErrorAction SilentlyContinue
-  $script:ExpectedStableNodeForTest = [System.IO.Path]::GetFullPath($applicationNode)
+  $script:ExpectedStableNodeForTest = $applicationNode.Path
+  $script:FnmExecObserved = $false
   try {
     Set-Item Function:\node -Value { "v24.0.0" }
     Set-Item Function:\fnm -Value {
       if ($args[0] -eq "current") {
         "v24.0.0"
       } else {
+        $script:FnmExecObserved = $true
         $script:ExpectedStableNodeForTest
       }
     }
     $resolved = Resolve-AtlasStableNode
     if ($resolved -cne $script:ExpectedStableNodeForTest) {
       throw "fnm resolution did not select process.execPath from the installed version."
+    }
+    if (-not $script:FnmExecObserved) {
+      throw "fnm resolution did not query process.execPath."
     }
   } finally {
     Remove-Item Function:\node -ErrorAction SilentlyContinue
@@ -112,11 +120,39 @@ function Test-FnmStableResolution {
       Set-Item Function:\fnm -Value $existingFnmFunction.ScriptBlock
     }
     Remove-Variable ExpectedStableNodeForTest -Scope Script -ErrorAction SilentlyContinue
+    Remove-Variable FnmExecObserved -Scope Script -ErrorAction SilentlyContinue
+  }
+}
+
+function Test-PathNodeResolution {
+  $applicationNode = Get-Command node `
+    -CommandType Application `
+    -ErrorAction Stop |
+    Select-Object -First 1
+  $existingNodeFunction = Get-Item Function:\node -ErrorAction SilentlyContinue
+  $existingFnmFunction = Get-Item Function:\fnm -ErrorAction SilentlyContinue
+  try {
+    Set-Item Function:\node -Value { "v24.0.0" }
+    Set-Item Function:\fnm -Value { throw "fnm unavailable" }
+    $resolved = Resolve-AtlasStableNode
+    if ($resolved -cne $applicationNode.Path) {
+      throw "PATH fallback did not select the first Node application."
+    }
+  } finally {
+    Remove-Item Function:\node -ErrorAction SilentlyContinue
+    Remove-Item Function:\fnm -ErrorAction SilentlyContinue
+    if ($existingNodeFunction) {
+      Set-Item Function:\node -Value $existingNodeFunction.ScriptBlock
+    }
+    if ($existingFnmFunction) {
+      Set-Item Function:\fnm -Value $existingFnmFunction.ScriptBlock
+    }
   }
 }
 
 try {
   Test-FnmStableResolution
+  Test-PathNodeResolution
   $env:CODEX_HOME = $codexHome
   $deterministicConfigMode = if ($env:OS -eq "Windows_NT") {
     "auto"

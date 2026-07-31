@@ -21,13 +21,17 @@ function Get-AtlasCommandExecutable([System.Management.Automation.CommandInfo]$C
 }
 
 function Resolve-AtlasStableNode {
-  $nodeCommand = Get-Command "node" -ErrorAction SilentlyContinue
+  $nodeCommand = Get-Command "node" `
+    -CommandType Application `
+    -ErrorAction SilentlyContinue |
+    Select-Object -First 1
   if (-not $nodeCommand) {
     throw "node is required. Install Node.js 24 or newer."
   }
   $resolved = Get-AtlasCommandExecutable $nodeCommand
 
-  $fnmCommand = Get-Command "fnm" -ErrorAction SilentlyContinue
+  $fnmCommand = Get-Command "fnm" -ErrorAction SilentlyContinue |
+    Select-Object -First 1
   if ($fnmCommand) {
     $fnmExecutable = Get-AtlasCommandExecutable $fnmCommand
     try {
@@ -52,7 +56,7 @@ function Resolve-AtlasStableNode {
     }
   }
 
-  $resolved = [System.IO.Path]::GetFullPath($resolved)
+  $resolved = [System.IO.Path]::GetFullPath([string]$resolved)
   if ($resolved -match "[\\/]fnm_multishells[\\/]") {
     throw "Node resolves to an ephemeral fnm multishell path ($resolved). Activate an installed fnm version, then rerun."
   }
