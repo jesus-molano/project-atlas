@@ -4,6 +4,12 @@ import process from "node:process";
 
 const repositoryRoot = process.cwd();
 const outputPath = path.join(repositoryRoot, "docs", "generated-quality-summary.md");
+const coreProfilePath = path.join(
+  repositoryRoot,
+  "packages",
+  "mcp",
+  "core-profile.json",
+);
 const ignoredDirectories = new Set([
   ".cache",
   ".component-atlas",
@@ -31,7 +37,13 @@ async function collect(directory, predicate, results = []) {
   return results;
 }
 
-const [testFiles, vueViews, packageDirectories, mcpSourceFiles] = await Promise.all([
+const [
+  testFiles,
+  vueViews,
+  packageDirectories,
+  mcpSourceFiles,
+  coreProfileSource,
+] = await Promise.all([
   collect(repositoryRoot, (file) => /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(file)),
   collect(
     path.join(repositoryRoot, "apps", "viewer", "app"),
@@ -44,18 +56,27 @@ const [testFiles, vueViews, packageDirectories, mcpSourceFiles] = await Promise.
       file.endsWith(".ts")
       && !/\.(?:test|spec)\.ts$/u.test(file),
   ),
+  readFile(coreProfilePath, "utf8"),
 ]);
 
 const mcpSources = await Promise.all(
   mcpSourceFiles.map(async (file) => ({ file, source: await readFile(file, "utf8") })),
 );
-const coreTools = [
-  ...mcpSources
-    .find(({ file }) => file.endsWith(`${path.sep}core-tools.ts`))
-    ?.source.matchAll(/server\.registerTool\(\s*"([^"]+)"/gu) ?? [],
-]
-  .map((match) => match[1])
-  .sort();
+const coreProfile = JSON.parse(coreProfileSource);
+if (
+  coreProfile.profile !== "core"
+  || !Array.isArray(coreProfile.tools)
+  || coreProfile.tools.length === 0
+  || coreProfile.tools.some(
+    (tool) => typeof tool !== "string" || !tool.startsWith("atlas_"),
+  )
+  || new Set(coreProfile.tools).size !== coreProfile.tools.length
+) {
+  throw new Error(
+    `${path.relative(repositoryRoot, coreProfilePath)} is not a valid core profile contract.`,
+  );
+}
+const coreTools = coreProfile.tools;
 const legacySource = mcpSources
   .filter(({ file }) => !file.endsWith(`${path.sep}core-tools.ts`))
   .map(({ source }) => source)
@@ -92,6 +113,10 @@ The authoritative pass/fail evidence comes from CI: lint, CSS lint, typecheck,
 artifact and maintainability audits, V8 coverage, package/viewer builds, the
 complete Vitest suite, and Playwright smoke flows. Historical audit documents
 remain dated records and must not be used as current counts.
+
+The default MCP tool count comes from \`packages/mcp/core-profile.json\`; the
+test suite requires the live core server and the real \`project-atlas mcp\` CLI
+to expose that exact ordered contract.
 `;
 
 function normalizeLineEndings(value) {

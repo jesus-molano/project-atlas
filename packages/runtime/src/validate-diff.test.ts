@@ -106,6 +106,15 @@ describe("Project Theme Fingerprint and diff validation", () => {
     expect(repeated.deltaHash).toBe(validation.deltaHash);
     expect(validation.deltaHash).not.toBe(cleanValidation.deltaHash);
     expect(validation.blocking).toBe(true);
+    expect(validation.apiValidation).toEqual({
+      coverage: "partial",
+      detector: "direct-literal-calls",
+      confirmedOperations: 1,
+      detectedCalls: 1,
+      matchedCalls: 0,
+      incompatibleCalls: 1,
+      limitations: ["wrappers", "sdk-methods", "variable-or-template-paths"],
+    });
     expect(validation.findings).toHaveLength(80);
     expect(validation.findings[0]).toMatchObject({
       code: "openapi-incompatible",
@@ -117,6 +126,60 @@ describe("Project Theme Fingerprint and diff validation", () => {
         "foreign-breakpoint",
         "missing-interactive-state",
         "openapi-incompatible",
+      ]),
+    );
+  });
+
+  it("declares partial API coverage without pretending to resolve wrappers or variables", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-api-coverage-"));
+    temporary.push(root);
+    process.env.PROJECT_ATLAS_HOME = path.join(root, ".private");
+    await put(
+      root,
+      "package.json",
+      JSON.stringify({ name: "api-coverage", dependencies: { vue: "^3.5.0" } }),
+    );
+    await put(root, "src/api.ts", "export const load = () => undefined;\n");
+    await run("git", ["init"], { cwd: root, windowsHide: true });
+    await run("git", ["add", "."], { cwd: root, windowsHide: true });
+    await run(
+      "git",
+      [
+        "-c",
+        "user.name=Atlas Test",
+        "-c",
+        "user.email=atlas@example.invalid",
+        "commit",
+        "-m",
+        "fixture",
+      ],
+      { cwd: root, windowsHide: true },
+    );
+    await put(
+      root,
+      "src/api.ts",
+      `const path = "/orders";
+       export const load = (client: { get(value: string): unknown }) => client.get(path);
+      `,
+    );
+
+    const validation = await validateDiff(root, {
+      confirmedOperations: [{ method: "GET", path: "/orders" }],
+      requireConfirmedOperations: true,
+    });
+
+    expect(validation.blocking).toBe(false);
+    expect(validation.apiValidation).toMatchObject({
+      coverage: "partial",
+      detector: "direct-literal-calls",
+      detectedCalls: 0,
+      matchedCalls: 0,
+      incompatibleCalls: 0,
+      limitations: ["wrappers", "sdk-methods", "variable-or-template-paths"],
+    });
+    expect(validation.findings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "openapi-incompatible" }),
       ]),
     );
   });

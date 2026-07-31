@@ -13,7 +13,7 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": ["dist", "core-profile.json"],
   "scripts": {
     "prebuild": "node ../../scripts/clean-package-dist.mjs",
     "build": "tsc -p tsconfig.json",

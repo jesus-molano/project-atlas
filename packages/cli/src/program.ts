@@ -1126,7 +1126,7 @@ export function createProgram(): Command {
   program
     .command("mcp")
     .description("Start the Project Atlas MCP server over stdio.")
-    .action(startMcpServer);
+    .action(() => startMcpServer("core"));
 
   return program;
 }

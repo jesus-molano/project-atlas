@@ -33,6 +33,14 @@ the lock artifact and its integrity before reporting bounded findings for:
 - recreation of known project primitives;
 - paths incompatible with explicitly confirmed OpenAPI operations.
 
+OpenAPI validation reports `coverage: partial` with the
+`direct-literal-calls` detector. It checks direct `fetch`/`$fetch`/`useFetch`
+and `axios.<method>` calls whose route is a string literal. Wrappers, generated
+SDK methods, variables, and template-derived paths remain outside this static
+detector; a zero-call result is therefore not proof that no API call changed.
+Repository tests, generated-client checks, typecheck, and review remain required
+for those patterns.
+
 Contract escapes, missing authority, tampered/stale artifacts, and fresh delta
 changes after validation are blocking. Heuristic findings remain warnings unless
 a governing contract or safety rule elevates them. Codex still runs repository

@@ -6,12 +6,16 @@ Generated deterministically from the current checkout.
 | Surface | Current checkout |
 | --- | ---: |
 | Workspace packages | 10 |
-| Test/spec files | 91 |
+| Test/spec files | 94 |
 | Viewer Vue files included by self-scan | 16 |
-| MCP core tools (default) | 3 |
+| MCP core tools (default) | 6 |
 | MCP legacy tools (temporary compatibility profile) | 34 |
 
 The authoritative pass/fail evidence comes from CI: lint, CSS lint, typecheck,
 artifact and maintainability audits, V8 coverage, package/viewer builds, the
 complete Vitest suite, and Playwright smoke flows. Historical audit documents
 remain dated records and must not be used as current counts.
+
+The default MCP tool count comes from `packages/mcp/core-profile.json`; the
+test suite requires the live core server and the real `project-atlas mcp` CLI
+to expose that exact ordered contract.

@@ -1,9 +1,11 @@
 # Project Memory
 
-Project Memory gives Codex and Claude the same durable, project-scoped context
-without loading an encyclopedia at session start. Markdown and its searchable
-SQLite index both live in centralized Project Atlas storage, outside the
-analyzed checkout.
+Project Memory is a host-neutral Atlas contract for durable, project-scoped
+context without loading an encyclopedia at session start. The validated Codex
+workflow uses it directly; a configured Claude Code compatibility client can
+access the same storage through the MCP core. Shared storage does not imply
+end-to-end workflow parity. Markdown and its searchable SQLite index both live
+in centralized Project Atlas storage, outside the analyzed checkout.
 
 ## Knowledge classes
 
@@ -89,14 +91,15 @@ The SQLite database is isolated by the repository's stable project ID. Use
 `pnpm atlas storage` to inspect its location and sizes. `memory index` remains
 available for explicit diagnostics or automation.
 
-Invoking `$frontend-task` permits it to read relevant indexed memory. It does
-not authorize recording an episode, proposing or applying canonical memory, or
-rejecting a proposal. A named proposal may be read with `review-proposal`, but
-that review grants no mutation authority. Closeout reports `none`, `episodic-candidate`,
+Invoking `$frontend-task` in Codex, or deliberately invoking `/frontend-task` in
+the Claude compatibility preview, permits the workflow to read relevant indexed
+memory. It does not authorize recording an episode, proposing or applying
+canonical memory, or rejecting a proposal. A named proposal may be read with
+`review-proposal`, but that review grants no mutation authority. Closeout reports `none`, `episodic-candidate`,
 `canonical-candidate`, `proposal-pending`, `stored`, or `declined`; only literal
 consent for the named `atlas_memory` action and target authorizes persistence.
 The GUI may present the same proposal/state for review, but it cannot infer
-consent, reclassify the candidate, or complete a native Codex task.
+consent, reclassify the candidate, or complete a host-agent task.
 
 ## Obsidian
 

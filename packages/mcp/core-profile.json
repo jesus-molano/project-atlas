@@ -1,0 +1,11 @@
+{
+  "profile": "core",
+  "tools": [
+    "atlas_prepare_task",
+    "atlas_expand_context",
+    "atlas_lock_change_scope",
+    "atlas_validate_change",
+    "atlas_task_state",
+    "atlas_memory"
+  ]
+}

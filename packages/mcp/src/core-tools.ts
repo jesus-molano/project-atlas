@@ -53,10 +53,11 @@ import {
   reconcilePreparedTaskGovernance,
 } from "./core-task-governance.js";
 import {
-  bindSourceEvidence,
+  bindSourceEvidenceBundle,
   activeCurrentSourceReceiptIds,
   capsuleDecisions,
   confirmedOperationsFromReceipts,
+  containsCredentializedUrl,
   normalizedSourceRelations,
   normalizedSources,
   requiredSourcesWithoutCurrentReceipts,
@@ -66,6 +67,12 @@ import {
 import { text } from "./shared.js";
 
 const taskId = z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u);
+
+const CORE_PREPARE_NEXT_STEPS = [
+  "Expand only a named unresolved handle with atlas_expand_context.",
+  "Lock the exact change surface with atlas_lock_change_scope before editing.",
+  "Validate with atlas_validate_change, then close technically with atlas_task_state; use atlas_memory only through its separate consent flow.",
+] as const;
 
 function completedTaskPrepareResult(id: string, budgetChars: number) {
   return text(
@@ -98,7 +105,14 @@ export function registerCoreTools(server: McpServer): void {
         "Preflight consent first, then prepare one bounded frontend task with confirmed receipts, repository reuse context and resumable handles.",
       inputSchema: {
         root_path: z.string(),
-        objective: z.string().min(1).max(6_000),
+        objective: z
+          .string()
+          .min(1)
+          .max(6_000)
+          .refine((value) => !containsCredentializedUrl(value), {
+            message:
+              "Task objectives must not contain URL credentials or secret signature parameters.",
+          }),
         task_id: taskId.optional(),
         objective_confirmed: z.boolean().optional(),
         sources: z.array(sourceInput).max(12).optional(),
@@ -371,13 +385,14 @@ export function registerCoreTools(server: McpServer): void {
           ),
         );
       }
-      const boundReceiptIds = await bindSourceEvidence(
+      const boundEvidence = await bindSourceEvidenceBundle(
         root_path,
         decisions,
         sources ?? [],
         receipt_ids ??
           priorReceiptIds,
       );
+      const boundReceiptIds = boundEvidence.receiptIds;
       const unresolvedRequiredSources =
         await requiredSourcesWithoutCurrentReceipts(
           root_path,
@@ -435,6 +450,13 @@ export function registerCoreTools(server: McpServer): void {
           ),
         );
       }
+      const currentOpenApiReceipts = (
+        await Promise.all(
+          boundReceiptIds.map((receiptId) =>
+            loadPersistedSourceReceipt(root_path, receiptId),
+          ),
+        )
+      ).filter((receipt) => receipt.provider === "openapi");
       const graph = await scanProject(root_path, { writeArtifacts: false });
       await assertSelectableHandles(
         root_path,
@@ -451,9 +473,26 @@ export function registerCoreTools(server: McpServer): void {
             budgetChars: Math.max(1_600, budget - 280),
             topK: 3,
             taskId: id,
+            ...(boundEvidence.transientOpenApiSources.length > 0
+              ? {
+                  transientOpenApiSources:
+                    boundEvidence.transientOpenApiSources,
+                }
+              : {}),
+            ...(currentOpenApiReceipts.length > 0
+              ? { currentOpenApiReceipts }
+              : {}),
             ...(selected_handles ? { selectedHandles: selected_handles } : {}),
           },
         );
+        // Runtime task context is shared with the explicitly retained legacy
+        // profile. Project the workflow guidance at the profile boundary so a
+        // core response can never instruct the caller to invoke a legacy-only
+        // tool while legacy keeps its compatible next steps.
+        const coreContext = {
+          ...context,
+          nextSteps: [...CORE_PREPARE_NEXT_STEPS],
+        };
         const handles = [
           ...new Set([
             ...(prior?.changeSurface?.evidence.handles.filter((handle) =>
@@ -462,7 +501,7 @@ export function registerCoreTools(server: McpServer): void {
             ...(prior?.handles.filter((handle) => handle.startsWith("visual:")) ??
               []),
             ...(selected_handles ?? []),
-            ...taskContextResumeHandles(context),
+            ...taskContextResumeHandles(coreContext),
             ...(prior?.changeSurface?.evidence.handles ?? []),
             ...(prior?.handles ?? []),
           ]),
@@ -489,7 +528,7 @@ export function registerCoreTools(server: McpServer): void {
           covered: ["repository orientation", "source gate", "bounded context"],
           remaining: ["lock change scope", "implementation", "validation"],
           budgetChars: budget,
-          estimatedTokens: context.metrics.estimatedTokens,
+          estimatedTokens: coreContext.metrics.estimatedTokens,
           ...(lockedEvidenceChanged
             ? { changeInvalidation: { reason: invalidation_reason! } }
             : {}),
@@ -501,7 +540,7 @@ export function registerCoreTools(server: McpServer): void {
         return text(
           compact(
             {
-              ...context,
+              ...coreContext,
               sourceReceiptIds,
               taskId: id,
               risk,
@@ -513,6 +552,12 @@ export function registerCoreTools(server: McpServer): void {
             },
             budget,
             handles,
+            [
+              "sourceReceiptIds",
+              "sourceWarnings",
+              "operationIndex",
+              "nextSteps",
+            ],
           ),
         );
       } catch (error) {
@@ -752,7 +797,7 @@ export function registerCoreTools(server: McpServer): void {
         objective.text,
         { files, budgetChars: 1_600 },
       );
-      const handles = [
+      const handles = normalizeLockedEvidenceHandles([
         ...new Set([
           ...visualHandles,
           ...priorLockedHandles.filter(
@@ -763,7 +808,7 @@ export function registerCoreTools(server: McpServer): void {
         ]),
         ...(surface.primary ? [`code:${surface.primary.id}`] : []),
         ...surface.references.map((item) => `code:${item.component.id}`),
-      ].filter((item, index, list) => list.indexOf(item) === index).slice(0, 8);
+      ].filter((item, index, list) => list.indexOf(item) === index));
       const sourceLedgerHash = sourceLedgerFingerprint(
         ledgerDecisions,
         ledgerRelations,
@@ -1100,6 +1145,9 @@ export function registerCoreTools(server: McpServer): void {
             deletions: validation.deletions,
             renames: validation.renames,
             truncated: validation.truncated,
+            ...(validation.apiValidation
+              ? { apiValidation: validation.apiValidation }
+              : {}),
             findingCounts: {
               errors: errors.length,
               warnings: warnings.length,
@@ -1120,7 +1168,11 @@ export function registerCoreTools(server: McpServer): void {
             ),
             nextAction: validation.blocking
               ? "Fix every blocking finding; omittedErrors reports any additional errors requiring another validation pass."
-              : "Review warnings, then complete against this unchanged delta.",
+              : validation.findings.length > 0
+                ? "Review warnings, then complete against this unchanged delta."
+                : validation.apiValidation
+                  ? "Direct literal API calls passed. Cover wrappers, SDK methods and variable-derived paths with focused tests or generated-client checks, then complete against this unchanged delta."
+                  : "Complete against this unchanged delta.",
           },
           3_000,
         ),

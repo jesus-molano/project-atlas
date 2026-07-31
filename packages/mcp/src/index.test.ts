@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -28,6 +28,13 @@ import {
 import { setTaskCompletionFaultInjectorForTests } from "./core-task-completion.js";
 
 const execFileAsync = promisify(execFile);
+const coreProfile = JSON.parse(
+  await readFile(
+    fileURLToPath(new URL("../core-profile.json", import.meta.url)),
+    "utf8",
+  ),
+) as { profile: string; tools: string[] };
+
 async function recordedVisualCapture(
   sessionPath: string,
   visualRoot: string,
@@ -62,14 +69,8 @@ describe("Project Atlas MCP surface", () => {
       const tools = await client.listTools();
       const names = tools.tools.map((tool) => tool.name);
       const serialized = JSON.stringify(tools.tools);
-      expect(names).toEqual([
-        "atlas_prepare_task",
-        "atlas_expand_context",
-        "atlas_lock_change_scope",
-        "atlas_validate_change",
-        "atlas_task_state",
-        "atlas_memory",
-      ]);
+      expect(coreProfile.profile).toBe("core");
+      expect(names).toEqual(coreProfile.tools);
       expect({
         mcpToolCount: tools.tools.length,
         mcpDescriptionChars: tools.tools.reduce(
@@ -97,6 +98,12 @@ describe("Project Atlas MCP surface", () => {
       await client.close();
       await server.close();
     }
+  });
+
+  it("rejects an unknown profile instead of expanding to legacy", () => {
+    expect(() => createMcpServer("unexpected" as never)).toThrow(
+      "Project Atlas MCP profile must be core or legacy.",
+    );
   });
 
   it("composes the six core operations through one bounded task capsule", async () => {

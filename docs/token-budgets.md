@@ -22,8 +22,9 @@ response has a measured character hard cap.
 - one stable task normally prepares one evidence version and locks one active
   change surface unless an explicit graph, checkout, objective, scope, or
   source-ledger invalidation is recorded;
-- Figma asset retrieval is capped at eight selected handles per task budget;
-  only metadata enters context and SVG/binary bodies never do;
+- ChangeSurface retains at most eight prioritized evidence handles total;
+  visual contracts and Figma assets precede code/context references, only
+  asset metadata enters context, and SVG/binary bodies never do;
 - optional delegation admits at most two concurrent read-only jobs, each with
   an 800 to 4,000 character result; combined coordinator injection is capped at
   8,000 characters and recursively rejects raw bodies;

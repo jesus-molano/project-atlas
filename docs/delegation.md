@@ -46,7 +46,7 @@ the same confirmed-route retrieval within the existing task budget.
 | --- | --- | --- |
 | Figma | file/confirmed/selected scope IDs, bounded states, overlays, viewport evidence, asset handles/hash/format/size, receipt IDs, Code Connect availability | metadata XML, design-context body, screenshots, SVG/binary bodies, localhost asset URLs |
 | Jira + Confluence | bounded requirement statements with source-decision IDs, contradictions, versions, receipt IDs | page/issue bodies, search dumps, browser output |
-| Swagger/OpenAPI | confirmed contract identity, at most eight relevant operations, type names, error statuses, auth summary, derivation receipt | UI HTML/JS, config/spec bodies, cross-origin substitution |
+| Swagger/OpenAPI | confirmed contract identity, at most six relevant operations, type names, error statuses, auth summary, derivation receipt | UI HTML/JS, config/spec bodies, cross-origin substitution |
 | Code/Backoffice | one ChangeSurface, primary/files, at most two reference-only IDs, exclusions, reuse decision | file bodies, repository dumps, implementation edits |
 
 Every result declares `rawBodiesIncluded: false`, stays under its job budget,

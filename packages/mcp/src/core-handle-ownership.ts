@@ -1,4 +1,5 @@
 import {
+  assertSourceReceiptMatchesDecision,
   buildComponentContext,
   type ComponentGraph,
 } from "@component-atlas/core";
@@ -6,6 +7,8 @@ import {
   getProjectMemoryItem,
   inspectFigmaDesignNode,
   listFigmaDesignIndexes,
+  loadConfirmedTaskSourceDecision,
+  loadFigmaAssetMetadata,
   loadPersistedSourceReceipt,
   loadProjectGraph,
   loadTaskCompletionReceipt,
@@ -20,6 +23,7 @@ import {
 export function taskBoundHandle(handle: string): boolean {
   return (
     handle.startsWith("receipt-") ||
+    handle.startsWith("figma-asset:") ||
     handle.startsWith("visual:") ||
     handle.startsWith("visual-review:") ||
     handle.startsWith("delivery:") ||
@@ -39,6 +43,71 @@ async function taskReceiptIds(
   return [...new Set([...(ledger?.receiptIds ?? []), ...(capsule?.sourceReceiptIds ?? [])])];
 }
 
+export async function loadAuthorizedTaskFigmaAsset(
+  rootPath: string,
+  taskId: string,
+  handle: string,
+  allowedReceiptIds?: string[],
+) {
+  const metadata = await loadFigmaAssetMetadata(handle, rootPath);
+  if (metadata.taskId !== taskId) {
+    throw new Error(`Figma asset ${handle} belongs to a different task.`);
+  }
+  if (Date.parse(metadata.expiresAt) <= Date.now()) {
+    throw new Error(`Figma asset ${handle} has expired.`);
+  }
+  const ownedReceiptIds =
+    allowedReceiptIds ?? (await taskReceiptIds(rootPath, taskId));
+  if (!ownedReceiptIds.includes(metadata.sourceReceiptId)) {
+    throw new Error(
+      `Figma asset ${handle} is backed by a receipt outside task ${taskId}.`,
+    );
+  }
+  const receipt = await loadPersistedSourceReceipt(
+    rootPath,
+    metadata.sourceReceiptId,
+  );
+  const decision = await loadConfirmedTaskSourceDecision(
+    rootPath,
+    taskId,
+    receipt.sourceDecisionId,
+  );
+  assertSourceReceiptMatchesDecision(
+    {
+      id: decision.id,
+      kind: decision.kind,
+      reference: decision.reference,
+      state: decision.state,
+      ...(decision.routePolicy ? { routePolicy: decision.routePolicy } : {}),
+    },
+    receipt,
+  );
+  const authorizedScopeIds = new Set(
+    [
+      receipt.requested.nodeId,
+      receipt.resolved.nodeId,
+      receipt.scope.id,
+      receipt.scope.parentId,
+      receipt.scopeRelation?.sourceId,
+      receipt.scopeRelation?.targetId,
+      ...(receipt.scopeRelation?.ancestorIds ?? []),
+    ].filter((value): value is string => Boolean(value)),
+  );
+  if (
+    receipt.provider !== "figma" ||
+    receipt.adapter !== "figma-desktop-mcp-local" ||
+    receipt.coverage !== "exact" ||
+    receipt.freshness !== "current" ||
+    receipt.requested.fileKey !== metadata.fileKey ||
+    !authorizedScopeIds.has(metadata.scopeNodeId)
+  ) {
+    throw new Error(
+      `Figma asset ${handle} is not backed by current exact Desktop MCP evidence for its selected scope.`,
+    );
+  }
+  return metadata;
+}
+
 export async function assertTaskBoundHandle(
   rootPath: string,
   taskId: string,
@@ -51,6 +120,15 @@ export async function assertTaskBoundHandle(
       throw new Error(`Source receipt ${handle} is not bound to task ${taskId}.`);
     }
     await loadPersistedSourceReceipt(rootPath, handle);
+    return;
+  }
+  if (handle.startsWith("figma-asset:")) {
+    await loadAuthorizedTaskFigmaAsset(
+      rootPath,
+      taskId,
+      handle,
+      allowedReceiptIds,
+    );
     return;
   }
   if (handle.startsWith("visual:")) {

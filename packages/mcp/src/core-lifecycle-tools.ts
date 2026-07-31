@@ -3,6 +3,7 @@ import { assertSourceReceiptMatchesDecision } from "@component-atlas/core";
 import {
   applyMemoryUpdate,
   appendTaskJournalMilestone,
+  assertLockedChangeSurfaceArtifact,
   beginMemoryConsentExecution,
   commitMemoryConsentExecution,
   committedMemoryConsentResult,
@@ -17,6 +18,7 @@ import {
   loadTaskResumeTransport,
   persistVisualEvidenceContract,
   proposeMemoryUpdate,
+  purgeTaskFigmaAssets,
   recordProjectOutcome,
   rejectMemoryUpdate,
   resolveTaskObjective,
@@ -27,7 +29,14 @@ import {
 } from "@component-atlas/runtime";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import {
+  type CoreLifecycleAssetOperations,
+  defaultCoreLifecycleAssetOperations,
+  lockedFigmaAssetDestinationPath,
+  verifiedLockedFigmaAssetSourceLedger,
+} from "./core-figma-asset-lifecycle.js";
 import { authoritativeTaskSources } from "./core-source-evidence.js";
+import { loadAuthorizedTaskFigmaAsset } from "./core-handle-ownership.js";
 import {
   completeTask,
   loadCommittedTaskCompletion,
@@ -342,12 +351,16 @@ async function verifyTaskReceiptLedger(
   return verified;
 }
 
-export function registerCoreLifecycleTools(server: McpServer): void {
+export function registerCoreLifecycleTools(
+  server: McpServer,
+  assetOperations: CoreLifecycleAssetOperations =
+    defaultCoreLifecycleAssetOperations,
+): void {
   server.registerTool(
     "atlas_task_state",
     {
       description:
-        "Resume/checkpoint a task, attach a verified visual contract, or complete delivery without writing Project Memory.",
+        "Resume or update task state, govern Figma assets, or complete without writing Project Memory.",
       inputSchema: {
         root_path: z.string(),
         task_id: taskId,
@@ -357,6 +370,8 @@ export function registerCoreLifecycleTools(server: McpServer): void {
           "block",
           "attach-evidence",
           "attach-review",
+          "capture-figma-asset",
+          "materialize-figma-asset",
           "complete",
         ]),
         milestone: z
@@ -373,6 +388,14 @@ export function registerCoreLifecycleTools(server: McpServer): void {
           .optional(),
         files: z.array(z.string().min(1).max(260)).max(100).optional(),
         receipt_ids: z.array(receiptId).max(20).optional(),
+        source_receipt_id: receiptId.optional(),
+        asset_url: z.string().url().max(1_000).optional(),
+        scope_node_id: z.string().min(1).max(160).optional(),
+        asset_handle: z
+          .string()
+          .regex(/^figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}$/u)
+          .optional(),
+        destination_path: z.string().min(1).max(500).optional(),
         visual_contract: z
           .object({
             handle: z
@@ -409,7 +432,7 @@ export function registerCoreLifecycleTools(server: McpServer): void {
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,
-        openWorldHint: false,
+        openWorldHint: true,
       },
     },
     async ({
@@ -425,6 +448,11 @@ export function registerCoreLifecycleTools(server: McpServer): void {
       verification,
       files,
       receipt_ids,
+      source_receipt_id,
+      asset_url,
+      scope_node_id,
+      asset_handle,
+      destination_path,
       visual_contract,
       visual_review,
     }) => {
@@ -477,9 +505,188 @@ export function registerCoreLifecycleTools(server: McpServer): void {
           task_id,
           { result, summary, verification, files: files ?? [] },
         );
-        if (committed) return text(committed);
+        if (committed) {
+          await purgeTaskFigmaAssets({ rootPath: root_path, taskId: task_id });
+          return text(committed);
+        }
       }
       const capsule = await requireCapsule(root_path, task_id);
+      if (action === "capture-figma-asset") {
+        if (!source_receipt_id || !asset_url || !scope_node_id) {
+          throw new Error(
+            "capture-figma-asset requires source_receipt_id, asset_url and scope_node_id.",
+          );
+        }
+        if (
+          capsule.status !== "active" ||
+          (capsule.lifecycle.phase !== "prepared" &&
+            !(
+              capsule.lifecycle.phase === "scoped" &&
+              capsule.changeInvalidation?.relockRequired
+            ))
+        ) {
+          throw new Error(
+            "Figma assets may be captured only while preparing an active task or inside an explicit relock-required window.",
+          );
+        }
+        const verifiedReceipts = await verifyTaskReceiptLedger(
+          root_path,
+          task_id,
+          [source_receipt_id],
+        );
+        const receipt = verifiedReceipts[0]?.receipt;
+        if (!receipt) {
+          throw new Error(
+            "Figma asset capture requires a receipt from this task ledger.",
+          );
+        }
+        if (
+          receipt.provider !== "figma" ||
+          receipt.adapter !== "figma-desktop-mcp-local" ||
+          receipt.coverage !== "exact" ||
+          receipt.freshness !== "current"
+        ) {
+          throw new Error(
+            "Figma asset capture requires a current exact Figma Desktop MCP receipt from this task ledger.",
+          );
+        }
+        const objective = await resolveTaskObjective(root_path, task_id);
+        if (
+          objective?.authority !== "authoritative" ||
+          !objective.reference
+        ) {
+          throw new Error(
+            "Task objective is not authoritative; re-prepare it before capturing Figma assets.",
+          );
+        }
+        const sourceLedger = await authoritativeTaskSources(
+          root_path,
+          task_id,
+          capsule,
+        );
+        const captured = await assetOperations.capture({
+          rootPath: root_path,
+          taskId: task_id,
+          sourceReceiptId: source_receipt_id,
+          sourceUrl: asset_url,
+          scopeNodeId: scope_node_id,
+        });
+        const asset = await loadAuthorizedTaskFigmaAsset(
+          root_path,
+          task_id,
+          captured.handle,
+          sourceLedger.receiptIds,
+        );
+        const visualHandles = [
+          ...new Set(
+            capsule.handles.filter((handle) => handle.startsWith("visual:")),
+          ),
+        ].slice(0, 7);
+        const handles = [
+          ...visualHandles,
+          asset.handle,
+          ...capsule.handles.filter(
+            (handle) =>
+              !handle.startsWith("visual:") && handle !== asset.handle,
+          ),
+        ].slice(0, 8);
+        const saved = await writeTaskCheckpoint(root_path, {
+          taskId: task_id,
+          status: "active",
+          milestone: "source-resolved",
+          objective: objective.text,
+          objectiveApproved: objective.approved,
+          objectiveReference: objective.reference,
+          decisions: sourceLedger.decisions,
+          sourceRelations: sourceLedger.relations,
+          sourceReceiptIds: sourceLedger.receiptIds,
+          handles,
+          covered: [
+            ...capsule.scope.covered.filter(
+              (item) => item !== "selected Figma asset captured",
+            ),
+            "selected Figma asset captured",
+          ].slice(-8),
+          remaining: capsule.scope.remaining,
+          budgetChars: capsule.budget.contextChars,
+          estimatedTokens: capsule.budget.estimatedTokens,
+          nextSafeAction: capsule.changeInvalidation?.relockRequired
+            ? "Relock ChangeSurface with this Figma asset handle and its exact destination before materializing it."
+            : "Lock ChangeSurface with this Figma asset handle and its exact destination before materializing it.",
+        });
+        return text({
+          taskId: task_id,
+          status: "asset-captured",
+          asset,
+          handles: saved.handles,
+          nextSafeAction: saved.nextSafeAction,
+        });
+      }
+      if (action === "materialize-figma-asset") {
+        if (!asset_handle || !destination_path) {
+          throw new Error(
+            "materialize-figma-asset requires asset_handle and destination_path.",
+          );
+        }
+        if (
+          capsule.status !== "active" ||
+          capsule.lifecycle.phase !== "scoped" ||
+          capsule.changeInvalidation?.relockRequired ||
+          !capsule.changeSurface
+        ) {
+          throw new Error(
+            "Figma assets may be materialized only under an active, non-invalidated scoped ChangeSurface before validation.",
+          );
+        }
+        await assertLockedChangeSurfaceArtifact(
+          root_path,
+          task_id,
+          capsule.changeSurface,
+        );
+        const destination = lockedFigmaAssetDestinationPath(destination_path);
+        if (!capsule.changeSurface.allowedFiles.includes(destination)) {
+          throw new Error(
+            `Figma asset destination ${destination} is outside the active ChangeSurface allowedFiles.`,
+          );
+        }
+        if (!capsule.changeSurface.evidence.handles.includes(asset_handle)) {
+          throw new Error(
+            "Figma asset handle is not frozen in the active ChangeSurface evidence.",
+          );
+        }
+        const sourceLedger = await verifiedLockedFigmaAssetSourceLedger(
+          root_path,
+          task_id,
+          capsule,
+        );
+        const asset = await loadAuthorizedTaskFigmaAsset(
+          root_path,
+          task_id,
+          asset_handle,
+          sourceLedger.receiptIds,
+        );
+        if (!sourceLedger.receiptIds.includes(asset.sourceReceiptId)) {
+          throw new Error(
+            "Figma asset receipt is not frozen in the active ChangeSurface source ledger.",
+          );
+        }
+        const materialized = await assetOperations.materialize({
+          rootPath: root_path,
+          handle: asset_handle,
+          destinationPath: destination,
+        });
+        return text({
+          taskId: task_id,
+          status: "asset-materialized",
+          asset: materialized,
+          lock: {
+            id: capsule.changeSurface.lockId,
+            revision: capsule.changeSurface.revision,
+          },
+          nextSafeAction:
+            "Continue only inside the locked surface, then run atlas_validate_change.",
+        });
+      }
       if (action === "attach-evidence") {
         const objective = await resolveTaskObjective(root_path, task_id);
         if (
@@ -636,14 +843,14 @@ export function registerCoreLifecycleTools(server: McpServer): void {
             "Completing a task requires result, summary and verification evidence.",
           );
         }
-        return text(
-          await completeTask(root_path, task_id, capsule, {
-            result,
-            summary,
-            verification,
-            files: files ?? [],
-          }),
-        );
+        const completed = await completeTask(root_path, task_id, capsule, {
+          result,
+          summary,
+          verification,
+          files: files ?? [],
+        });
+        await purgeTaskFigmaAssets({ rootPath: root_path, taskId: task_id });
+        return text(completed);
       }
       const blocked = action === "block";
       const objective = await resolveTaskObjective(root_path, task_id);

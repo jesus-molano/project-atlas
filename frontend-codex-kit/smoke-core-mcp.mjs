@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -8,14 +9,24 @@ if (!entryArgument) {
 }
 
 const entry = path.resolve(entryArgument);
-const expectedTools = [
-  "atlas_expand_context",
-  "atlas_lock_change_scope",
-  "atlas_memory",
-  "atlas_prepare_task",
-  "atlas_task_state",
-  "atlas_validate_change",
-];
+const coreProfilePath = path.resolve(
+  path.dirname(entry),
+  "..",
+  "core-profile.json",
+);
+const coreProfile = JSON.parse(await readFile(coreProfilePath, "utf8"));
+if (
+  coreProfile.profile !== "core"
+  || !Array.isArray(coreProfile.tools)
+  || coreProfile.tools.length === 0
+  || coreProfile.tools.some(
+    (tool) => typeof tool !== "string" || !tool.startsWith("atlas_"),
+  )
+  || new Set(coreProfile.tools).size !== coreProfile.tools.length
+) {
+  throw new Error(`${coreProfilePath} is not a valid core profile contract.`);
+}
+const expectedTools = [...coreProfile.tools].sort();
 const child = spawn(process.execPath, [entry, "--profile", "core"], {
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,

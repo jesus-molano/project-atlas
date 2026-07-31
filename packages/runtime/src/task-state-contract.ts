@@ -666,6 +666,7 @@ export function fitTaskResumeCapsuleStorageBudget(
   // artifacts. This last projection only runs when their duplicate capsule
   // summaries would otherwise breach the hard transport budget. Receipt-backed
   // visual reviews become a lossless v3 pointer to their immutable receipt.
+  // Governance is authoritative task state and remains byte-for-byte intact.
   const {
     sourceRelations: _tightSourceRelations,
     contextReferences: _contextReferences,
@@ -683,11 +684,13 @@ export function fitTaskResumeCapsuleStorageBudget(
       })()
     : undefined;
   const essentialHandle =
-    capsule.handles.find((handle) => handle.startsWith("delivery:")) ??
-    (!tight.changeSurface
-      ? (capsule.handles.find((handle) => handle.startsWith("visual:")) ??
-        tight.handles[0])
-      : undefined);
+    tight.status === "completed"
+      ? undefined
+      : capsule.handles.find((handle) => handle.startsWith("delivery:")) ??
+        (!tight.changeSurface
+          ? (capsule.handles.find((handle) => handle.startsWith("visual:")) ??
+            tight.handles[0])
+          : undefined);
   const compactVisualReview =
     tight.visualReview?.schemaVersion === 2
       ? {
@@ -696,11 +699,24 @@ export function fitTaskResumeCapsuleStorageBudget(
           receiptHash: tight.visualReview.receiptHash,
         }
       : tight.visualReview;
+  const pendingRelockEvidenceHandle =
+    capsule.changeInvalidation?.relockRequired && capsule.changeSurface
+      ? capsule.handles.find(
+          (handle) =>
+            !capsule.changeSurface!.evidence.handles.includes(handle),
+        )
+      : undefined;
   return {
     ...withoutRehydratableContext,
     objective: {
       ...tight.objective,
-      text: shortTaskText(tight.objective.text, 32),
+      // The immutable objective artifact remains authoritative. A shorter
+      // prefix is safe only when that checkout-bound reference is present;
+      // legacy projections keep the previous self-contained budget.
+      text: shortTaskText(
+        tight.objective.text,
+        tight.objective.reference ? 8 : 32,
+      ),
     },
     lifecycle: {
       schemaVersion: 1,
@@ -712,7 +728,11 @@ export function fitTaskResumeCapsuleStorageBudget(
     decisions: [],
     sourceReceiptIds:
       tight.status === "completed" ? tight.sourceReceiptIds.slice(0, 2) : [],
-    handles: essentialHandle ? [essentialHandle] : [],
+    handles: pendingRelockEvidenceHandle
+      ? [pendingRelockEvidenceHandle]
+      : essentialHandle
+        ? [essentialHandle]
+        : [],
     ...(tight.status !== "completed" && tight.validation
       ? { validation: tight.validation }
       : {}),

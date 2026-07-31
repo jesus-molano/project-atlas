@@ -1,14 +1,27 @@
 # Project Atlas
 
-Project Atlas gives Codex and Claude a compact, reusable map of a frontend
-project before they change code. It finds existing components, design evidence,
-decisions, risks, and prior outcomes without dumping the whole repository or
-design file into the conversation.
+Project Atlas is a Codex-first workflow that gives an agent a compact, reusable
+map of a frontend project before it changes code. It finds existing components,
+design evidence, decisions, risks, and prior outcomes without dumping the whole
+repository or design file into the conversation.
 
 The normal entry point is native Codex with `$frontend-task`. You describe the
 task; the skill selects useful sources and uses Atlas as a compact, verifiable
 context sidecar only when it adds value. The GUI is an optional control,
 inspection, and traceability surface, not a replacement conversation.
+
+## Client support
+
+| Client | Status | Verified boundary |
+| --- | --- | --- |
+| Codex | Primary | Installer, read-only doctor, explicit-only skill policy, six-tool MCP core, and the frontend workflow are exercised by the Windows/Ubuntu CI suite. |
+| Claude Code | Compatibility preview | The installer can link/copy the same Agent Skills and register the same MCP core through the supported Claude CLI. There is no equivalent doctor, Claude-specific explicit-only enforcement, connector setup, or end-to-end workflow validation yet. |
+
+Claude Code can therefore use Atlas's host-neutral context and memory contracts,
+but this is best-effort compatibility rather than functional parity with the
+validated Codex route. Jira, Confluence, Figma, GitHub, and other provider
+capabilities must be configured independently in that host. See the
+[Claude Code compatibility notes](frontend-codex-kit/README.md#claude-code-compatibility-preview).
 
 ## Quick start - Windows + Codex
 
@@ -171,9 +184,11 @@ block the task.
 | Platform Atlas root: `%LOCALAPPDATA%\ProjectAtlas\` (Windows), `~/Library/Application Support/ProjectAtlas/` (macOS), or `${XDG_DATA_HOME:-~/.local/share}/ProjectAtlas/` (Linux) | SQLite, indexes, memory, decisions, capsules, journals, receipts, manifests, and bounded retrieval state under `projects/` |
 | `<platform Atlas root>/temp/` | Owned temporary assets/previews with TTL and explicit cleanup |
 | `<platform Atlas root>/recent-projects.json` | Minimal recent-project registry |
-| `~/.agents/skills/` | Global explicit-only `frontend-task`, `visual-direction`, and `reuse-first` skill links/copies |
+| `~/.agents/skills/` | Codex global explicit-only `frontend-task`, `visual-direction`, and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |
 | `~/.codex/AGENTS.md` | Personal instructions; the installer only removes its obsolete marked Atlas block |
+| `~/.claude/skills/` | Claude Code compatibility-preview links/copies for the same three skills, only when `-Agent claude` or `-Agent both` is used |
+| `~/.claude.json` | Claude Code's user-scoped `component-atlas` MCP entry, managed by its CLI only when the compatibility preview is installed |
 
 `component-atlas` remains the internal MCP/package identifier for compatibility.
 The product name and single storage root are Project Atlas. Import and remove a

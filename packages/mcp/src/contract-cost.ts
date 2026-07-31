@@ -1,10 +1,10 @@
 export const DECLARED_CORE_MCP_CONTRACT_COST = {
   mcpToolCount: 6,
-  mcpDescriptionChars: 758,
-  mcpSchemaChars: 13_045,
-  mcpSerializedChars: 15_246,
+  mcpDescriptionChars: 705,
+  mcpSchemaChars: 13_513,
+  mcpSerializedChars: 15_660,
   mcpContractHash:
-    "6fc398e5a1bcc86e8edc080b5d299fb882f5c7ca04f7564cef83b2a8560f8ae9",
+    "fbdf9e69259e6148ce0127e275569bd49cfa6b1e2de6a1cf4925e26952e04518",
 } as const;
 
 export const DECLARED_LEGACY_MCP_CONTRACT_COST = {

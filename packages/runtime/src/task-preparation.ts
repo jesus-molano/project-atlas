@@ -6,6 +6,7 @@ import {
   taskContextSourcePolicy,
   type TaskIntakeAssessment,
   type TaskIntakeState,
+  type SourceReceipt,
   type TaskSourceDecision,
   type TaskSourceRelation,
 } from "@component-atlas/core";
@@ -45,8 +46,34 @@ export interface GuardedTaskContextDependencies {
 
 export interface TaskSourcePreflight {
   reasons: string[];
+  warnings?: string[];
+  selectedOpenApiSources?: ConfirmedOpenApiSource[];
   preloadedOpenApiContext?: OpenApiTaskContext;
 }
+
+export type PrepareTaskContextOptions = Omit<
+  TaskContextOptions,
+  | "sourcePolicy"
+  | "confirmedFigmaReferences"
+  | "confirmedOpenApiReferences"
+  | "confirmedOpenApiSources"
+  | "currentOpenApiReceipts"
+  | "preloadedOpenApiContext"
+  | "sourceWarnings"
+> & {
+  /**
+   * Already-authorized OpenAPI bodies supplied by the core adapter for this
+   * call only. They are matched back to confirmed decisions before use and
+   * never enter a task capsule or durable source ledger.
+   */
+  transientOpenApiSources?: ConfirmedOpenApiSource[];
+  /**
+   * Parsed, durable receipt projections from this exact task ledger. These
+   * contain no contract body and may satisfy a later prepare/relock without
+   * repeating connector, HTTP or file I/O.
+   */
+  currentOpenApiReceipts?: SourceReceipt[];
+};
 
 function sourceBlockReason(title: string, recommendation: string): string {
   return `${title}. ${recommendation}`;
@@ -58,6 +85,8 @@ export async function preflightConfirmedSourceIntegrity(
   confirmed: TaskSourceDecision[],
   openApiResolver?: OpenApiSourceResolver,
   relations: TaskSourceRelation[] = [],
+  confirmedOpenApiSources?: ConfirmedOpenApiSource[],
+  currentOpenApiReceipts: SourceReceipt[] = [],
 ): Promise<TaskSourcePreflight> {
   const reasons: string[] = [];
   const figmaSources = confirmed.filter(
@@ -166,20 +195,50 @@ export async function preflightConfirmedSourceIntegrity(
     }
   }
 
-  const requiredOpenApi = confirmed
-    .filter((source) => source.kind === "openapi" && source.required)
-    .map((source) => ({
-      sourceDecisionId: source.id,
-      reference: source.reference,
-      ...(source.routePolicy ? { routePolicy: source.routePolicy } : {}),
-    }));
+  const confirmedOpenApi =
+    confirmedOpenApiSources ??
+    confirmed
+      .filter((source) => source.kind === "openapi")
+      .map((source) => ({
+        sourceDecisionId: source.id,
+        reference: source.reference,
+        required: source.required,
+        ...(source.routePolicy ? { routePolicy: source.routePolicy } : {}),
+      }));
+  const requiredOpenApi = confirmedOpenApi.filter((source) => source.required);
+  const optionalOpenApi = confirmedOpenApi.filter((source) => !source.required);
+  const selectedOpenApiSources = [
+    ...requiredOpenApi,
+    ...optionalOpenApi,
+  ].slice(0, 3);
+  const deferredOptionalOpenApi = optionalOpenApi.filter(
+    (source) =>
+      !selectedOpenApiSources.some(
+        (selected) => selected.sourceDecisionId === source.sourceDecisionId,
+      ),
+  );
+  const warnings = deferredOptionalOpenApi.length
+    ? [
+        `OpenAPI context is bounded to three confirmed contracts; deferred optional sources: ${deferredOptionalOpenApi
+          .map((source) => source.sourceDecisionId)
+          .join(", ")}. Narrow or replace them if their operations are needed.`,
+      ]
+    : [];
   let preloadedOpenApiContext: OpenApiTaskContext | undefined;
-  if (requiredOpenApi.length > 0) {
+  if (requiredOpenApi.length > 3) {
+    reasons.push(
+      "OpenAPI context supports at most three required contracts. Narrow or replace the governing contract set before preparation.",
+    );
+  } else if (requiredOpenApi.length > 0) {
+    // A required contract triggers the blocking preflight, but every confirmed
+    // contract still contributes to the composed context. Otherwise adding one
+    // required source silently drops valid optional operations and receipts.
     preloadedOpenApiContext = await loadConfirmedOpenApiContext(
       rootPath,
       objective,
-      requiredOpenApi,
+      selectedOpenApiSources,
       openApiResolver,
+      currentOpenApiReceipts,
     );
     if (!preloadedOpenApiContext) {
       reasons.push(
@@ -192,18 +251,24 @@ export async function preflightConfirmedSourceIntegrity(
       );
     }
     reasons.push(
-      ...(preloadedOpenApiContext?.errors.map(
-        (failure) =>
-          `A required OpenAPI contract could not be resolved (${failure.receiptId}). ${failure.message}`,
-      ) ?? []),
+      ...(preloadedOpenApiContext?.errors
+        .filter((failure) => failure.required)
+        .map(
+          (failure) =>
+            `A required OpenAPI contract could not be resolved (${failure.receiptId}). ${failure.message}`,
+        ) ?? []),
       ...(preloadedOpenApiContext?.conflicts.map(
         (conflict) =>
-          `Required OpenAPI contracts conflict for ${conflict.method} ${conflict.path}. Confirm the governing contract or version before context retrieval.`,
+          `Confirmed OpenAPI contracts conflict for ${conflict.method} ${conflict.path}. Confirm the governing contract or version before context retrieval.`,
       ) ?? []),
     );
   }
   return {
     reasons,
+    ...(warnings.length > 0 ? { warnings } : {}),
+    ...(selectedOpenApiSources.length > 0
+      ? { selectedOpenApiSources }
+      : {}),
     ...(preloadedOpenApiContext ? { preloadedOpenApiContext } : {}),
   };
 }
@@ -217,14 +282,7 @@ export async function preflightConfirmedSourceIntegrity(
 export async function prepareTaskContext(
   rootPath: string,
   intake: TaskIntakeState,
-  options: Omit<
-    TaskContextOptions,
-    | "sourcePolicy"
-    | "confirmedFigmaReferences"
-    | "confirmedOpenApiReferences"
-    | "confirmedOpenApiSources"
-    | "preloadedOpenApiContext"
-  > = {},
+  options: PrepareTaskContextOptions = {},
   dependencies: GuardedTaskContextDependencies = { getContext: getTaskContext },
 ) {
   const effectiveIntake: TaskIntakeState = {
@@ -237,13 +295,37 @@ export async function prepareTaskContext(
   }
 
   const confirmed = confirmedTaskSources(effectiveIntake.sources);
+  const transientByDecision = new Map<string, ConfirmedOpenApiSource>();
+  for (const source of options.transientOpenApiSources ?? []) {
+    const decision = confirmed.find(
+      (candidate) =>
+        candidate.kind === "openapi" &&
+        candidate.id === source.sourceDecisionId &&
+        candidate.reference === source.reference,
+    );
+    if (!decision || !source.content) {
+      throw new Error(
+        "Transient OpenAPI content must match one exact confirmed source decision.",
+      );
+    }
+    if (transientByDecision.has(decision.id)) {
+      throw new Error(
+        `Transient OpenAPI content was supplied more than once for ${decision.id}.`,
+      );
+    }
+    transientByDecision.set(decision.id, source);
+  }
   const openApiSources: ConfirmedOpenApiSource[] = confirmed
     .filter((source) => source.kind === "openapi")
     .map((source) => ({
+      ...(transientByDecision.get(source.id) ?? {}),
       sourceDecisionId: source.id,
       reference: source.reference,
       required: source.required,
+      ...(source.routePolicy ? { routePolicy: source.routePolicy } : {}),
     }));
+  const { transientOpenApiSources: _transientOpenApiSources, ...contextOptions } =
+    options;
   const preflight = await (
     dependencies.preflightSources ?? preflightConfirmedSourceIntegrity
   )(
@@ -252,6 +334,8 @@ export async function prepareTaskContext(
     confirmed,
     options.openApiResolver,
     effectiveIntake.relations ?? [],
+    openApiSources,
+    options.currentOpenApiReceipts,
   );
   if (preflight.reasons.length > 0) {
     throw new TaskPreparationBlockedError({
@@ -261,7 +345,7 @@ export async function prepareTaskContext(
   }
 
   return dependencies.getContext(rootPath, intake.objective, {
-    ...options,
+    ...contextOptions,
     sourcePolicy: taskContextSourcePolicy(
       effectiveIntake.sources,
       effectiveIntake.relations ?? [],
@@ -269,7 +353,11 @@ export async function prepareTaskContext(
     confirmedFigmaReferences: confirmed
       .filter((source) => source.kind === "figma")
       .map((source) => source.reference),
-    confirmedOpenApiSources: openApiSources,
+    confirmedOpenApiSources:
+      preflight.selectedOpenApiSources ?? openApiSources,
+    ...(preflight.warnings?.length
+      ? { sourceWarnings: preflight.warnings }
+      : {}),
     ...(preflight.preloadedOpenApiContext
       ? { preloadedOpenApiContext: preflight.preloadedOpenApiContext }
       : {}),

@@ -5,6 +5,10 @@ skills. New users should follow the
 [five-minute quick start](../README.md). This page
 documents installer behavior and recovery flags.
 
+Codex is the primary, end-to-end validated client. Claude Code support is a
+compatibility preview for skill discovery and the shared MCP core, not a claim
+of workflow parity.
+
 ## Recommended command
 
 Requirements are Git, Node.js 24+, pnpm 11.x, and PowerShell 7 (`pwsh`) on
@@ -35,6 +39,7 @@ corporate data.
 | Codex skills | `~/.agents/skills/frontend-task`, `visual-direction`, and `reuse-first` |
 | Claude skills | `~/.claude/skills/frontend-task`, `visual-direction`, and `reuse-first` |
 | Codex MCP entry | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` |
+| Claude MCP entry | User-scoped `component-atlas` entry in `~/.claude.json`, created through the Claude CLI |
 | Legacy routing migration | `~/.codex/AGENTS.md` (marked Atlas block removed only) |
 | All durable Atlas project data | Windows: `%LOCALAPPDATA%\ProjectAtlas\`; macOS: `~/Library/Application Support/ProjectAtlas/`; Linux: `${XDG_DATA_HOME:-~/.local/share}/ProjectAtlas/` |
 | Ephemeral assets/previews | `<platform Atlas storage root>/temp/` |
@@ -146,15 +151,40 @@ the file as `AGENTS.md.project-atlas.bak` (or a numbered variant). The installer
 never adds global frontend routing. Invoke `$frontend-task` explicitly in the
 task that needs it.
 
-## Claude Code
+## Claude Code compatibility preview
 
 ```powershell
 .\frontend-codex-kit\install.ps1 -Agent claude
 ```
 
-Claude registration uses its supported CLI. Invoke `/frontend-task` in a
-product repository. The Atlas context and memory contracts are shared with
-Codex.
+Claude registration uses its supported CLI to install a user-scoped stdio MCP
+entry, and Claude discovers the copied/linked `SKILL.md` files from
+`~/.claude/skills`. After installation, verify the effective entry and live
+tools manually. First inspect the CLI entry:
+
+```powershell
+claude mcp get component-atlas
+```
+
+Then, inside Claude Code, inspect the live server and invoke the skill:
+
+```text
+/mcp
+/frontend-task <task description>
+```
+
+The MCP entry must point to the stable Node executable, this Atlas clone's MCP
+entry, and `--profile core`; `/mcp` must expose the six core tools. The installer
+preserves an existing server with the same name, so inspect and replace a stale
+entry explicitly rather than assuming the new clone is active.
+
+This path shares Atlas context, receipts, and memory storage with Codex, but it
+is best-effort compatibility, not end-to-end parity. `doctor.ps1` does not
+inspect Claude skills or `~/.claude.json`, the CI suite does not run a Claude
+workflow, and the Codex `agents/openai.yaml` explicit-only policy is not a
+Claude-specific enforcement mechanism. Invoke `/frontend-task` deliberately.
+Configure Jira, Confluence, Figma, GitHub, and any other provider capability
+separately in Claude Code.
 
 ## Recovery
 
@@ -182,6 +212,8 @@ conflicts, idempotency, platform paths, alternate `CODEX_HOME`, dry-run, real
 temporary link/junction and copy installs, and managed `AGENTS.md` behavior.
 Doctor fixtures exercise a live healthy core-profile smoke plus broken installs
 and verify that no doctor run changes any fixture hash.
+Claude CLI registration, Claude skill invocation, and a provider-backed Claude
+workflow are not exercised by this suite.
 
 See the [first-run checklist](FIRST-RUN-CHECKLIST.md) for validation against a
 real product repository.

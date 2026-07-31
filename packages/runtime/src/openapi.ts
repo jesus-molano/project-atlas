@@ -39,6 +39,7 @@ export interface OpenApiTaskContext {
     method: string;
     path: string;
     operationId?: string;
+    detailCoverage?: "identity-only";
     summary?: string;
     parameters: Array<{
       name: string;
@@ -82,7 +83,13 @@ export interface ConfirmedOpenApiSource {
   sourceDecisionId: string;
   reference: string;
   required?: boolean;
+  /**
+   * Transient connector/paste handoff. Callers must not persist this value;
+   * Atlas retains only its digest and bounded derived receipts.
+   */
   content?: string;
+  contentHash?: string;
+  sourceReceipt?: SourceReceipt;
   adapter?: Extract<
     SourceReceiptAdapter,
     | "openapi-local-file"
@@ -114,6 +121,140 @@ export interface ResolvedOpenApiSource {
 export type OpenApiSourceResolver = (
   source: ConfirmedOpenApiSource,
 ) => Promise<ResolvedOpenApiSource>;
+
+function receiptDecision(source: ConfirmedOpenApiSource) {
+  return {
+    id: source.sourceDecisionId,
+    kind: "openapi" as const,
+    reference: source.reference,
+    state: "confirmed" as const,
+    ...(source.routePolicy ? { routePolicy: source.routePolicy } : {}),
+  };
+}
+
+function latestContentAddressedReceiptContext(
+  source: ConfirmedOpenApiSource,
+  receipts: SourceReceipt[],
+): OpenApiTaskContext | undefined {
+  const authorized = receipts.filter(
+    (receipt) =>
+      receipt.provider === "openapi" &&
+      receipt.sourceDecisionId === source.sourceDecisionId &&
+      receipt.coverage === "exact" &&
+      receipt.freshness === "current" &&
+      /^sha256:[a-f0-9]{64}$/u.test(receipt.contentHash ?? ""),
+  );
+  for (const receipt of authorized) {
+    assertSourceReceiptMatchesDecision(receiptDecision(source), receipt);
+  }
+  if (authorized.length === 0) return undefined;
+
+  const newestTime = Math.max(
+    ...authorized.map((receipt) => Date.parse(receipt.observedAt)),
+  );
+  if (!Number.isFinite(newestTime)) return undefined;
+  const newest = authorized.filter(
+    (receipt) => Date.parse(receipt.observedAt) === newestTime,
+  );
+  const hashes = new Set(newest.map((receipt) => receipt.contentHash));
+  if (hashes.size !== 1) {
+    throw new Error(
+      `OpenAPI source ${source.sourceDecisionId} has conflicting content hashes at its latest observation. Re-observe the governing contract before preparation.`,
+    );
+  }
+  const contentHash = newest[0]!.contentHash!;
+  const documents = newest.filter(
+    (receipt) =>
+      receipt.scope.kind === "document" && receipt.contentHash === contentHash,
+  );
+  const documentScopeIds = new Set(documents.map((receipt) => receipt.scope.id));
+  const operationReceipts = newest.filter(
+    (receipt) =>
+      receipt.scope.kind === "operation" &&
+      receipt.operation === "derive-confirmed-operation" &&
+      receipt.contentHash === contentHash &&
+      Boolean(receipt.scope.parentId) &&
+      documentScopeIds.has(receipt.scope.parentId!),
+  );
+  // A document receipt alone may have been persisted before parsing completed.
+  // Reuse is therefore authorized only by at least one Atlas-derived operation
+  // receipt from the same immutable observation.
+  if (documents.length === 0 || operationReceipts.length === 0) return undefined;
+
+  const operations = operationReceipts
+    .flatMap((receipt) => {
+      const method = receipt.resolved.method?.toUpperCase();
+      const operationPath = receipt.resolved.path;
+      if (!method || !operationPath) return [];
+      return [
+        {
+          method,
+          path: operationPath,
+          ...(receipt.resolved.operationId
+            ? { operationId: receipt.resolved.operationId }
+            : {}),
+          detailCoverage: "identity-only" as const,
+          parameters: [],
+          responses: [],
+          security: [],
+          sourceReceiptIds: [receipt.id],
+        },
+      ];
+    })
+    .filter(
+      (operation, index, collection) =>
+        collection.findIndex(
+          (candidate) =>
+            candidate.method === operation.method &&
+            candidate.path === operation.path &&
+            candidate.operationId === operation.operationId,
+        ) === index,
+    )
+    .slice(0, MAX_OPERATIONS);
+  if (operations.length === 0) return undefined;
+
+  const selectedIds = new Set([
+    ...documents.map((receipt) => receipt.id),
+    ...operations.flatMap((operation) => operation.sourceReceiptIds),
+  ]);
+  return {
+    available: true,
+    // Receipts deliberately omit the raw document format. "mixed" is the
+    // honest minimal projection until a fresh body is explicitly supplied.
+    format: "mixed",
+    contracts: 1,
+    operations,
+    authentication: [],
+    receipts: newest.filter((receipt) => selectedIds.has(receipt.id)),
+    conflicts: [],
+    errors: [],
+  };
+}
+
+function automaticReadAdapter(reference: string): Extract<
+  SourceReceiptAdapter,
+  "openapi-public-http" | "openapi-local-file"
+> {
+  return /^https?:\/\//iu.test(reference)
+    ? "openapi-public-http"
+    : "openapi-local-file";
+}
+
+function assertAutomaticReadAuthorized(
+  source: ConfirmedOpenApiSource,
+  adapter: "openapi-public-http" | "openapi-local-file",
+): void {
+  const policy = source.routePolicy;
+  if (!policy || policy.primaryAdapter === adapter) return;
+  const allowedFallback =
+    policy.fallback === "allow-list" &&
+    policy.allowedFallbackAdapters?.includes(adapter);
+  if (!allowedFallback) {
+    throw new Error(
+      `OpenAPI source ${source.sourceDecisionId} requires ${policy.primaryAdapter}; automatic ${adapter} refetch is not authorized. Supply transient content or the confirmed resolver output.`,
+    );
+  }
+}
 
 function object(value: unknown): JsonObject | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -342,6 +483,50 @@ function operationScore(taskTokens: Set<string>, text: string): number {
   );
 }
 
+function operationReceipt(
+  documentReceipt: SourceReceipt,
+  operation: {
+    method: string;
+    path: string;
+    operationId?: string;
+  },
+): SourceReceipt {
+  const method = operation.method.toUpperCase();
+  return createSourceReceipt({
+    sourceDecisionId: documentReceipt.sourceDecisionId,
+    provider: "openapi",
+    requested: documentReceipt.requested,
+    resolved: {
+      ...documentReceipt.resolved,
+      method,
+      path: operation.path,
+      ...(operation.operationId
+        ? { operationId: operation.operationId }
+        : {}),
+    },
+    adapter: documentReceipt.adapter,
+    route: documentReceipt.route,
+    operation: "derive-confirmed-operation",
+    scope: {
+      kind: "operation",
+      id: `${method} ${operation.path}`,
+      parentId: documentReceipt.scope.id,
+    },
+    ...(documentReceipt.derivation
+      ? { derivation: documentReceipt.derivation }
+      : {}),
+    ...(documentReceipt.contentHash
+      ? { contentHash: documentReceipt.contentHash }
+      : {}),
+    observedAt: documentReceipt.observedAt,
+    ...(documentReceipt.fallback
+      ? { fallback: documentReceipt.fallback }
+      : {}),
+    coverage: "exact",
+    freshness: "current",
+  });
+}
+
 export function extractOpenApiTaskContext(
   text: string,
   task: string,
@@ -440,17 +625,20 @@ export function extractOpenApiTaskContext(
       operation.security.map(({ scheme }) => scheme),
     ),
   );
+  const operationReceipts = selectedOperations.map((operation) =>
+    operationReceipt(receipt, operation),
+  );
   return {
     available: true,
     format: document.openapi ? "openapi" : "swagger",
     contracts: 1,
     operations: selectedOperations
-      .map(({ score: _score, ...operation }) => ({
+      .map(({ score: _score, ...operation }, index) => ({
         ...operation,
-        sourceReceiptIds: [receipt.id],
+        sourceReceiptIds: [operationReceipts[index]!.id],
       })),
     authentication: authenticationSummary(document, usedSchemes),
-    receipts: [receipt],
+    receipts: [receipt, ...operationReceipts],
     conflicts: [],
     errors: [],
   };
@@ -491,6 +679,7 @@ export async function loadConfirmedOpenApiContext(
   task: string,
   references: Array<string | ConfirmedOpenApiSource>,
   resolver?: OpenApiSourceResolver,
+  currentReceipts: SourceReceipt[] = [],
 ): Promise<OpenApiTaskContext | undefined> {
   const confirmed = references
     .map((source) =>
@@ -519,6 +708,17 @@ export async function loadConfirmedOpenApiContext(
     const requested = sourceIdentityFromReference("openapi", source.reference);
     try {
       const resolvedReference = localReference(source.reference);
+      const receiptContext = source.content
+        ? undefined
+        : latestContentAddressedReceiptContext(source, currentReceipts);
+      if (receiptContext) {
+        contexts.push(receiptContext);
+        continue;
+      }
+      const automaticAdapter = automaticReadAdapter(resolvedReference);
+      if (!source.content && !resolver) {
+        assertAutomaticReadAuthorized(source, automaticAdapter);
+      }
       const loaded: ResolvedOpenApiSource = source.content
         ? {
             content: source.content,
@@ -531,7 +731,7 @@ export async function loadConfirmedOpenApiContext(
           }
         : resolver
           ? await resolver(source)
-          : /^https?:\/\//iu.test(resolvedReference)
+          : automaticAdapter === "openapi-public-http"
             ? await canonicalizePublicOpenApiReference(resolvedReference).then(
                 (canonical) => ({
                   content: canonical.content,
@@ -552,36 +752,59 @@ export async function loadConfirmedOpenApiContext(
       const contentHash = createHash("sha256")
         .update(loaded.content)
         .digest("hex");
+      const normalizedContentHash = `sha256:${contentHash}`;
+      if (
+        source.contentHash !== undefined &&
+        source.contentHash !== normalizedContentHash
+      ) {
+        throw new Error(
+          "The transient OpenAPI content does not match its declared SHA-256 digest.",
+        );
+      }
       const resolved = {
         ...requested,
         ...(loaded.version ? { version: loaded.version } : {}),
       };
-      const receipt = createSourceReceipt({
-        sourceDecisionId: source.sourceDecisionId,
-        provider: "openapi",
-        requested,
-        resolved,
-        adapter: loaded.adapter ?? "other",
-        route: loaded.route,
-        operation: loaded.operation ?? "resolve-confirmed-contract",
-        scope: { kind: "document", id: requested.canonicalId },
-        contentHash: `sha256:${contentHash}`,
-        observedAt: loaded.observedAt ?? new Date().toISOString(),
-        ...(loaded.fallback ? { fallback: loaded.fallback } : {}),
-        ...(loaded.derivation
-          ? {
-              derivation: {
-                kind: loaded.derivation.kind,
-                sourceId: requested.canonicalId,
-                targetId: loaded.derivation.targetUrl,
-                evidenceHash: loaded.derivation.evidenceHash,
-                redirectChain: loaded.derivation.redirectChain,
-              },
-            }
-          : {}),
-        coverage: "exact",
-        freshness: "current",
-      });
+      const receipt =
+        source.sourceReceipt ??
+        createSourceReceipt({
+          sourceDecisionId: source.sourceDecisionId,
+          provider: "openapi",
+          requested,
+          resolved,
+          adapter: loaded.adapter ?? "other",
+          route: loaded.route,
+          operation: loaded.operation ?? "resolve-confirmed-contract",
+          scope: { kind: "document", id: requested.canonicalId },
+          contentHash: normalizedContentHash,
+          observedAt: loaded.observedAt ?? new Date().toISOString(),
+          ...(loaded.fallback ? { fallback: loaded.fallback } : {}),
+          ...(loaded.derivation
+            ? {
+                derivation: {
+                  kind: loaded.derivation.kind,
+                  sourceId: requested.canonicalId,
+                  targetId: loaded.derivation.targetUrl,
+                  evidenceHash: loaded.derivation.evidenceHash,
+                  redirectChain: loaded.derivation.redirectChain,
+                },
+              }
+            : {}),
+          coverage: "exact",
+          freshness: "current",
+        });
+      if (
+        receipt.scope.kind !== "document" ||
+        receipt.contentHash !== normalizedContentHash ||
+        receipt.adapter !== (loaded.adapter ?? "other") ||
+        receipt.route !== loaded.route ||
+        receipt.operation !==
+          (loaded.operation ?? "resolve-confirmed-contract")
+      ) {
+        throw new Error(
+          "The transient OpenAPI handoff does not match its immutable source receipt.",
+        );
+      }
       if (source.routePolicy) {
         assertSourceReceiptMatchesDecision(
           {
@@ -637,8 +860,16 @@ export async function loadConfirmedOpenApiContext(
     grouped.set(key, [...(grouped.get(key) ?? []), operation]);
   }
   for (const [key, candidates] of grouped) {
+    const operationIds = new Set(
+      candidates
+        .map((candidate) => candidate.operationId)
+        .filter((value): value is string => Boolean(value)),
+    );
+    const detailedCandidates = candidates.filter(
+      (candidate) => candidate.detailCoverage !== "identity-only",
+    );
     const variants = new Map<string, typeof candidates>();
-    for (const candidate of candidates) {
+    for (const candidate of detailedCandidates) {
       const signature = JSON.stringify({
         operationId: candidate.operationId,
         parameters: candidate.parameters,
@@ -648,7 +879,7 @@ export async function loadConfirmedOpenApiContext(
       });
       variants.set(signature, [...(variants.get(signature) ?? []), candidate]);
     }
-    if (variants.size > 1) {
+    if (operationIds.size > 1 || variants.size > 1) {
       const [method, ...pathParts] = key.split(" ");
       const receiptIds = [
         ...new Set(candidates.flatMap((candidate) => candidate.sourceReceiptIds)),
@@ -663,9 +894,13 @@ export async function loadConfirmedOpenApiContext(
       });
       continue;
     }
-    const first = candidates[0]!;
+    const first = detailedCandidates[0] ?? candidates[0]!;
+    const receiptOperationId = [...operationIds][0];
     operations.push({
       ...first,
+      ...(!first.operationId && receiptOperationId
+        ? { operationId: receiptOperationId }
+        : {}),
       sourceReceiptIds: [
         ...new Set(candidates.flatMap((candidate) => candidate.sourceReceiptIds)),
       ],
@@ -678,8 +913,17 @@ export async function loadConfirmedOpenApiContext(
     ),
   );
   const formats = new Set(contexts.map(({ format }) => format));
+  const selectedReceiptIds = new Set(
+    operations.flatMap((operation) => operation.sourceReceiptIds),
+  );
   const receipts = [
-    ...contexts.flatMap((context) => context.receipts),
+    ...contexts.flatMap((context) =>
+      context.receipts.filter(
+        (receipt) =>
+          receipt.scope.kind !== "operation" ||
+          selectedReceiptIds.has(receipt.id),
+      ),
+    ),
     ...failureReceipts,
   ];
   return {

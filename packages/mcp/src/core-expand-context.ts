@@ -17,7 +17,10 @@ import {
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { expandEntityContext } from "./core-context-handles.js";
-import { assertTaskBoundHandle } from "./core-handle-ownership.js";
+import {
+  assertTaskBoundHandle,
+  loadAuthorizedTaskFigmaAsset,
+} from "./core-handle-ownership.js";
 import { compact } from "./core-tool-helpers.js";
 import { text } from "./shared.js";
 
@@ -28,7 +31,7 @@ export function registerCoreExpandContext(server: McpServer): void {
     "atlas_expand_context",
     {
       description:
-        "Expand exactly one code, entity, design, visual, delivery, memory, receipt, retrieval or manifest handle under a hard budget.",
+        "Expand one code, design, Figma asset, source, memory or delivery handle under a hard budget.",
       inputSchema: {
         root_path: z.string(),
         handle: z.string().min(1).max(320),
@@ -63,6 +66,26 @@ export function registerCoreExpandContext(server: McpServer): void {
         await assertTaskBoundHandle(root_path, task_id, handle);
         return text(
           await expandVisualEvidenceContract(root_path, handle, budget),
+        );
+      }
+      if (handle.startsWith("figma-asset:")) {
+        if (!task_id) {
+          throw new Error(
+            "Expanding a Figma asset requires its exact task_id binding.",
+          );
+        }
+        return text(
+          compact(
+            {
+              asset: await loadAuthorizedTaskFigmaAsset(
+                root_path,
+                task_id,
+                handle,
+              ),
+              bodyIncluded: false,
+            },
+            budget,
+          ),
         );
       }
       if (handle.startsWith("visual-review:")) {
@@ -195,7 +218,7 @@ export function registerCoreExpandContext(server: McpServer): void {
         );
       }
       throw new Error(
-        "Use a code:, entity:, design:, visual:, visual-review:, delivery:, memory:, retrieval:, manifest: or receipt-* handle.",
+        "Use a code:, entity:, design:, figma-asset:, visual:, visual-review:, delivery:, memory:, retrieval:, manifest: or receipt-* handle.",
       );
     },
   );

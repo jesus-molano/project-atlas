@@ -1,14 +1,14 @@
 ---
 name: frontend-task
-description: Explicit Project Atlas workflow to implement, validate, review, and close frontend work. Invoke only by direct request.
+description: Explicit Atlas frontend workflow. Invoke only by direct request.
 ---
 
 # Frontend Task
 
-Invoke only when the user writes `$frontend-task` or explicitly names the
-Frontend Task skill. Do not infer activation from generic frontend work.
+Invoke only when the user writes `$frontend-task` or explicitly requests
+Frontend Task; never infer it from generic frontend work.
 
-Use one native Codex task. Atlas supplies bounded evidence; it must not create,
+Use one Codex task. Atlas supplies bounded evidence; it must not create,
 route, resume, cancel, or grant permissions.
 
 ## Load references only when active
@@ -29,26 +29,26 @@ route, resume, cancel, or grant permissions.
 2. Preserve the first objective. Corrections may add scope/risk, never silently
    replace the objective or lower risk for its `task_id`.
 3. Classify only sources that are supplied or materially required. A bare
-   reference stays `pending`, even beside "use this".
-   Confirmation must bind its exact identity, provider, intended authority, and
-   task scope unambiguously.
+   reference stays `pending`, as does vague "use this". Treat a current-turn
+   directive as confirmed without another round only with unambiguous identity,
+   provider, authority role, and task scope. Never infer authority from a link.
 4. Before connector access, confirm, replace, omit, or mark unavailable every
    pending source. Ask one grouped question only if it changes implementation;
    skip irrelevant provider checklists.
 5. Classify size and risk separately: small is local/established; medium is
-   shared, stateful, API, or meaningful multi-file; large spans flows, systems,
-   migrations, or surfaces. Auth, personal/destructive/financial data,
-   critical accessibility, and authority conflicts are high risk.
+   shared, stateful, API, or multi-file; large spans flows, systems, or
+   migrations. Auth, sensitive/destructive/financial data, critical
+   accessibility, and authority conflicts are high risk.
 
 Never probe credentials or connect a plugin without authorization.
 Missing optional evidence is a warning, not a blocker.
 
 ## 2. Prepare once per evidence version
 
-Call `atlas_prepare_task` once with the absolute root, objective, resolved source
-decisions, receipts/relations, and a prior task ID only for that same task. Keep
-the task ID and handles. Atlas hash-binds the full objective and current
-governance; later evidence may raise but never lower it.
+Call `atlas_prepare_task` once per evidence version with the absolute root,
+objective, resolved decisions, receipts/relations, and a prior ID only for the
+same task. Keep its ID and handles. Atlas hash-binds objective/governance;
+later evidence may raise but never lower it.
 
 If preparation returns `needs-confirmation`, no repository scan or connector
 retrieval occurred. Resolve the named decisions and repeat with the same task
@@ -101,9 +101,10 @@ findings before edit; broaden only after named invalidation.
 - Use the same native task. The main native Codex task is coordinator and sole writer;
   optional independent-evidence delegates are read-only.
 
-Use `atlas_task_state` only to resume, attach verified evidence, record a real
-blocker, or save a semantic checkpoint not captured elsewhere. Never poll or
-checkpoint after every call.
+Use `atlas_task_state` only to resume, attach verified evidence, govern a
+confirmed Figma production asset through capture/materialization under its
+ChangeSurface, record a blocker, or save a semantic checkpoint not captured
+elsewhere. Never poll or checkpoint after every call.
 
 ## 5. Validate and review by size/risk
 
@@ -123,10 +124,10 @@ viewport/state coverage and cleanup are mandatory.
   and integration/e2e or visual evidence for correctness, UX/accessibility,
   and security/API only when their domains are present.
 
-Give reviewers the objective, criteria, lock/exclusions, risk, evidence IDs,
-changed files, and checks. Require `pass`, `blocked`, or findings with stable ID,
-severity, tight file/line evidence, reproduction, fix, confidence, and scope.
-Verify, rerun affected checks, and stop after two review passes.
+Give reviewers objective, criteria, lock/exclusions, risk, evidence, diff, and
+checks. Require `pass`, `blocked`, or findings with tight file/line evidence,
+ID, severity, reproduction, fix, confidence, and scope. Verify, rerun affected checks, and
+stop after two review passes.
 
 ## 6. Close technically, then handle memory separately
 

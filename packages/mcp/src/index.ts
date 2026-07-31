@@ -18,6 +18,9 @@ export * from "./skill-cost.js";
 export type McpProfile = "core" | "legacy";
 
 export function createMcpServer(profile: McpProfile = "core"): McpServer {
+  if (profile !== "core" && profile !== "legacy") {
+    throw new Error("Project Atlas MCP profile must be core or legacy.");
+  }
   const server = new McpServer({
     name: "component-atlas",
     version: "0.2.0",

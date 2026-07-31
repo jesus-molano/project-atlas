@@ -48,6 +48,41 @@
       }
     },
     {
+      "id": "explicit-authority-directive",
+      "request": "Implement checkout using Figma node 12:34 as the visual authority and Swagger contract checkout-v3 as the API authority for this task.",
+      "sources": ["conversation", "repository", "figma-node-id", "openapi-contract-id"],
+      "expected": {
+        "figmaState": "confirmed",
+        "openapiState": "confirmed",
+        "confirmationSource": "current-turn-explicit-directive",
+        "questionMode": "none-unless-sources-conflict",
+        "bareLinksStillPending": true
+      }
+    },
+    {
+      "id": "figma-production-asset",
+      "request": "Implement the confirmed checkout frame and materialize its selected illustration into the locked assets path.",
+      "sources": ["conversation", "repository", "figma-node-id", "figma-desktop-asset-url"],
+      "expected": {
+        "coreRoute": "atlas_task_state",
+        "sequence": ["capture-figma-asset", "lock-handle-and-destination", "materialize-figma-asset", "validate"],
+        "bodyInContext": false,
+        "destinationGate": "exact-change-surface-allowed-file"
+      }
+    },
+    {
+      "id": "private-openapi-handoff",
+      "request": "Implement the order flow from the private Swagger document already returned by the internal connector.",
+      "sources": ["conversation", "repository", "openapi-internal-connector-content"],
+      "expected": {
+        "handoff": "transient-openapi-content",
+        "refetch": false,
+        "contentAddressing": "sha256",
+        "durableEvidence": "document-and-operation-receipts",
+        "bodyInMemory": false
+      }
+    },
+    {
       "id": "large-figma-frame-segmented-context",
       "request": "Implement the confirmed checkout page with several sections and responsive states.",
       "sources": ["conversation", "repository", "figma-node-url"],

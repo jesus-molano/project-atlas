@@ -215,6 +215,7 @@ export {
   loadFigmaAssetMetadata,
   materializeFigmaAsset,
   purgeExpiredFigmaAssets,
+  purgeTaskFigmaAssets,
   type FigmaAssetFormat,
   type FigmaAssetLoader,
   type FigmaAssetMetadata,
@@ -237,6 +238,7 @@ export {
   prepareTaskContext,
   TaskPreparationBlockedError,
   type GuardedTaskContextDependencies,
+  type PrepareTaskContextOptions,
   type TaskContextOptions,
 } from "./task-preparation.js";
 export {

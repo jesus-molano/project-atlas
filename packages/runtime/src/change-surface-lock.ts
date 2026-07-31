@@ -91,7 +91,7 @@ export interface LockedChangeSurface {
     sourceLedger: {
       hash?: string;
       receiptIds: string[];
-      /** Counts are absent only on legacy v2 locks. */
+      /** Zero relations may be omitted compactly; other absent counts mark legacy v2. */
       decisionCount?: number;
       relationCount?: number;
       receiptCount?: number;
@@ -172,7 +172,7 @@ export function normalizeLockedEvidenceHandles(values: string[] = []): string[] 
       (left, right) =>
         priority(left) - priority(right) || left.localeCompare(right),
     )
-    .slice(0, 3)
+    .slice(0, 8)
     .sort();
 }
 
@@ -715,13 +715,14 @@ export async function createLockedChangeSurface(
         ...(input.sourceLedger?.hash
           ? { hash: short(input.sourceLedger.hash, 128) }
           : {}),
-        ...((input.sourceLedger?.decisionCount ?? 0) > 0
-          ? { decisionCount: input.sourceLedger!.decisionCount }
+        ...(input.sourceLedger?.decisionCount !== undefined
+          ? { decisionCount: input.sourceLedger.decisionCount }
           : {}),
         ...((input.sourceLedger?.relationCount ?? 0) > 0
           ? { relationCount: input.sourceLedger!.relationCount }
           : {}),
-        ...((input.sourceLedger?.receiptCount ?? sourceReceiptIds.length) > 0
+        ...(input.sourceLedger?.receiptCount !== undefined ||
+        sourceReceiptIds.length > 0
           ? {
               receiptCount:
                 input.sourceLedger?.receiptCount ?? sourceReceiptIds.length,

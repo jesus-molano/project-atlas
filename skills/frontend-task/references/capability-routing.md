@@ -19,6 +19,12 @@ Do not call legacy Atlas tools or assume a `component-atlas` executable exists
 on `PATH`. Diagnose missing core tools from the Atlas checkout with
 `frontend-codex-kit/doctor.ps1`.
 
+`atlas_validate_change` reports OpenAPI coverage as partial. Its static detector
+checks direct literal `fetch`/`$fetch`/`useFetch` and `axios.<method>` calls; it
+does not prove wrappers, generated SDK methods, variables, or template-derived
+paths compatible. Cover those patterns with generated-client checks, focused
+tests, typecheck, and review rather than treating zero detected calls as a pass.
+
 ## External sources
 
 | Source | Preferred route | Boundary |
@@ -37,6 +43,19 @@ provenance; it does not replace the provider or authorize connector access.
 `sources[].evidence.observed_at` is required and must remain unchanged on an
 identical retry.
 
+For OpenAPI already read from an internal connector or pasted by the user, put
+the bounded document in `sources[].evidence.openapi_content` on the prepare
+call. Atlas verifies or computes its `sha256:` digest, parses it in-memory,
+persists only bounded document/operation receipts, and does not refetch its URL.
+Use the returned operation receipts for lock and validation; do not write the
+contract body to Project Memory.
+Continuation and relock reuse the latest content-addressed operation receipts
+as a body-free minimal context. Resupply the body only for a deliberate new
+contract observation or when full schema/auth detail is again necessary.
+Atlas injects at most three confirmed contracts, required-first. More than
+three required contracts must be narrowed; optional overflow is returned as a
+warning rather than silently displacing required authority.
+
 ## Figma routing
 
 1. Confirm the exact Figma reference before access.
@@ -51,9 +70,11 @@ identical retry.
    retain successful results; never repeat the same oversized request.
 6. Treat Ready for dev, global Variables, and Code Connect as useful signals,
    never eligibility requirements.
-7. Keep provider-local asset URLs and binary/SVG bodies out of Atlas context.
-   Materialize only explicitly selected production assets through the approved
-   repository workflow.
+7. Keep binary/SVG bodies out of context. While prepared, call
+   `atlas_task_state` action `capture-figma-asset` with one exact task receipt,
+   provider-local URL, and scope node. Lock its returned `figma-asset:` handle
+   plus the exact destination, then call action `materialize-figma-asset`;
+   materialization fails outside `ChangeSurface.allowedFiles`.
 8. Never write to Figma unless the user explicitly requests and approves that
    separate write.
 

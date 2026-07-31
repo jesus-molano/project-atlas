@@ -66,6 +66,15 @@ export interface ValidateDiffResult {
   renames: number;
   changedFiles: GitDeltaEntry[];
   truncated: boolean;
+  apiValidation?: {
+    coverage: "partial";
+    detector: "direct-literal-calls";
+    confirmedOperations: number;
+    detectedCalls: number;
+    matchedCalls: number;
+    incompatibleCalls: number;
+    limitations: Array<"wrappers" | "sdk-methods" | "variable-or-template-paths">;
+  };
   findings: DiffValidationFinding[];
   blocking: boolean;
 }
@@ -507,14 +516,20 @@ export async function validateDiff(
     method: operation.method.toUpperCase(),
     path: normalizedOperationPath(operation.path),
   }));
-  for (const call of apiCalls(delta.lines)) {
+  const detectedApiCalls = apiCalls(delta.lines);
+  let matchedApiCalls = 0;
+  let incompatibleApiCalls = 0;
+  for (const call of detectedApiCalls) {
+    const matched = confirmed.some(
+      (operation) =>
+        operation.method === call.method && operation.path === call.path,
+    );
+    if (matched) matchedApiCalls += 1;
     if (
       (confirmed.length > 0 || options.requireConfirmedOperations) &&
-      !confirmed.some(
-        (operation) =>
-          operation.method === call.method && operation.path === call.path,
-      )
+      !matched
     ) {
+      incompatibleApiCalls += 1;
       findings.push({
         code: "openapi-incompatible",
         severity: "error",
@@ -565,6 +580,23 @@ export async function validateDiff(
     renames: delta.renames,
     changedFiles: delta.entries,
     truncated: delta.truncated,
+    ...(confirmed.length > 0 || options.requireConfirmedOperations
+      ? {
+          apiValidation: {
+            coverage: "partial" as const,
+            detector: "direct-literal-calls" as const,
+            confirmedOperations: confirmed.length,
+            detectedCalls: detectedApiCalls.length,
+            matchedCalls: matchedApiCalls,
+            incompatibleCalls: incompatibleApiCalls,
+            limitations: [
+              "wrappers" as const,
+              "sdk-methods" as const,
+              "variable-or-template-paths" as const,
+            ],
+          },
+        }
+      : {}),
     findings: prioritized.slice(0, 80),
     blocking: unique.some((finding) => finding.severity === "error"),
   };

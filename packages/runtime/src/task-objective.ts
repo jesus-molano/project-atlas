@@ -364,7 +364,7 @@ export async function resolveTaskObjectiveProjection(
     projection.reference!,
     taskId,
   );
-  const validProjection = [480, 320, 240, 200, 160, 120, 80, 32].some(
+  const validProjection = [480, 320, 240, 200, 160, 120, 80, 32, 8].some(
     (maximum) => compactObjectiveText(artifact.text, maximum) === projection.text,
   );
   if (!validProjection) {

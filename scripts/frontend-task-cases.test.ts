@@ -13,6 +13,12 @@ interface FrontendTaskCase {
 describe("frontend-task capability routing fixtures", () => {
   it("keeps every active workflow document on the six-tool core contract", async () => {
     const skillsRoot = fileURLToPath(new URL("../skills", import.meta.url));
+    const coreProfile = JSON.parse(
+      await readFile(
+        new URL("../packages/mcp/core-profile.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { profile: string; tools: string[] };
     const activeRoots = ["frontend-task", "reuse-first", "visual-direction"];
     const markdownFiles: string[] = [];
     const collectMarkdown = async (directory: string): Promise<void> => {
@@ -35,14 +41,8 @@ describe("frontend-task capability routing fixtures", () => {
         contents.flatMap((content) => content.match(/\batlas_[a-z0-9_]+\b/gu) ?? []),
       ),
     ].sort();
-    expect(namedTools).toEqual([
-      "atlas_expand_context",
-      "atlas_lock_change_scope",
-      "atlas_memory",
-      "atlas_prepare_task",
-      "atlas_task_state",
-      "atlas_validate_change",
-    ]);
+    expect(coreProfile.profile).toBe("core");
+    expect(namedTools).toEqual(coreProfile.tools.toSorted());
   });
 
   it("covers adaptive source and question modes without corporate data", async () => {
@@ -57,6 +57,9 @@ describe("frontend-task capability routing fixtures", () => {
       "repository-and-conversation",
       "jira-without-confluence-or-figma",
       "direct-figma-node",
+      "explicit-authority-directive",
+      "figma-production-asset",
+      "private-openapi-handoff",
       "large-figma-frame-segmented-context",
       "very-large-figma-page-adaptive-degradation",
       "figma-local-fallback",
@@ -111,6 +114,31 @@ describe("frontend-task capability routing fixtures", () => {
         "desktop-mcp-unauthorized",
         "operation-unsupported",
       ],
+    });
+    expect(byId.get("explicit-authority-directive")?.expected).toMatchObject({
+      figmaState: "confirmed",
+      openapiState: "confirmed",
+      confirmationSource: "current-turn-explicit-directive",
+      questionMode: "none-unless-sources-conflict",
+      bareLinksStillPending: true,
+    });
+    expect(byId.get("figma-production-asset")?.expected).toMatchObject({
+      coreRoute: "atlas_task_state",
+      sequence: [
+        "capture-figma-asset",
+        "lock-handle-and-destination",
+        "materialize-figma-asset",
+        "validate",
+      ],
+      bodyInContext: false,
+      destinationGate: "exact-change-surface-allowed-file",
+    });
+    expect(byId.get("private-openapi-handoff")?.expected).toMatchObject({
+      handoff: "transient-openapi-content",
+      refetch: false,
+      contentAddressing: "sha256",
+      durableEvidence: "document-and-operation-receipts",
+      bodyInMemory: false,
     });
     expect(
       byId.get("large-figma-frame-segmented-context")?.expected,
@@ -281,6 +309,7 @@ describe("frontend-task capability routing fixtures", () => {
     expect(skill).toMatch(/call `atlas_prepare_task` once/i);
     expect(skill).toMatch(/Classify only sources that are supplied or materially required/i);
     expect(skill).toMatch(/bare\s+reference stays `pending`/i);
+    expect(skill).toMatch(/current-turn\s+directive as confirmed without another round/i);
     expect(skill).toMatch(/Missing\s+optional evidence is a warning, not a blocker/i);
     expect(skill).toMatch(/transient OpenAPI 502\/503\/504, retry once/i);
     expect(skill).toMatch(/call `atlas_lock_change_scope`/i);

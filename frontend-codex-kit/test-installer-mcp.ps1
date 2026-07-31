@@ -325,6 +325,7 @@ try {
   $doctorRoot = Join-Path $root "Atlas Fixture With Spaces"
   $doctorSkills = Join-Path $root "Doctor Skills"
   $doctorConfig = Join-Path $root "Doctor Codex Home/config.toml"
+  $doctorProfile = Join-Path $doctorRoot "packages/mcp/core-profile.json"
   $doctorMcp = Join-Path $doctorRoot "packages/mcp/dist/index.js"
   $doctorCli = Join-Path $doctorRoot "packages/cli/dist/index.js"
   $doctorHelper = Join-Path $doctorRoot "frontend-codex-kit/register-codex-mcp.mjs"
@@ -343,15 +344,13 @@ try {
     $utf8NoBom
   )
   $mcpFixture = @'
+const fs = require("node:fs");
+const path = require("node:path");
 const readline = require("node:readline");
-const tools = [
-  "atlas_expand_context",
-  "atlas_lock_change_scope",
-  "atlas_memory",
-  "atlas_prepare_task",
-  "atlas_task_state",
-  "atlas_validate_change",
-].map((name) => ({
+const coreProfile = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "..", "core-profile.json"), "utf8"),
+);
+const tools = coreProfile.tools.map((name) => ({
   name,
   description: "Doctor fixture tool.",
   inputSchema: { type: "object", properties: {} },
@@ -380,6 +379,8 @@ input.on("line", (line) => {
 '@
   [System.IO.File]::WriteAllText($doctorMcp, $mcpFixture, $utf8NoBom)
   [System.IO.File]::WriteAllText($doctorCli, "fixture-cli", $utf8NoBom)
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot "../packages/mcp/core-profile.json") `
+    -Destination $doctorProfile
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot "register-codex-mcp.mjs") `
     -Destination $doctorHelper
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot "smoke-core-mcp.mjs") `

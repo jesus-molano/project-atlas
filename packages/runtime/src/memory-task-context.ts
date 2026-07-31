@@ -3,6 +3,7 @@ import {
   buildReuseContext,
   SOURCE_RECEIPT_SCHEMA_VERSION,
   tokenize,
+  type SourceReceipt,
   type TaskContextSourcePolicy,
 } from "@component-atlas/core";
 import {
@@ -56,11 +57,13 @@ export async function getTaskContext(
     confirmedFigmaReferences?: string[];
     confirmedOpenApiReferences?: string[];
     confirmedOpenApiSources?: ConfirmedOpenApiSource[];
+    currentOpenApiReceipts?: SourceReceipt[];
     openApiResolver?: OpenApiSourceResolver;
     preloadedOpenApiContext?: OpenApiTaskContext;
     taskId?: string;
     retrievalInvalidationReason?: TaskRetrievalInvalidationReason;
     sourceLedgerHash?: string;
+    sourceWarnings?: string[];
   } = {},
 ) {
   const graph = await loadProjectGraph(rootPath);
@@ -161,6 +164,7 @@ export async function getTaskContext(
             options.confirmedOpenApiReferences ??
             [],
           options.openApiResolver,
+          options.currentOpenApiReceipts,
         ))
       : undefined;
     const confirmedFigmaTargets = (
@@ -637,19 +641,36 @@ export async function getTaskContext(
         candidates: designCandidates,
       },
       sourceReceiptIds: sourceReceipts.map((receipt) => receipt.id),
+      ...(options.sourceWarnings?.length
+        ? { sourceWarnings: options.sourceWarnings.slice(0, 4) }
+        : {}),
       ...(api
         ? {
             api: {
               available: api.available,
               format: api.format,
               contracts: api.contracts,
+              operationIndex: api.operations.map(
+                ({ method, path, operationId, sourceReceiptIds }) => ({
+                  method,
+                  path,
+                  ...(operationId ? { operationId } : {}),
+                  sourceReceiptIds,
+                }),
+              ),
               operations: api.operations,
               authentication: api.authentication,
               conflicts: api.conflicts,
               errors: api.errors.map(
-                ({ receiptId, message, recoverableWithConnector }) => ({
+                ({
                   receiptId,
                   message,
+                  required,
+                  recoverableWithConnector,
+                }) => ({
+                  receiptId,
+                  message,
+                  required,
                   recoverableWithConnector,
                 }),
               ),
@@ -689,6 +710,9 @@ export async function getTaskContext(
               : {}),
             design: payload.design,
             sourceReceiptIds: payload.sourceReceiptIds,
+            ...(payload.sourceWarnings
+              ? { sourceWarnings: payload.sourceWarnings }
+              : {}),
             ...(payload.api ? { api: payload.api } : {}),
             findings: payload.findings,
             gate: payload.gate,
@@ -721,6 +745,8 @@ export async function getTaskContext(
         "decisions",
         "selections",
         "sourceReceiptIds",
+        "sourceWarnings",
+        "operationIndex",
       ],
       preserveFirstKeys: ["memory", "code", "candidates", "operations"],
       retrieval: {

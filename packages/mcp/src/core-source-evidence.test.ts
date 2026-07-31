@@ -17,9 +17,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   activeCurrentSourceReceiptIds,
   bindSourceEvidence,
+  bindSourceEvidenceBundle,
   confirmedOperationsFromReceipts,
+  containsCredentializedUrl,
   normalizedSources,
   requiredSourcesWithoutCurrentReceipts,
+  sourceInput,
 } from "./core-source-evidence.js";
 
 const execFileAsync = promisify(execFile);
@@ -32,6 +35,71 @@ afterEach(async () => {
 });
 
 describe("core source evidence", () => {
+  it("rejects credentialized source locators before the handler can persist them", () => {
+    const base = {
+      kind: "openapi" as const,
+      state: "confirmed" as const,
+      evidence: {
+        adapter: "openapi-internal-connector" as const,
+        route: "internal-connector:read-openapi",
+        operation: "read_openapi_document",
+        observed_at: "2026-07-31T10:00:00.000Z",
+      },
+    };
+    expect(
+      sourceInput.safeParse({
+        ...base,
+        reference: "https://user:password@api.example.test/openapi.json",
+      }).success,
+    ).toBe(false);
+    expect(
+      sourceInput.safeParse({
+        ...base,
+        reference: "https://api.example.test/openapi.json",
+        evidence: {
+          ...base.evidence,
+          resolved_reference:
+            "https://api.example.test/openapi.json?access_token=private",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      sourceInput.safeParse({
+        ...base,
+        reference: "https://api.example.test/openapi.json",
+        evidence: {
+          ...base.evidence,
+          route:
+            "https://storage.example.test/openapi.json?X-Amz-Signature=private",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      sourceInput.safeParse({
+        ...base,
+        reference: "https://api.example.test/openapi.json?version=v2",
+      }).success,
+    ).toBe(true);
+    expect(
+      containsCredentializedUrl(
+        "Use https://api.example.test/openapi.json?token=private as contract.",
+      ),
+    ).toBe(true);
+    expect(
+      containsCredentializedUrl(
+        "https://api.example.test/openapi.json#access_token=private",
+      ),
+    ).toBe(true);
+    expect(
+      containsCredentializedUrl(
+        "internal-connector:read?token=private",
+      ),
+    ).toBe(true);
+    expect(
+      containsCredentializedUrl("//user:private@api.example.test/openapi.json"),
+    ).toBe(true);
+  });
+
   it("keeps detected and supplied references pending until explicitly decided", () => {
     const reference = "https://github.com/example/project/issues/42";
     expect(normalizedSources(`Implement ${reference}`, [], [])).toEqual(
@@ -168,6 +236,81 @@ describe("core source evidence", () => {
     await expect(
       requiredSourcesWithoutCurrentReceipts(root, decisions, ids),
     ).resolves.toEqual([]);
+  });
+
+  it("rejects a mismatched digest before accepting transient OpenAPI content", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-core-openapi-hash-"));
+    roots.push(root);
+    await execFileAsync("git", ["init"], { cwd: root });
+    const reference = "https://swagger.internal.example.test/openapi.json";
+    const supplied = [
+      {
+        reference,
+        kind: "openapi" as const,
+        state: "confirmed" as const,
+        required: true,
+        authority_role: "contract" as const,
+        primary_adapter: "openapi-internal-connector",
+        fallback: "deny" as const,
+        evidence: {
+          adapter: "openapi-internal-connector" as const,
+          route: "internal-connector:openapi",
+          operation: "read_openapi_document",
+          observed_at: "2026-07-31T10:00:00.000Z",
+          freshness: "current" as const,
+          content_hash: `sha256:${"0".repeat(64)}`,
+          openapi_content: JSON.stringify({
+            openapi: "3.1.0",
+            info: { title: "Private API", version: "1" },
+            paths: { "/orders": { get: { responses: {} } } },
+          }),
+        },
+      },
+    ];
+    const decisions = normalizedSources("Read orders", [], supplied);
+
+    await expect(
+      bindSourceEvidenceBundle(root, decisions, supplied, []),
+    ).rejects.toThrow(/does not match its declared SHA-256 digest/i);
+  });
+
+  it("bounds transient OpenAPI content by UTF-8 bytes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-core-openapi-cap-"));
+    roots.push(root);
+    await execFileAsync("git", ["init"], { cwd: root });
+    const reference = "pasted:private-orders-contract";
+    const supplied = [
+      {
+        reference,
+        kind: "openapi" as const,
+        state: "confirmed" as const,
+        required: true,
+        authority_role: "contract" as const,
+        primary_adapter: "openapi-pasted",
+        fallback: "deny" as const,
+        evidence: {
+          adapter: "openapi-pasted" as const,
+          route: "caller:pasted-openapi",
+          operation: "read_pasted_openapi",
+          observed_at: "2026-07-31T10:00:00.000Z",
+          freshness: "current" as const,
+          openapi_content: JSON.stringify({
+            openapi: "3.1.0",
+            info: {
+              title: "Private API",
+              version: "1",
+              description: "é".repeat(760_000),
+            },
+            paths: {},
+          }),
+        },
+      },
+    ];
+    const decisions = normalizedSources("Read orders", [], supplied);
+
+    await expect(
+      bindSourceEvidenceBundle(root, decisions, supplied, []),
+    ).rejects.toThrow(/1.5 MB transient handoff budget/i);
   });
 
   it("bounds structured or multibyte Figma metadata by UTF-8 bytes", async () => {
@@ -325,6 +468,76 @@ describe("core source evidence", () => {
     ).resolves.toEqual([
       expect.objectContaining({ method: "GET", path: "/v2/catalog" }),
     ]);
+  });
+
+  it("supersedes hashless history and authorizes only the latest content-addressed OpenAPI observation", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-core-openapi-current-"));
+    roots.push(root);
+    await execFileAsync("git", ["init"], { cwd: root });
+    const reference = "https://api.example.test/openapi.json";
+    const decisions = normalizedSources("Use the current API", [], [
+      {
+        reference,
+        kind: "openapi",
+        state: "confirmed",
+        authority_role: "contract",
+        primary_adapter: "openapi-public-http",
+        fallback: "deny",
+      },
+    ]);
+    const identity = sourceIdentityFromReference("openapi", reference);
+    const observations = [
+      createSourceReceipt({
+        sourceDecisionId: decisions[0]!.id,
+        provider: "openapi",
+        requested: identity,
+        resolved: { ...identity, method: "GET", path: "/manual/orders" },
+        adapter: "openapi-public-http",
+        route: reference,
+        operation: "resolve-operation",
+        scope: { kind: "operation", id: "GET /manual/orders" },
+        observedAt: "2026-07-29T10:00:00.000Z",
+        coverage: "exact",
+        freshness: "current",
+      }),
+      createSourceReceipt({
+        sourceDecisionId: decisions[0]!.id,
+        provider: "openapi",
+        requested: identity,
+        resolved: { ...identity, method: "GET", path: "/v1/orders" },
+        adapter: "openapi-public-http",
+        route: reference,
+        operation: "derive-confirmed-operation",
+        scope: { kind: "operation", id: "GET /v1/orders" },
+        contentHash: `sha256:${"a".repeat(64)}`,
+        observedAt: "2026-07-30T10:00:00.000Z",
+        coverage: "exact",
+        freshness: "current",
+      }),
+      createSourceReceipt({
+        sourceDecisionId: decisions[0]!.id,
+        provider: "openapi",
+        requested: identity,
+        resolved: { ...identity, method: "GET", path: "/v2/orders" },
+        adapter: "openapi-public-http",
+        route: reference,
+        operation: "derive-confirmed-operation",
+        scope: { kind: "operation", id: "GET /v2/orders" },
+        contentHash: `sha256:${"b".repeat(64)}`,
+        observedAt: "2026-07-31T10:00:00.000Z",
+        coverage: "exact",
+        freshness: "current",
+      }),
+    ];
+    await persistSourceReceipts(root, observations);
+
+    await expect(
+      confirmedOperationsFromReceipts(
+        root,
+        observations.map((receipt) => receipt.id),
+        decisions,
+      ),
+    ).resolves.toEqual([{ method: "GET", path: "/v2/orders" }]);
   });
 
   it("keeps newly bound evidence when the durable receipt ledger already has 20 entries", async () => {

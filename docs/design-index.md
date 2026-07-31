@@ -129,11 +129,39 @@ excluded because they cannot be resolved durably; Atlas keeps the file/node ID
 and resolves relevant assets on demand. Selected assets use a separate bounded
 pipeline: Desktop MCP bytes are validated and stored only under
 `<platform Atlas storage root>/temp/assets/` behind an expiring handle containing
-hash, format, size, selected scope, and receipt provenance. Neither response
+checkout-bound hash, format, size, selected scope, and receipt provenance.
+The handle digest binds checkout identity and content, so a capture from one
+worktree cannot be materialized from another. Neither response
 bodies nor localhost URLs enter context, ledgers, capsules, or code. An
 explicit materialization step may write one validated new production asset
 inside the checkout; it refuses overwrite, path escape, unsafe SVG content,
-format mismatch, tampering, and expired handles.
+format mismatch, tampering, and expired handles. Its temporary SVG/binary body
+is deleted immediately after a successful write; bounded metadata remains
+expandable only until task completion, when Atlas removes every v2 asset owned
+by that checkout. Legacy metadata remains readable for TTL cleanup but must be
+recaptured before authoritative use.
+
+The six-tool core profile exposes this pipeline through two discriminated
+`atlas_task_state` actions. `capture-figma-asset` runs while the task is being
+prepared and requires a current, exact Figma Desktop MCP `SourceReceipt` from
+that task ledger. It returns only expiring `figma-asset:` metadata, checkpoints
+the handle, and never transports the body or localhost URL. The handle can be
+inspected with `atlas_expand_context` using the same `task_id`. After
+`atlas_lock_change_scope` freezes both that handle and its production path,
+`materialize-figma-asset` writes only when the immutable ChangeSurface v2 is
+active, non-invalidated, and its `allowedFiles` contains that exact normalized
+destination. Authorization is checked against the complete task source ledger
+and its frozen hash/counts, not only the four receipt IDs projected into the
+compact lock. Materialization is intentionally unavailable after validation;
+capture, lock, materialize, and validate remain a monotonic sequence.
+The compact ChangeSurface stores at most eight evidence handles total,
+prioritizing the exact `visual:` contract and Figma assets over code/context
+references. A common Jira-sized task can therefore freeze one visual contract
+plus several individual assets, including an asset captured during an explicit
+relock window, while remaining inside the 2.8 KB lock and 4 KB capsule limits.
+Larger export sets or unusually long task identities still require an explicit
+batch (or a future content-addressed asset-manifest handle) rather than silent
+evidence loss.
 
 ## Ready for Dev provenance
 

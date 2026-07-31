@@ -71,12 +71,20 @@ export function compact<T extends Record<string, unknown>>(
   value: T,
   budgetChars: number,
   expandableIds: string[] = [],
+  preserveKeys: string[] = [],
 ) {
   return fitBudgetedResponse(value, {
     budgetChars,
     totalMatches: expandableIds.length,
     expandableIds,
-    preserveKeys: ["taskId", "risk", "status", "gate", "findings"],
+    preserveKeys: [
+      "taskId",
+      "risk",
+      "status",
+      "gate",
+      "findings",
+      ...preserveKeys,
+    ],
   });
 }
 

@@ -44,7 +44,33 @@ locked scope changes materially, record the named invalidation and rerun
 new turn starts or context is compacted.
 
 OpenAPI bodies are not persisted. Receipts store identity, status, provenance,
-hash and bounded extracted operation evidence. Exact URLs remain task-scoped.
+hash and bounded extracted operation evidence. Non-secret exact URLs remain
+task-scoped. Task objectives, source references, resolved references, and
+routes reject URL userinfo and known token/signature query parameters before
+the core handler runs. Internal connectors should report a stable adapter route
+identifier, not an authenticated or pre-signed URL.
+When an authenticated connector or the user has already supplied a private or
+pasted contract, core evidence may carry its UTF-8 text once as
+`evidence.openapi_content` (maximum 1.5 MB). Atlas verifies any declared
+`content_hash`, parses that transient value without another HTTP/file read, and
+then discards it. The durable result is one content-addressed document receipt,
+one exact receipt per selected operation, and a compact `operationIndex`; the
+raw contract never enters the task capsule, retrieval storage, or Project
+Memory. Repeating the same observation and body is idempotent because all
+receipt identities derive from the same immutable evidence fields.
+Later preparation or relock calls reuse only the latest current,
+content-addressed document/operation receipts for each confirmed decision. That
+receipt-derived context intentionally contains operation identity rather than
+the discarded schemas/auth body, and performs no HTTP or file read. A source
+routed to an internal connector or paste can never fall through to automatic
+public HTTP/local-file loading when its body or derived receipts are absent.
+When at least one contract is required, preparation composes it with the
+eligible confirmed optional contracts: failures of required sources and
+cross-contract conflicts block, while an unavailable optional contract remains
+a labelled advisory instead of silently disappearing from the source picture.
+The injected context is bounded to three contracts, ordered required-first.
+More than three required contracts blocks preparation; optional overflow is
+reported explicitly and can be narrowed or replaced when its operations matter.
 
 ## Persistence scopes
 

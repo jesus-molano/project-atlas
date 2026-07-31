@@ -5,6 +5,7 @@ import {
   readFile,
   readdir,
   realpath,
+  rmdir,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -16,12 +17,14 @@ import {
   type SourceReceipt,
 } from "@component-atlas/core";
 import { projectAtlasTempRoot } from "@component-atlas/store";
+import { resolveProjectIdentity } from "./identity.js";
 import {
   loadConfirmedTaskSourceDecision,
   loadPersistedSourceReceipt,
 } from "./task-state.js";
 
-const ASSET_SCHEMA_VERSION = 1 as const;
+const LEGACY_ASSET_SCHEMA_VERSION = 1 as const;
+const ASSET_SCHEMA_VERSION = 2 as const;
 const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const RECEIPT_ID = SOURCE_RECEIPT_ID_PATTERN;
 const HANDLE =
@@ -34,9 +37,12 @@ const MAX_TTL_MS = 24 * 60 * 60 * 1_000;
 export type FigmaAssetFormat = "svg" | "png" | "jpg" | "webp";
 
 export interface FigmaAssetMetadata {
-  schemaVersion: typeof ASSET_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof LEGACY_ASSET_SCHEMA_VERSION
+    | typeof ASSET_SCHEMA_VERSION;
   handle: string;
   taskId: string;
+  checkoutId?: string;
   sourceReceiptId: string;
   fileKey: string;
   scopeNodeId: string;
@@ -287,13 +293,21 @@ function assetPath(
 
 function parseMetadata(value: unknown, expectedHandle?: string): FigmaAssetMetadata {
   const metadata = value as FigmaAssetMetadata;
+  const handleMatch = metadata?.handle?.match(HANDLE);
   if (
     !metadata ||
-    metadata.schemaVersion !== ASSET_SCHEMA_VERSION ||
+    ![LEGACY_ASSET_SCHEMA_VERSION, ASSET_SCHEMA_VERSION].includes(
+      metadata.schemaVersion,
+    ) ||
     metadata.ephemeral !== true ||
-    !HANDLE.test(metadata.handle) ||
+    !handleMatch ||
+    handleMatch[1] !== metadata.taskId ||
     (expectedHandle && metadata.handle !== expectedHandle) ||
     !TASK_ID.test(metadata.taskId) ||
+    (metadata.schemaVersion === ASSET_SCHEMA_VERSION &&
+      !/^[a-f0-9]{20}$/u.test(metadata.checkoutId ?? "")) ||
+    (metadata.schemaVersion === LEGACY_ASSET_SCHEMA_VERSION &&
+      metadata.checkoutId !== undefined) ||
     !RECEIPT_ID.test(metadata.sourceReceiptId) ||
     !/^sha256:[a-f0-9]{64}$/u.test(metadata.contentHash) ||
     !["svg", "png", "jpg", "webp"].includes(metadata.format) ||
@@ -374,7 +388,11 @@ export async function captureFigmaAsset(
   const loaded = await load(input.sourceUrl, MAX_RASTER_BYTES);
   const inspected = inspectAsset(loaded.body, loaded.contentType);
   const digest = createHash("sha256").update(loaded.body).digest("hex");
-  const shortHash = digest.slice(0, 24);
+  const projectIdentity = await resolveProjectIdentity(input.rootPath);
+  const shortHash = createHash("sha256")
+    .update(`${projectIdentity.checkoutId}\0${digest}`)
+    .digest("hex")
+    .slice(0, 24);
   const handle = `figma-asset:${input.taskId}:${shortHash}`;
   const now = input.at ?? new Date().toISOString();
   const ttl = Math.min(
@@ -385,6 +403,7 @@ export async function captureFigmaAsset(
     schemaVersion: ASSET_SCHEMA_VERSION,
     handle,
     taskId: input.taskId,
+    checkoutId: projectIdentity.checkoutId,
     sourceReceiptId: receipt.id,
     fileKey: receipt.requested.fileKey,
     scopeNodeId: input.scopeNodeId,
@@ -434,14 +453,30 @@ export async function captureFigmaAsset(
 
 export async function loadFigmaAssetMetadata(
   handle: string,
+  rootPath?: string,
 ): Promise<FigmaAssetMetadata> {
   const match = handle.match(HANDLE);
   if (!match) throw new Error("Figma asset handle is invalid.");
   const [, taskId, shortHash] = match;
-  return parseMetadata(
+  const metadata = parseMetadata(
     JSON.parse(await readFile(metadataPath(taskId!, shortHash!), "utf8")),
     handle,
   );
+  if (rootPath) {
+    const identity = await resolveProjectIdentity(rootPath);
+    if (
+      metadata.schemaVersion !== ASSET_SCHEMA_VERSION ||
+      !metadata.checkoutId
+    ) {
+      throw new Error(
+        "Legacy Figma asset metadata is not checkout-bound; recapture the asset before materializing it.",
+      );
+    }
+    if (metadata.checkoutId !== identity.checkoutId) {
+      throw new Error("Figma asset handle belongs to a different checkout.");
+    }
+  }
+  return metadata;
 }
 
 function insideRoot(root: string, candidate: string): boolean {
@@ -479,6 +514,7 @@ export async function materializeFigmaAsset(input: {
   bytes: number;
   contentHash: string;
   sourceReceiptId: string;
+  temporaryAssetRemoved: true;
 }> {
   if (
     path.isAbsolute(input.destinationPath) ||
@@ -496,7 +532,7 @@ export async function materializeFigmaAsset(input: {
   ) {
     throw new Error("Figma asset destination is not a production asset path.");
   }
-  const metadata = await loadFigmaAssetMetadata(input.handle);
+  const metadata = await loadFigmaAssetMetadata(input.handle, input.rootPath);
   if (Date.parse(input.at ?? new Date().toISOString()) > Date.parse(metadata.expiresAt)) {
     throw new Error("Figma asset handle has expired.");
   }
@@ -510,12 +546,26 @@ export async function materializeFigmaAsset(input: {
   ) {
     throw new Error("Figma asset destination extension does not match its format.");
   }
+  try {
+    const existing = await lstat(destination);
+    if (existing) throw new Error("Figma asset destination already exists.");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const match = input.handle.match(HANDLE)!;
   const source = assetPath(metadata.taskId, match[2]!, metadata.format);
   const body = await readFile(source);
-  const digest = `sha256:${createHash("sha256").update(body).digest("hex")}`;
+  const contentDigest = createHash("sha256").update(body).digest("hex");
+  const digest = `sha256:${contentDigest}`;
   if (digest !== metadata.contentHash || body.byteLength !== metadata.bytes) {
     throw new Error("Figma asset bytes do not match their handle.");
+  }
+  const expectedShortHash = createHash("sha256")
+    .update(`${metadata.checkoutId}\0${contentDigest}`)
+    .digest("hex")
+    .slice(0, 24);
+  if (match[2] !== expectedShortHash) {
+    throw new Error("Figma asset handle is not bound to its checkout and bytes.");
   }
   inspectAsset(body, metadata.mediaType);
   const existingAncestor = await nearestExistingAncestor(
@@ -536,13 +586,87 @@ export async function materializeFigmaAsset(input: {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   await writeFile(destination, body, { flag: "wx" });
+  await unlink(source);
   return {
     handle: metadata.handle,
     projectPath: path.relative(root, destination).split(path.sep).join("/"),
     bytes: metadata.bytes,
     contentHash: metadata.contentHash,
     sourceReceiptId: metadata.sourceReceiptId,
+    temporaryAssetRemoved: true,
   };
+}
+
+export async function purgeTaskFigmaAssets(input: {
+  rootPath: string;
+  taskId: string;
+}): Promise<{ inspected: number; removed: number; retained: number }> {
+  const taskId = checkedTaskId(input.taskId);
+  const checkoutId = (await resolveProjectIdentity(input.rootPath)).checkoutId;
+  const assetsRoot = path.resolve(projectAtlasTempRoot(), "assets");
+  const directory = path.resolve(assetRoot(taskId));
+  if (
+    path.dirname(directory) !== assetsRoot ||
+    !/^task-[a-f0-9]{20}$/u.test(path.basename(directory))
+  ) {
+    throw new Error("Figma asset task directory is invalid.");
+  }
+  const entries = await readdir(directory, { withFileTypes: true }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    },
+  );
+  let inspected = 0;
+  let removed = 0;
+  let retained = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) {
+      continue;
+    }
+    inspected += 1;
+    let metadata: FigmaAssetMetadata;
+    try {
+      metadata = parseMetadata(
+        JSON.parse(await readFile(path.join(directory, entry.name), "utf8")),
+      );
+    } catch {
+      retained += 1;
+      continue;
+    }
+    if (
+      metadata.taskId !== taskId ||
+      metadata.schemaVersion !== ASSET_SCHEMA_VERSION ||
+      metadata.checkoutId !== checkoutId
+    ) {
+      // Legacy metadata is intentionally left to TTL cleanup because it has
+      // no checkout identity. V2 metadata from another worktree must survive.
+      retained += 1;
+      continue;
+    }
+    const match = metadata.handle.match(HANDLE);
+    if (!match) {
+      retained += 1;
+      continue;
+    }
+    await Promise.all([
+      unlink(path.join(directory, entry.name)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      }),
+      unlink(assetPath(taskId, match[2]!, metadata.format)).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error;
+        },
+      ),
+    ]);
+    removed += 1;
+  }
+  await rmdir(directory).catch((error: NodeJS.ErrnoException) => {
+    if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code ?? "")) {
+      throw error;
+    }
+  });
+  return { inspected, removed, retained };
 }
 
 export async function purgeExpiredFigmaAssets(input: {

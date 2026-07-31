@@ -9,13 +9,15 @@ required.
 1. Resolve the repository root and task text.
 2. Detect only references supplied in the task or immediately attached to it:
    Jira, Confluence, Figma, GitHub, Swagger/OpenAPI, and local contracts.
-3. Record a bare detected reference as `pending`. "Use this" beside a URL is
-   still ambiguous. Do not probe a connector, login, credential, URL, or
+3. Record a bare detected reference as `pending`. A vague "use this" beside a
+   URL is still ambiguous. Do not probe a connector, login, credential, URL, or
    provider health to classify it.
-4. Confirmation must unambiguously bind the exact identity, provider, intended
-   authority, and task scope, for example: "Use Figma node X as the confirmed
-   visual authority for checkout." If any of those boundaries is unclear, keep
-   the reference `pending`.
+4. Count the current user turn as confirmation without asking again only when an
+   imperative binds the exact identity, provider, intended authority, and task
+   scope, for example: "Implement checkout using Figma node X as visual
+   authority" or "Use Swagger Y as the API contract for checkout." If any
+   boundary is unclear, the link is incidental/secondary, or confirmed sources
+   conflict, keep it `pending`.
 5. Classify only domains that can affect the task:
 
 | Source | Required | Optional/recommended | Not applicable |
@@ -57,7 +59,9 @@ Use the provider that owns the source:
 - Jira/Confluence through the connected Atlassian capability;
 - Figma through the available confirmed Figma route and its required skill;
 - OpenAPI through the supplied URL, local file, or pasted contract with bounded
-  same-origin derivation and network safety;
+  same-origin derivation and network safety. When a connector or paste already
+  returned the document, pass it once as transient `openapi_content`; Atlas
+  hashes and parses it without fetching the reference again;
 - GitHub through the connected GitHub capability;
 - Atlas through its six core tools.
 
@@ -88,6 +92,13 @@ Every new evidence object must include the provider's stable ISO-8601
 retry time. The receipt identity binds the complete normalized authority tuple,
 including route, operation, requested/resolved identity, scope, fallback,
 coverage, freshness, content hash, and observation time.
+
+Transient OpenAPI bodies are capped at 1.5 MB and must match an optional
+`sha256:` `content_hash`. They exist only for that core call; retain the returned
+document and operation receipt IDs, never copy the body into task memory.
+Do not pass credentials or signed-token query parameters in a reference,
+resolved reference, or route. An internal connector route must be a stable
+adapter identifier; keep authenticated transport URLs inside the connector.
 
 - `pending` must return `needs-confirmation` without repository scan or external
   retrieval; normally resolve it before making the call.

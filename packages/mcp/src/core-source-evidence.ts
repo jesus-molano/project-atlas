@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   assertSourceReceiptMatchesDecision,
   classifyTaskSource,
@@ -19,12 +20,94 @@ import {
   loadTaskSourceLedger,
   mapFigmaDesign,
   persistSourceReceipts,
+  extractOpenApiTaskContext,
+  type ConfirmedOpenApiSource,
   type TaskResumeCapsule,
 } from "@component-atlas/runtime";
 import { z } from "zod";
 import { sourceLedgerFingerprint } from "./core-tool-helpers.js";
 
 const MAX_FIGMA_METADATA_BYTES = 2_000_000;
+const MAX_OPENAPI_CONTENT_BYTES = 1_500_000;
+const TRANSIENT_OPENAPI_ADAPTERS = new Set<string>([
+  "openapi-local-file",
+  "openapi-pasted",
+  "openapi-public-http",
+  "openapi-internal-connector",
+  "manual-import",
+  "other",
+]);
+const SECRET_URL_PARAMETER_KEYS = new Set([
+  "accesstoken",
+  "apikey",
+  "authorization",
+  "bearertoken",
+  "clientsecret",
+  "jwt",
+  "password",
+  "passwd",
+  "secret",
+  "sig",
+  "signature",
+  "token",
+  "xamzcredential",
+  "xamzsecuritytoken",
+  "xamzsignature",
+  "xgoogcredential",
+  "xgoogsignature",
+]);
+
+function hasSecretParameter(keys: Iterable<string>): boolean {
+  return [...keys].some((key) =>
+    SECRET_URL_PARAMETER_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/gu, "")),
+  );
+}
+
+function urlHasCredentials(value: string): boolean {
+  let url: URL;
+  try {
+    url = value.startsWith("//")
+      ? new URL(value, "https://project-atlas.invalid")
+      : new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.username || url.password) return true;
+  if (hasSecretParameter(url.searchParams.keys())) return true;
+  const fragment = url.hash.replace(/^#/u, "");
+  if (!fragment) return false;
+  if (hasSecretParameter(new URLSearchParams(fragment).keys())) return true;
+  const fragmentQuery = fragment.indexOf("?");
+  return (
+    fragmentQuery >= 0 &&
+    hasSecretParameter(
+      new URLSearchParams(fragment.slice(fragmentQuery + 1)).keys(),
+    )
+  );
+}
+
+export function containsCredentializedUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (urlHasCredentials(trimmed)) return true;
+  const candidates = [
+    ...(value.match(/[a-z][a-z0-9+.-]*:[^\s<>"']+/giu) ?? []),
+    ...(value.match(/\/\/[^\s<>"']+/gu) ?? []),
+  ];
+  return candidates.some((candidate) =>
+    urlHasCredentials(candidate.replace(/[),.;\]}]+$/gu, "")),
+  );
+}
+
+function safeSourceLocator(maximum: number) {
+  return z
+    .string()
+    .min(1)
+    .max(maximum)
+    .refine((value) => !containsCredentializedUrl(value), {
+      message:
+        "Source locators must not contain URL credentials or secret signature parameters.",
+    });
+}
 
 export const sourceKind = z.enum([
   "jira",
@@ -65,10 +148,10 @@ const sourceAdapter = z.enum([
 ]);
 const sourceEvidenceInput = z.object({
   adapter: sourceAdapter,
-  route: z.string().min(1).max(500),
+  route: safeSourceLocator(500),
   operation: z.string().min(1).max(160),
   observed_at: z.string().datetime(),
-  resolved_reference: z.string().min(1).max(1_000).optional(),
+  resolved_reference: safeSourceLocator(1_000).optional(),
   content_hash: z.string().max(200).optional(),
   freshness: z.enum(["current", "stale", "unknown"]).optional(),
   scope: z
@@ -120,10 +203,11 @@ const sourceEvidenceInput = z.object({
       operation_id: z.string().min(1).max(200).optional(),
     })
     .optional(),
+  openapi_content: z.string().min(1).max(1_500_000).optional(),
 });
 
 export const sourceInput = z.object({
-  reference: z.string().min(1).max(1_000),
+  reference: safeSourceLocator(1_000),
   kind: sourceKind.optional(),
   state: sourceState.optional(),
   required: z.boolean().optional(),
@@ -335,16 +419,75 @@ function defaultReceiptScope(
   return { kind: "unknown" as const, id: identity.canonicalId };
 }
 
-export async function bindSourceEvidence(
+export interface BoundSourceEvidence {
+  receiptIds: string[];
+  transientOpenApiSources: ConfirmedOpenApiSource[];
+}
+
+function serializedOpenApiContent(
+  value: z.infer<typeof sourceEvidenceInput>["openapi_content"],
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (Buffer.byteLength(value, "utf8") > MAX_OPENAPI_CONTENT_BYTES) {
+    throw new Error(
+      "OpenAPI content exceeds the 1.5 MB transient handoff budget.",
+    );
+  }
+  return value;
+}
+
+export async function bindSourceEvidenceBundle(
   rootPath: string,
   decisions: TaskSourceDecision[],
   supplied: Array<z.infer<typeof sourceInput>>,
   existingReceiptIds: string[],
-): Promise<string[]> {
+): Promise<BoundSourceEvidence> {
   const receipts: SourceReceipt[] = [];
+  const transientOpenApiSources: ConfirmedOpenApiSource[] = [];
   const figmaMappings: Array<Parameters<typeof mapFigmaDesign>[0]> = [];
   for (const source of supplied) {
     if (!source.evidence) continue;
+    const kind = source.kind ?? classifyTaskSource(source.reference);
+    const decision = decisions.find(
+      (candidate) => candidate.id === taskSourceId(kind, source.reference),
+    );
+    if (!decision || decision.state !== "confirmed") {
+      throw new Error(
+        `Evidence for ${source.reference} requires an explicitly confirmed source decision.`,
+      );
+    }
+    const openApiContent = serializedOpenApiContent(
+      source.evidence.openapi_content,
+    );
+    if (openApiContent !== undefined) {
+      if (kind !== "openapi") {
+        throw new Error(
+          "openapi_content evidence is valid only for OpenAPI sources.",
+        );
+      }
+      if (source.evidence.openapi_operation) {
+        throw new Error(
+          "Supply either the OpenAPI document content or one manual operation, not both.",
+        );
+      }
+      if (
+        source.evidence.scope !== undefined &&
+        source.evidence.scope.kind !== "document"
+      ) {
+        throw new Error(
+          "Transient OpenAPI content must use document scope; operation receipts are derived by Atlas.",
+        );
+      }
+      if (!TRANSIENT_OPENAPI_ADAPTERS.has(source.evidence.adapter)) {
+        throw new Error(
+          "Transient OpenAPI content requires an OpenAPI, manual-import or explicitly other adapter.",
+        );
+      }
+      // Parse before any receipt or design-index side effect. The objective is
+      // deliberately empty here: this pass validates the bounded document;
+      // task-aware operation ranking runs later in prepareTaskContext.
+      extractOpenApiTaskContext(openApiContent, "");
+    }
     if (source.evidence.figma_metadata !== undefined) {
       const serializedMetadata =
         typeof source.evidence.figma_metadata === "string"
@@ -358,15 +501,6 @@ export async function bindSourceEvidence(
           "Figma metadata exceeds the 2 MB task evidence budget.",
         );
       }
-    }
-    const kind = source.kind ?? classifyTaskSource(source.reference);
-    const decision = decisions.find(
-      (candidate) => candidate.id === taskSourceId(kind, source.reference),
-    );
-    if (!decision || decision.state !== "confirmed") {
-      throw new Error(
-        `Evidence for ${source.reference} requires an explicitly confirmed source decision.`,
-      );
     }
     const requested = sourceIdentityFromReference(decision.kind, decision.reference);
     const resolved = sourceIdentityFromReference(
@@ -413,6 +547,18 @@ export async function bindSourceEvidence(
             targetId: scope.id,
           }
         : undefined;
+    const computedOpenApiHash = openApiContent
+      ? `sha256:${createHash("sha256").update(openApiContent).digest("hex")}`
+      : undefined;
+    if (
+      computedOpenApiHash &&
+      source.evidence.content_hash !== undefined &&
+      source.evidence.content_hash !== computedOpenApiHash
+    ) {
+      throw new Error(
+        "The transient OpenAPI content does not match its declared SHA-256 digest.",
+      );
+    }
     const receipt = createSourceReceipt({
       sourceDecisionId: decision.id,
       provider: decision.kind,
@@ -424,8 +570,11 @@ export async function bindSourceEvidence(
       scope,
       ...(scopeRelation ? { scopeRelation } : {}),
       observedAt: source.evidence.observed_at,
-      ...(source.evidence.content_hash
-        ? { contentHash: source.evidence.content_hash }
+      ...(computedOpenApiHash ?? source.evidence.content_hash
+        ? {
+            contentHash:
+              computedOpenApiHash ?? source.evidence.content_hash!,
+          }
         : {}),
       ...(source.evidence.fallback
         ? {
@@ -441,6 +590,36 @@ export async function bindSourceEvidence(
     });
     assertSourceReceiptMatchesDecision(decision, receipt);
     receipts.push(receipt);
+
+    if (openApiContent !== undefined) {
+      transientOpenApiSources.push({
+        sourceDecisionId: decision.id,
+        reference: decision.reference,
+        required: decision.required,
+        content: openApiContent,
+        contentHash: computedOpenApiHash!,
+        sourceReceipt: receipt,
+        adapter: source.evidence.adapter as NonNullable<
+          ConfirmedOpenApiSource["adapter"]
+        >,
+        route: source.evidence.route,
+        operation: source.evidence.operation,
+        observedAt: source.evidence.observed_at,
+        ...(source.evidence.fallback
+          ? {
+              fallback: {
+                fromAdapter: source.evidence.fallback.from_adapter,
+                condition: source.evidence.fallback.condition,
+                identityPreserved:
+                  source.evidence.fallback.identity_preserved,
+              },
+            }
+          : {}),
+        ...(decision.routePolicy
+          ? { routePolicy: decision.routePolicy }
+          : {}),
+      });
+    }
 
     if (decision.kind === "figma" && source.evidence.figma_metadata) {
       figmaMappings.push({
@@ -495,7 +674,23 @@ export async function bindSourceEvidence(
   if (receiptIds.length > 128) {
     throw new Error("A task source ledger supports at most 128 receipt IDs.");
   }
-  return receiptIds;
+  return { receiptIds, transientOpenApiSources };
+}
+
+export async function bindSourceEvidence(
+  rootPath: string,
+  decisions: TaskSourceDecision[],
+  supplied: Array<z.infer<typeof sourceInput>>,
+  existingReceiptIds: string[],
+): Promise<string[]> {
+  return (
+    await bindSourceEvidenceBundle(
+      rootPath,
+      decisions,
+      supplied,
+      existingReceiptIds,
+    )
+  ).receiptIds;
 }
 
 export async function activeCurrentSourceReceiptIds(
@@ -523,7 +718,7 @@ export async function confirmedOperationsFromReceipts(
   receiptIds: string[],
   decisions?: TaskSourceDecision[],
 ): Promise<Array<{ method: string; path: string; operationId?: string }>> {
-  const operations = [];
+  const candidates: SourceReceipt[] = [];
   for (const receiptId of receiptIds) {
     const receipt = await loadPersistedSourceReceipt(rootPath, receiptId);
     if (receipt.provider !== "openapi") continue;
@@ -537,6 +732,59 @@ export async function confirmedOperationsFromReceipts(
     if (receipt.coverage !== "exact" || receipt.freshness !== "current") {
       continue;
     }
+    candidates.push(receipt);
+  }
+  const contentAddressedDecisions = new Set(
+    candidates
+      .filter((candidate) => Boolean(candidate.contentHash))
+      .map((candidate) => candidate.sourceDecisionId),
+  );
+  // Once Atlas has an immutable document observation for a decision, older
+  // hashless/manual operation receipts remain audit history only. Mixing them
+  // back into the current operation set could authorize an endpoint removed
+  // by the newer governing contract.
+  const authoritativeCandidates = candidates.filter(
+    (candidate) =>
+      !contentAddressedDecisions.has(candidate.sourceDecisionId) ||
+      Boolean(candidate.contentHash),
+  );
+  const latestObservationByDecision = new Map<string, string>();
+  for (const receipt of authoritativeCandidates.filter(
+    (candidate) => candidate.contentHash,
+  )) {
+    const current = latestObservationByDecision.get(receipt.sourceDecisionId);
+    if (!current || Date.parse(receipt.observedAt) > Date.parse(current)) {
+      latestObservationByDecision.set(
+        receipt.sourceDecisionId,
+        receipt.observedAt,
+      );
+    }
+  }
+  const latest = authoritativeCandidates.filter(
+    (receipt) =>
+      !receipt.contentHash ||
+      receipt.observedAt ===
+        latestObservationByDecision.get(receipt.sourceDecisionId),
+  );
+  for (const [sourceDecisionId, observedAt] of latestObservationByDecision) {
+    const hashes = new Set(
+      latest
+        .filter(
+          (receipt) =>
+            receipt.sourceDecisionId === sourceDecisionId &&
+            receipt.observedAt === observedAt,
+        )
+        .map((receipt) => receipt.contentHash)
+        .filter((hash): hash is string => Boolean(hash)),
+    );
+    if (hashes.size > 1) {
+      throw new Error(
+        `OpenAPI source ${sourceDecisionId} has conflicting content hashes at its latest observation. Re-observe the governing contract before locking.`,
+      );
+    }
+  }
+  const operations = [];
+  for (const receipt of latest) {
     const identity = receipt.resolved;
     if (!identity.method || !identity.path) continue;
     operations.push({
@@ -545,7 +793,15 @@ export async function confirmedOperationsFromReceipts(
       ...(identity.operationId ? { operationId: identity.operationId } : {}),
     });
   }
-  return operations;
+  return operations.filter(
+    (operation, index, collection) =>
+      collection.findIndex(
+        (candidate) =>
+          candidate.method === operation.method &&
+          candidate.path === operation.path &&
+          candidate.operationId === operation.operationId,
+      ) === index,
+  );
 }
 
 export async function requiredSourcesWithoutCurrentReceipts(
