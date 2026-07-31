@@ -51,8 +51,8 @@ new visual literals, unfamiliar breakpoints, likely duplicate primitives,
 missing comparable interactive states, and paths incompatible with explicitly
 confirmed OpenAPI operations. Theme findings never block; existing security,
 source-provenance, and required-contract gates remain authoritative. Code Atlas
-and Workbench show the same compact fingerprint/findings without adding a new
-top-level section.
+and native MCP validation expose the same compact fingerprint/findings without
+adding a GUI execution surface.
 
 ## Figma Page Planner v2
 

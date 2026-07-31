@@ -1,8 +1,8 @@
 import { createError } from "h3";
 import {
-  assertAgentSession,
+  assertLocalSession,
   assertSameOrigin,
-} from "../../../utils/agent-session";
+} from "../../../utils/local-session";
 import { unlinkRecentProject } from "../../../utils/project";
 
 interface UnlinkRecentProjectBody {
@@ -11,7 +11,7 @@ interface UnlinkRecentProjectBody {
 
 export default defineEventHandler(async (event) => {
   assertSameOrigin(event);
-  assertAgentSession(event);
+  assertLocalSession(event);
   const body = await readBody<UnlinkRecentProjectBody>(event);
   if (
     typeof body?.rootPath !== "string" ||

@@ -149,15 +149,10 @@ describe("task intake", () => {
     });
   });
 
-  it("requires the grouped four-source decision before high-risk context", () => {
+  it("does not invent absent source categories for a high-risk task", () => {
     const objective = "Change authentication permissions";
     const sources = ensureTaskSourceDecisions(objective, []);
-    expect(sources.map(({ kind }) => kind)).toEqual([
-      "jira",
-      "confluence",
-      "figma",
-      "openapi",
-    ]);
+    expect(sources).toEqual([]);
     expect(
       assessTaskIntake({
         schemaVersion: 1,
@@ -166,20 +161,6 @@ describe("task intake", () => {
         objectiveConfirmed: true,
         risk: assessTaskRisk(objective),
         sources: [],
-      }),
-    ).toMatchObject({ status: "needs-confirmation" });
-    expect(
-      assessTaskIntake({
-        schemaVersion: 1,
-        scope: "task",
-        objective,
-        objectiveConfirmed: true,
-        risk: assessTaskRisk(objective),
-        sources: sources.map((source) => ({
-          ...source,
-          state: "omitted" as const,
-          decidedAt: new Date(0).toISOString(),
-        })),
       }),
     ).toMatchObject({ status: "ready" });
   });

@@ -7,7 +7,6 @@ param(
   [string]$InstallMode = "link",
   [string]$CodexSkillsRoot = (Join-Path $HOME ".agents\skills"),
   [string]$ClaudeSkillsRoot = (Join-Path $HOME ".claude\skills"),
-  [switch]$InstallAgentsInstructions,
   [string]$CodexAgentsPath = (Join-Path $HOME ".codex\AGENTS.md"),
   [switch]$SkipDependencies,
   [switch]$SkipBuild,
@@ -174,12 +173,13 @@ function Ensure-McpCli(
   if ($DryRun) {
     if ($Client -eq "codex") {
       Invoke-Native $ClientExecutable @(
-        "mcp", "add", "component-atlas", "--", $NodeExecutable, $McpEntry
+        "mcp", "add", "component-atlas", "--", $NodeExecutable, $McpEntry,
+        "--profile", "core"
       ) "register Project Atlas MCP for Codex"
     } else {
       Invoke-Native $ClientExecutable @(
         "mcp", "add", "--scope", "user", "component-atlas", "--",
-        $NodeExecutable, $McpEntry
+        $NodeExecutable, $McpEntry, "--profile", "core"
       ) "register Project Atlas MCP for Claude Code"
     }
     return
@@ -194,12 +194,13 @@ function Ensure-McpCli(
 
   if ($Client -eq "codex") {
     Invoke-Native $ClientExecutable @(
-      "mcp", "add", "component-atlas", "--", $NodeExecutable, $McpEntry
+      "mcp", "add", "component-atlas", "--", $NodeExecutable, $McpEntry,
+      "--profile", "core"
     ) "register Project Atlas MCP for Codex"
   } else {
     Invoke-Native $ClientExecutable @(
       "mcp", "add", "--scope", "user", "component-atlas", "--",
-      $NodeExecutable, $McpEntry
+      $NodeExecutable, $McpEntry, "--profile", "core"
     ) "register Project Atlas MCP for Claude Code"
   }
 }
@@ -238,8 +239,7 @@ $reuseFirst = Join-Path $AtlasRoot "skills\reuse-first"
 $visualDirection = Join-Path $AtlasRoot "skills\visual-direction"
 $mcpEntry = Join-Path $AtlasRoot "packages\mcp\dist\index.js"
 $cliEntry = Join-Path $AtlasRoot "packages\cli\dist\index.js"
-$agentsInstaller = Join-Path $AtlasRoot "frontend-codex-kit\install-agents-instructions.ps1"
-$agentsBlock = Join-Path $AtlasRoot "frontend-codex-kit\templates\AGENTS.frontend-task.block.md"
+$agentsMigration = Join-Path $AtlasRoot "frontend-codex-kit\remove-agents-instructions.ps1"
 $codexMcpHelper = Join-Path $AtlasRoot "frontend-codex-kit\register-codex-mcp.mjs"
 
 foreach ($requiredPath in @(
@@ -297,12 +297,7 @@ if ($Agent -in @("codex", "both")) {
   Install-Skill $frontendTask $CodexSkillsRoot
   Install-Skill $reuseFirst $CodexSkillsRoot
   Install-Skill $visualDirection $CodexSkillsRoot
-  if ($InstallAgentsInstructions) {
-    & $agentsInstaller `
-      -TargetPath $CodexAgentsPath `
-      -BlockPath $agentsBlock `
-      -DryRun:$DryRun
-  }
+  & $agentsMigration -TargetPath $CodexAgentsPath -DryRun:$DryRun
 }
 if ($Agent -in @("claude", "both")) {
   Install-Skill $frontendTask $ClaudeSkillsRoot

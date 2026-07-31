@@ -3,18 +3,18 @@ import type { SourceHealthViewModel } from "@component-atlas/runtime";
 import type {
   ContextCostReport,
   ProjectCapabilityReport,
+  UsageTraceV2,
 } from "@component-atlas/core/browser";
-import type { AgentAdapterStatus } from "@component-atlas/agent";
 import {
   capabilityDisplayState,
   isSimulatedCapability,
 } from "~/utils/capabilities";
 import { localizeSourceHealth } from "~/i18n/generated";
 
-defineProps<{
+const props = defineProps<{
   sources: SourceHealthViewModel[];
   capabilities: ProjectCapabilityReport;
-  agent: AgentAdapterStatus;
+  usageTraces: UsageTraceV2[];
   contextCost: ContextCostReport;
   rootPath: string;
 }>();
@@ -26,6 +26,24 @@ const { formatDate, formatNumber, locale, runtimeMessage, statusLabel, t } =
   useAtlasI18n();
 const sourceCopy = (source: SourceHealthViewModel) =>
   localizeSourceHealth(source, locale.value);
+const exactTraces = computed(() =>
+  props.usageTraces.filter((trace) => trace.exactTotals),
+);
+const exactTotals = computed(() =>
+  exactTraces.value.reduce(
+    (total, trace) => ({
+      input: total.input + trace.tokens.input,
+      cachedInput: total.cachedInput + trace.tokens.cachedInput,
+      output: total.output + trace.tokens.output,
+      reasoning: total.reasoning + trace.tokens.reasoning,
+      compactions:
+        total.compactions +
+        trace.interaction.compactions.manual +
+        trace.interaction.compactions.automatic,
+    }),
+    { input: 0, cachedInput: 0, output: 0, reasoning: 0, compactions: 0 },
+  ),
+);
 const labels: Record<string, string> = {
   figma: "Figma",
   "atlassian-rovo": "Atlassian Rovo",
@@ -84,7 +102,7 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
   pending.value = source;
   error.value = "";
   try {
-    const session = await $fetch<{ token: string }>("/api/agent/session");
+    const session = await $fetch<{ token: string }>("/api/session");
     await $fetch("/api/refresh", {
       method: "POST",
       headers: { "x-atlas-session": session.token },
@@ -133,40 +151,34 @@ async function refresh(source: "repository" | "memory"): Promise<void> {
     </section>
     <section>
       <header class="workspace-toolbar">
-        <div><span class="eyebrow">{{ t("Agent adapter") }}</span><h2>Codex</h2></div>
+        <div><span class="eyebrow">{{ t("Local diagnostics") }}</span><h2>{{ t("Usage") }}</h2></div>
       </header>
-      <article class="health-record optional">
-        <span :class="['health-orb', agent.state]" />
-        <div>
-          <strong>{{ agent.label }}</strong>
-          <p>{{ t(agent.detail) }}</p>
-          <small>
-            {{ statusLabel(agent.authentication) }} · {{ t("checked {date}", { date: formatFreshness(agent.checkedAt) }) }}
-          </small>
-        </div>
-        <span class="status-chip">{{ statusLabel(agent.state) }}</span>
-      </article>
       <article class="health-record optional">
         <span class="health-orb connected" />
         <div>
-          <strong>{{ t("Context cost audit") }}</strong>
-          <p>{{ t("{count} instrumented records", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.runs ?? 0) }) }}</p>
+          <strong>{{ t("Exact Codex usage") }}</strong>
+          <p>{{ t("{count} exact local traces", { count: formatNumber(exactTraces.length) }) }}</p>
           <small>
-            {{ t("Median input") }}:
-            {{ t("{count} tokens", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.inputTokens.median ?? 0) }) }}
-            ·
-            {{ t("P95 input") }}:
-            {{ t("{count} tokens", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.inputTokens.p95 ?? 0) }) }}
-            ·
-            {{
-              t("{actual} actual / {estimated} estimated", {
-                actual: contextCost.groups.find((group) => group.taskType === "all")?.sdkRuns ?? 0,
-                estimated: contextCost.groups.find((group) => group.taskType === "all")?.estimatedRuns ?? 0,
-              })
-            }}
+            {{ t("Input") }} {{ formatNumber(exactTotals.input) }} ·
+            {{ t("Cached") }} {{ formatNumber(exactTotals.cachedInput) }} ·
+            {{ t("Output") }} {{ formatNumber(exactTotals.output) }} ·
+            {{ t("Reasoning") }} {{ formatNumber(exactTotals.reasoning) }} ·
+            {{ t("Compactions") }} {{ formatNumber(exactTotals.compactions) }}
           </small>
         </div>
-        <span class="status-chip">{{ t("Local-first") }}</span>
+        <span class="status-chip">{{ t("OTel / JSONL") }}</span>
+      </article>
+      <article
+        v-if="(contextCost.groups.find((group) => group.taskType === 'all')?.runs ?? 0) > 0"
+        class="health-record optional"
+      >
+        <span class="health-orb degraded" />
+        <div>
+          <strong>{{ t("Legacy context-cost audit") }}</strong>
+          <p>{{ t("{count} incomplete estimates", { count: formatNumber(contextCost.groups.find((group) => group.taskType === "all")?.runs ?? 0) }) }}</p>
+          <small>{{ t("Kept for migration only; these records are not mixed with exact totals.") }}</small>
+        </div>
+        <span class="status-chip">{{ t("Incomplete estimate") }}</span>
       </article>
       <header class="workspace-toolbar"><div><span class="eyebrow">{{ t("Observed capabilities") }}</span><h2>{{ t("Connectors") }}</h2></div></header>
       <article v-for="source in capabilities.observations.filter((item) => item.kind === 'connector')" :key="source.id" class="health-record optional">

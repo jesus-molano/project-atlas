@@ -1,6 +1,6 @@
 import { indexProjectMemory } from "@component-atlas/runtime";
 import { runBoundedProcess } from "../utils/bounded-process";
-import { assertAgentSession } from "../utils/agent-session";
+import { assertLocalSession } from "../utils/local-session";
 import { projectAtlasCliEntry, projectRootPath } from "../utils/project";
 
 interface RefreshBody {
@@ -49,7 +49,7 @@ async function refreshRepository(rootPath: string, signal?: AbortSignal) {
 }
 
 export default defineEventHandler(async (event) => {
-  assertAgentSession(event);
+  assertLocalSession(event);
   const body = await readBody<RefreshBody>(event);
   if (!body) {
     throw createError({ statusCode: 400, statusMessage: "Request body is required." });

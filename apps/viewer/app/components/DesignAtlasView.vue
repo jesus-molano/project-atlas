@@ -13,19 +13,6 @@ const props = defineProps<{
   indexes: DesignFileIndex[];
   capabilities?: ProjectCapabilityReport;
   initialNodeId?: string;
-  syncState?: {
-    status:
-      | "idle"
-      | "confirmed-unsynced"
-      | "loading"
-      | "available"
-      | "error";
-    message: string;
-  };
-}>();
-const emit = defineEmits<{
-  useInTask: [handle: string, intent: string];
-  prepareTask: [intent: string];
 }>();
 const { formatDate, statusLabel: uiStatusLabel, t } = useAtlasI18n();
 
@@ -130,29 +117,9 @@ const durableResources = computed(() =>
     }
   }),
 );
-const emptyStateTitle = computed(() => {
-  if (props.syncState?.status === "loading") {
-    return t("Synchronizing confirmed Figma source");
-  }
-  if (props.syncState?.status === "error") {
-    return t("Figma source could not be synchronized");
-  }
-  if (props.syncState?.status === "confirmed-unsynced") {
-    return t("Figma source confirmed, not synchronized");
-  }
-  return t("No design metadata is indexed");
-});
-const emptyStateCopy = computed(() => {
-  if (props.syncState && props.syncState.status !== "idle") {
-    return t(props.syncState.message);
-  }
-  return t("Add a Figma file or page in the Task Workbench. Atlas builds a sparse map first and uses Ready for Dev only as an optional confidence signal.");
-});
-const syncNoticeVisible = computed(
-  () =>
-    props.syncState?.status === "loading" ||
-    props.syncState?.status === "error" ||
-    props.syncState?.status === "confirmed-unsynced",
+const emptyStateTitle = computed(() => t("No design metadata is indexed"));
+const emptyStateCopy = computed(() =>
+  t("Index a Figma file with the Atlas CLI, then refresh this local view."),
 );
 const variableCatalogHeading = computed(() => {
   const collectionCount = variableCollections.value.length;
@@ -444,70 +411,23 @@ function handleVariableKeydown(event: KeyboardEvent, index: number): void {
 function designFamilyKindLabel(kind: "viewport" | "flow"): string {
   return kind === "viewport" ? t("Responsive widths") : t("Flow");
 }
-
-function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
-  if (!activeFile.value) return;
-  const handle = selectedNode.value
-    ? `design:${activeFile.value.file.key}::${selectedNode.value.id}`
-    : `design:${activeFile.value.file.key}`;
-  const intent =
-    action === "sync"
-      ? t("Refresh the sparse Figma map for {name} and preserve provenance.", {
-          name: activeFile.value.file.name ?? t("this design file"),
-        })
-      : t("Inspect {name} and relate it to code for this task.", {
-          name: selectedNode.value?.name ?? t("the selected design evidence"),
-        });
-  emit("useInTask", handle, intent);
-}
 </script>
 
 <template>
   <div
     v-if="!indexes.length"
     class="section-empty"
-    :role="syncState?.status === 'error' ? 'alert' : 'status'"
+    role="status"
     aria-live="polite"
-    :aria-busy="syncState?.status === 'loading'"
   >
     <AtlasIcon name="design" />
-    <span
-      v-if="syncState?.status === 'loading'"
-      class="mini-loader"
-      aria-hidden="true"
-    />
     <h2>{{ emptyStateTitle }}</h2>
     <p>{{ emptyStateCopy }}</p>
-    <button
-      class="primary-button"
-      :disabled="syncState?.status === 'loading'"
-      @click="emit('prepareTask', t('Map a Figma file or page for this project.'))"
-    >
-      {{ syncState?.status === "error" ? t("Review Figma access") : t("Map a Figma file") }}
-    </button>
   </div>
 
   <div v-else class="design-atlas-shell">
     <div
-      v-if="syncNoticeVisible"
-      :class="['design-sync-notice', syncState?.status]"
-      :role="syncState?.status === 'error' ? 'alert' : 'status'"
-      aria-live="polite"
-    >
-      <span
-        v-if="syncState?.status === 'loading'"
-        class="mini-loader"
-        aria-hidden="true"
-      />
-      <span>
-        <strong>{{ emptyStateTitle }}</strong>
-        <small>{{ syncState ? t(syncState.message) : "" }}</small>
-      </span>
-    </div>
-
-    <div
       class="atlas-workspace three-pane design-atlas"
-      :aria-busy="syncState?.status === 'loading'"
     >
     <aside class="index-pane" :aria-label="t('Design catalog')">
       <label class="field-label">
@@ -587,9 +507,6 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
             <p>{{ selectedNode.path.join(" / ") }}</p>
           </div>
           <div class="entity-actions">
-            <button class="primary-button" @click="useSelectedInTask('inspect')">
-              {{ t("Use in task") }}
-            </button>
             <a
               v-if="durableFigmaUrl(selectedNode.url)"
               :href="durableFigmaUrl(selectedNode.url)"
@@ -686,12 +603,6 @@ function useSelectedInTask(action: "inspect" | "sync" = "inspect"): void {
       <section>
         <span class="eyebrow">{{ t("File provenance") }}</span>
         <h3>{{ activeFile?.file.name ?? activeFile?.file.key }}</h3>
-        <button class="secondary-button" @click="useSelectedInTask('sync')">
-          {{ t("Prepare design refresh") }}
-        </button>
-        <p class="muted-copy">
-          {{ t("Adds a reviewed task. It does not claim a live Figma connection.") }}
-        </p>
         <dl class="stacked-facts">
           <div><dt>{{ t("Indexed") }}</dt><dd>{{ formatDate(activeFile?.indexedAt) }}</dd></div>
           <div><dt>{{ t("Modified") }}</dt><dd>{{ activeFile?.file.lastModified ? formatDate(activeFile.file.lastModified) : t("Unknown") }}</dd></div>

@@ -684,9 +684,9 @@ describe("visual-direction skill contract", () => {
     expect(authority).toMatch(/Direction cards[\s\S]*DesignContract[\s\S]*State matrix/i);
     expect(temporary).toMatch(/cleanup-pending[\s\S]*TTL sweep/i);
     expect(atlasHandoff).toMatch(
-      /Work \/ Codex handoff[\s\S]*progressive[\s\S]*capsuleProjection/i,
+      /Atlas capsule projection[\s\S]*Codex owns[\s\S]*Atlas stores bounded evidence/i,
     );
-    expect(atlasHandoff).toMatch(/never crosses[\s\S]*preview image bytes/i);
+    expect(atlasHandoff).toMatch(/Exclude prompt text[\s\S]*preview payloads/i);
     expect(frontendTask).toMatch(/`\$visual-direction`/);
     expect(brief).toMatch(/visual_direction:/);
 

@@ -17,10 +17,6 @@ const props = defineProps<{
   initialItemId?: string;
   includeInactive?: boolean;
 }>();
-const emit = defineEmits<{
-  useInTask: [handle: string, intent: string];
-  prepareTask: [intent: string];
-}>();
 
 const query = ref("");
 const type = ref<MemoryType | "all">("all");
@@ -136,17 +132,6 @@ function resetFilters(): void {
   type.value = "all";
   status.value = "all";
 }
-
-function useSelectedInTask(): void {
-  if (!selected.value) return;
-  emit(
-    "useInTask",
-    `memory:${selected.value.id}`,
-    locale.value === "es"
-      ? `Usa el conocimiento revisado del proyecto «${selected.value.title}» como evidencia para esta tarea.`
-      : `Use the project knowledge "${selected.value.title}" as reviewed evidence for this task.`,
-  );
-}
 </script>
 
 <template>
@@ -154,19 +139,6 @@ function useSelectedInTask(): void {
     <AtlasIcon name="memory" />
     <h2>{{ memoryT("coldStartTitle") }}</h2>
     <p>{{ memoryT("coldStartCopy") }}</p>
-    <button
-      class="primary-button"
-      @click="
-        emit(
-          'prepareTask',
-          locale === 'es'
-            ? 'Propón una memoria inicial revisada para este repositorio.'
-            : 'Propose a reviewed Project Memory bootstrap from this repository.',
-        )
-      "
-    >
-      {{ memoryT("coldStartAction") }}
-    </button>
   </div>
   <div v-else class="atlas-workspace memory-layout">
     <aside class="index-pane">
@@ -257,9 +229,6 @@ function useSelectedInTask(): void {
           <span :class="['status-chip', selected.status]">
             {{ enumLabel(selected.status) }}
           </span>
-          <button class="primary-button" @click="useSelectedInTask">
-            {{ memoryT("useInTask") }}
-          </button>
         </div>
       </header>
       <section

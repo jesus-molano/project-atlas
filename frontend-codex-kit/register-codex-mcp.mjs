@@ -14,7 +14,7 @@ export function createManagedBlock(nodeExecutable, mcpEntry, newline = "\n") {
   return [
     `[${SECTION_NAME}]`,
     `command = ${tomlString(nodeExecutable)}`,
-    `args = [${tomlString(mcpEntry)}]`,
+    `args = [${tomlString(mcpEntry)}, "--profile", "core"]`,
     "",
   ].join(newline);
 }
@@ -60,14 +60,18 @@ function inspectManagedSection(source) {
     /^[ \t]*command[ \t]*=[ \t]*("(?:\\.|[^"\\])*"|'[^']*')[ \t]*(?:#[^\r\n]*)?$/m,
   );
   const argsMatch = source.match(
-    /^[ \t]*args[ \t]*=[ \t]*\[[ \t]*("(?:\\.|[^"\\])*"|'[^']*')[ \t]*\][ \t]*(?:#[^\r\n]*)?$/m,
+    /^[ \t]*args[ \t]*=[ \t]*\[([^\r\n]*)\][ \t]*(?:#[^\r\n]*)?$/m,
   );
   const assignments = [...source.matchAll(/^[ \t]*([A-Za-z0-9_-]+)[ \t]*=/gm)]
     .map((match) => match[1])
     .sort();
   return {
     command: decodeTomlString(commandMatch?.[1]),
-    args: argsMatch ? [decodeTomlString(argsMatch[1])] : undefined,
+    args: argsMatch
+      ? [...argsMatch[1].matchAll(/("(?:\\.|[^"\\])*"|'[^']*')/g)].map(
+          (match) => decodeTomlString(match[1]),
+        )
+      : undefined,
     hasOnlyManagedKeys:
       assignments.length === 2 &&
       assignments[0] === "args" &&
@@ -157,6 +161,7 @@ export async function updateCodexMcpConfig({
     );
   }
 
+  const expectedArgs = [mcpEntry, "--profile", "core"];
   const expected = createManagedBlock(nodeExecutable, mcpEntry, newline);
   let nextSource;
   let action;
@@ -167,8 +172,10 @@ export async function updateCodexMcpConfig({
     const matches =
       current.hasOnlyManagedKeys &&
       samePath(current.command, nodeExecutable) &&
-      current.args?.length === 1 &&
-      samePath(current.args[0], mcpEntry);
+      current.args?.length === expectedArgs.length &&
+      samePath(current.args[0], mcpEntry) &&
+      current.args[1] === "--profile" &&
+      current.args[2] === "core";
     if (matches) {
       return {
         status: "unchanged",
@@ -176,15 +183,21 @@ export async function updateCodexMcpConfig({
         section: SECTION_NAME,
         nodeExecutable,
         mcpEntry,
+        expectedArgs,
       };
     }
-    if (!force) {
+    const upgradeableLegacyBlock =
+      current.hasOnlyManagedKeys &&
+      samePath(current.command, nodeExecutable) &&
+      current.args?.length === 1 &&
+      samePath(current.args[0], mcpEntry);
+    if (!force && !upgradeableLegacyBlock) {
       throw new McpConfigConflictError({
         configPath,
         currentCommand: current.command,
         currentArgs: current.args,
         expectedCommand: nodeExecutable,
-        expectedArgs: [mcpEntry],
+        expectedArgs,
       });
     }
     nextSource =
@@ -212,6 +225,7 @@ export async function updateCodexMcpConfig({
       section: SECTION_NAME,
       nodeExecutable,
       mcpEntry,
+      expectedArgs,
     };
   }
 
@@ -228,6 +242,7 @@ export async function updateCodexMcpConfig({
     section: SECTION_NAME,
     nodeExecutable,
     mcpEntry,
+    expectedArgs,
     backupPath,
   };
 }
@@ -269,7 +284,7 @@ function report(result) {
     `[frontend-codex-kit] ${verb} [${result.section}] in ${result.configPath}`,
   );
   console.log(`  command = ${result.nodeExecutable}`);
-  console.log(`  args = ${result.mcpEntry}`);
+  console.log(`  args = ${result.expectedArgs.join(" ")}`);
   if (result.backupPath) {
     console.log(`  backup = ${result.backupPath}`);
   }

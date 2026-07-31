@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { readViewerComponentSync } from "./viewer-component";
 import { readViewerCssSync } from "./viewer-css";
 
 const css = readViewerCssSync();
@@ -44,6 +43,15 @@ const viewerPage = readFileSync(
   ),
   "utf8",
 );
+const viewerPageState = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../apps/viewer/app/composables/useAtlasWorkspacePage.ts",
+      import.meta.url,
+    ),
+  ),
+  "utf8",
+);
 const scrollToTop = readFileSync(
   fileURLToPath(
     new URL(
@@ -58,14 +66,6 @@ const actionCenter = readFileSync(
     new URL("../apps/viewer/app/components/RisksView.vue", import.meta.url),
   ),
   "utf8",
-);
-const taskWorkbench = readViewerComponentSync(
-  fileURLToPath(
-    new URL(
-      "../apps/viewer/app/components/TaskWorkbenchView.vue",
-      import.meta.url,
-    ),
-  ),
 );
 const i18nComposable = readFileSync(
   fileURLToPath(
@@ -194,60 +194,12 @@ describe("evidence workspace responsive layout", () => {
     expect(css).toContain(".variable-token-detail");
   });
 
-  it("keeps the mobile source summary bounded and the exact Figma gate actionable", () => {
-    expect(taskWorkbench).toContain("class=\"source-count-summary\"");
-    expect(taskWorkbench).toContain("t(\"Synchronize exact target\")");
-    expect(taskWorkbench).toContain("t(\"Retry exact sync\")");
-    expect(taskWorkbench).toContain("aria-live=\"polite\"");
-    expect(taskWorkbench).toContain("pendingFigmaSources.value.length === 0");
-    expect(css).toMatch(
-      /@container atlas-workspace \(max-width: 900px\)[\s\S]*?\.workbench-inspector dl > \.source-count-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
-    );
-    expect(css).toMatch(
-      /\.workbench-inspector \.source-count-summary\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/,
-    );
-    expect(css).toMatch(
-      /\.workbench-inspector dl > div\s*\{[^}]*grid-template-columns:\s*minmax\(72px,\s*0\.8fr\)\s*minmax\(0,\s*1\.2fr\)/,
-    );
-    expect(css).toMatch(
-      /\.workbench-inspector dd\s*\{[^}]*overflow-wrap:\s*anywhere/,
-    );
-    expect(css).toMatch(
-      /\.workbench-inspector dl > \.source-count-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
-    );
-    expect(css).toMatch(
-      /\.source-decision\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/,
-    );
-    expect(css).toMatch(
-      /\.source-decision-actions\s*\{[\s\S]*?border-top:\s*1px solid var\(--atlas-rule-soft\)/,
-    );
-    expect(css).toMatch(
-      /\.figma-sync-band\s*\{[^}]*grid-template-columns:\s*auto minmax\(0,\s*1fr\)/,
-    );
-    expect(css).toMatch(
-      /\.figma-sync-actions\s*\{[^}]*grid-column:\s*2;[^}]*border-top:\s*1px solid var\(--atlas-rule-soft\)/,
-    );
-    expect(taskWorkbench).toContain(
-      "\"Figma source could not be synchronized. Check Figma Desktop MCP access, then retry the exact target.\"",
-    );
-    expect(taskWorkbench).toContain("class=\"task-intake-controls\"");
-    expect(taskWorkbench).toContain("class=\"task-status-row\"");
-    expect(taskWorkbench).toContain(`:aria-label="t('Task mode')"`);
-    expect(taskWorkbench).toContain("t(activeCheckpoint.nextSafeAction)");
-    expect(css).toMatch(
-      /\.task-intake-controls\s*\{[^}]*display:\s*grid;[^}]*gap:\s*7px/,
-    );
-    expect(css).toMatch(
-      /\.task-status-row \.text-button\s*\{[^}]*margin-left:\s*auto/,
-    );
-    expect(css).toMatch(
-      /\.decision-record > div > span\s*\{[^}]*display:\s*block;[^}]*margin-bottom:\s*4px/,
-    );
+  it("keeps the responsive stylesheet free of removed runner layouts", () => {
+    expect(css).not.toMatch(/workbench|task-intake-controls|figma-sync-band/u);
     expect(i18nComposable).toContain(
       "if (value === \"clear\") return t(\"No blockers\")",
     );
   });
-
   it("keeps Memory Inbox decisions before long content on tablet and compact layouts", () => {
     expect(memoryInbox).toContain("class=\"proposal-actions\"");
     expect(memoryInbox).toContain("openApprovalConfirmation");
@@ -266,17 +218,18 @@ describe("evidence workspace responsive layout", () => {
   });
 
   it("makes unavailable recent projects explicitly removable without implying navigation", () => {
-    expect(viewerPage).toContain("class=\"recent-project-unlink\"");
-    expect(viewerPage).toContain(
+    const pageContract = `${viewerPage}\n${viewerPageState}`;
+    expect(pageContract).toContain("class=\"recent-project-unlink\"");
+    expect(pageContract).toContain(
       `t('Remove {name} from recent projects', {`,
     );
-    expect(viewerPage).toContain(
+    expect(pageContract).toContain(
       "? \"Remove {count} unavailable project\"",
     );
-    expect(viewerPage).toContain(
+    expect(pageContract).toContain(
       ": \"Remove {count} unavailable projects\"",
     );
-    expect(viewerPage).toContain(
+    expect(pageContract).toContain(
       "\"This only removes unavailable links from recent-projects.json. Repositories and Project Atlas data are not deleted.\"",
     );
     expect(viewerPage).toContain(

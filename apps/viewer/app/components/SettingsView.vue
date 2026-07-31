@@ -119,7 +119,7 @@ function clearMetrics(): void {
       </p>
       <p class="muted-copy">
         {{
-          t("Agent audits are recorded on instrumented terminal run events, not when a user closes a task. Zero records means no local or imported instrumentation was observed; it does not prove that no work occurred.")
+          t("Usage records come from local Codex telemetry or explicit imports. Zero records means no instrumentation was observed; it does not prove that no work occurred.")
         }}
       </p>
       <p class="muted-copy">{{ t("Cross-device audits move only through explicit CLI export and import.") }}</p>

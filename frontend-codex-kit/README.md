@@ -10,14 +10,14 @@ documents installer behavior and recovery flags.
 From a stable Project Atlas clone:
 
 ```powershell
-.\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions
+.\frontend-codex-kit\install.ps1 -Agent codex
 ```
 
 The command:
 
 - installs dependencies and builds the complete local Atlas product;
-- installs `frontend-task`, explicit-only `visual-direction`, and `reuse-first`;
-- adds/updates the optional marked routing block in Codex `AGENTS.md`;
+- installs explicit-only `frontend-task` and `visual-direction`, plus `reuse-first`;
+- removes the obsolete marked Atlas routing block from Codex `AGENTS.md`;
 - adds the local Project Atlas MCP server to Codex;
 - confirms the centralized `%LOCALAPPDATA%\ProjectAtlas\` storage root.
 
@@ -31,7 +31,7 @@ corporate data.
 | Codex skills | `~/.agents/skills/frontend-task`, `visual-direction`, and `reuse-first` |
 | Claude skills | `~/.claude/skills/frontend-task`, `visual-direction`, and `reuse-first` |
 | Codex MCP entry | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` |
-| Optional routing block | `~/.codex/AGENTS.md` |
+| Legacy routing migration | `~/.codex/AGENTS.md` (marked Atlas block removed only) |
 | All durable Atlas project data | `%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\` |
 | Ephemeral assets/previews | `%LOCALAPPDATA%\ProjectAtlas\temp\` |
 
@@ -43,7 +43,6 @@ Legacy repository-local memory remains read-only compatibility evidence.
 | Flag | Purpose |
 | --- | --- |
 | `-Agent codex|claude|both` | Select clients |
-| `-InstallAgentsInstructions` | Maintain the small marked Codex routing block |
 | `-InstallMode link|copy` | Link skills by default or copy them |
 | `-CodexMcpMode auto|config|cli` | Select Codex MCP registration route |
 | `-ForceMcpConfig` | Replace a conflicting Atlas section after review |
@@ -65,7 +64,7 @@ Examples:
 .\frontend-codex-kit\install.ps1 -Agent codex -CodexMcpMode config
 
 # Install both supported clients
-.\frontend-codex-kit\install.ps1 -Agent both -InstallAgentsInstructions
+.\frontend-codex-kit\install.ps1 -Agent both
 
 # Continue without MCP registration
 .\frontend-codex-kit\install.ps1 -Agent codex -SkipMcp
@@ -79,7 +78,7 @@ packaged `codex.exe`. The managed section is:
 ```toml
 [mcp_servers.component-atlas]
 command = "C:\\absolute\\stable\\path\\to\\node.exe"
-args = ["C:\\absolute\\path\\to\\project-atlas\\packages\\mcp\\dist\\index.js"]
+args = ["C:\\absolute\\path\\to\\project-atlas\\packages\\mcp\\dist\\index.js", "--profile", "core"]
 ```
 
 The helper:
@@ -95,20 +94,18 @@ The helper:
 
 Restart Codex and open a new task after a config or skill change.
 
-## `AGENTS.md` safety
+## `AGENTS.md` migration safety
 
-`-InstallAgentsInstructions` is opt-in. The installer manages only text between:
+The installer removes only the obsolete text between:
 
 ```text
 <!-- project-atlas:frontend-task:start -->
 <!-- project-atlas:frontend-task:end -->
 ```
 
-All other instructions are preserved. Missing, duplicate, or malformed markers
-are handled conservatively; malformed markers are refused.
-
-The block only routes frontend tasks to `frontend-task` when available. It does
-not tell Codex to install Atlas or external plugins automatically.
+All other instructions are preserved. A missing block is a no-op; duplicate or
+malformed markers are refused. The installer never adds global frontend
+routing. Invoke `$frontend-task` explicitly in the task that needs it.
 
 ## Claude Code
 

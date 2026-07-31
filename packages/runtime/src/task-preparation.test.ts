@@ -24,8 +24,9 @@ function intake(
 }
 
 describe("guarded task preparation", () => {
-  it("blocks before any context/index/connector work for unresolved high-risk intake", async () => {
+  it("does not invent source gates for a high-risk task without declared sources", async () => {
     const getContext = vi.fn();
+    getContext.mockResolvedValue({ ok: true } as never);
     await expect(
       prepareTaskContext(
         "/repo",
@@ -33,8 +34,8 @@ describe("guarded task preparation", () => {
         {},
         { getContext },
       ),
-    ).rejects.toBeInstanceOf(TaskPreparationBlockedError);
-    expect(getContext).not.toHaveBeenCalled();
+    ).resolves.toEqual({ ok: true });
+    expect(getContext).toHaveBeenCalledTimes(1);
   });
 
   it("calls context generation only after all high-risk source decisions resolve", async () => {

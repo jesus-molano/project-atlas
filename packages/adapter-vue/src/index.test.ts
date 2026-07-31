@@ -177,7 +177,7 @@ describe("VueAdapter", () => {
       include: ["apps/viewer/**/*.vue"],
     });
     expect(result.components).toHaveLength(result.coverage.candidateFiles);
-    expect(result.coverage.candidateFiles).toBeGreaterThanOrEqual(17);
+    expect(result.coverage.candidateFiles).toBeGreaterThanOrEqual(16);
     expect(result.coverage).toMatchObject({
       parsedFiles: result.coverage.candidateFiles,
       skippedFiles: 0,

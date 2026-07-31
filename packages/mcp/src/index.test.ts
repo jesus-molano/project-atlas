@@ -1,20 +1,73 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { taskSourceId } from "@component-atlas/core";
 import { describe, expect, it } from "vitest";
-import { createMcpServer } from "./index.js";
-import { DECLARED_MCP_CONTRACT_COST } from "../../agent/src/mcp-contract-cost.js";
+import {
+  createMcpServer,
+  DECLARED_CORE_MCP_CONTRACT_COST,
+  DECLARED_LEGACY_MCP_CONTRACT_COST,
+} from "./index.js";
 import { copyFixture } from "../../../scripts/test-fixture-copy.mjs";
 
+const execFileAsync = promisify(execFile);
+
 describe("Project Atlas MCP surface", () => {
-  it("exposes the complete compact Project Atlas tool contract", async () => {
+  it("exposes only the six annotated high-level tools by default", async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const server = createMcpServer();
+    const server = createMcpServer("core");
+    const client = new Client({ name: "component-atlas-core-test", version: "0.2.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const tools = await client.listTools();
+      const names = tools.tools.map((tool) => tool.name);
+      const serialized = JSON.stringify(tools.tools);
+      expect(names).toEqual([
+        "atlas_prepare_task",
+        "atlas_expand_context",
+        "atlas_lock_change_scope",
+        "atlas_validate_change",
+        "atlas_task_state",
+        "atlas_record_outcome",
+      ]);
+      expect({
+        mcpToolCount: tools.tools.length,
+        mcpDescriptionChars: tools.tools.reduce(
+          (total, tool) => total + (tool.description?.length ?? 0),
+          0,
+        ),
+        mcpSchemaChars: tools.tools.reduce(
+          (total, tool) =>
+            total +
+            JSON.stringify(tool.inputSchema ?? {}).length +
+            JSON.stringify(tool.outputSchema ?? {}).length,
+          0,
+        ),
+        mcpSerializedChars: serialized.length,
+        mcpContractHash: createHash("sha256").update(serialized).digest("hex"),
+      }).toEqual(DECLARED_CORE_MCP_CONTRACT_COST);
+      expect(serialized.length).toBeLessThanOrEqual(16_000);
+      for (const tool of tools.tools) {
+        expect(tool.annotations).toMatchObject({
+          destructiveHint: false,
+          idempotentHint: true,
+        });
+      }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("keeps the complete v1 contract behind the legacy profile", async () => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const server = createMcpServer("legacy");
     const client = new Client({
       name: "component-atlas-test",
       version: "0.1.0",
@@ -45,7 +98,7 @@ describe("Project Atlas MCP surface", () => {
         mcpContractHash: createHash("sha256")
           .update(serialized)
           .digest("hex"),
-      }).toMatchObject(DECLARED_MCP_CONTRACT_COST);
+      }).toMatchObject(DECLARED_LEGACY_MCP_CONTRACT_COST);
       expect(names).toContain("get_reuse_context");
       expect(names).toContain("get_change_surface");
       expect(names).toContain("validate_diff");
@@ -197,6 +250,138 @@ describe("Project Atlas MCP surface", () => {
     }
   });
 
+  it("composes the six core operations through one bounded task capsule", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "component-atlas-core-flow-"),
+    );
+    const source = fileURLToPath(
+      new URL("../../../fixtures/vue-nuxt", import.meta.url),
+    );
+    await copyFixture(source, rootPath);
+    await execFileAsync("git", ["init"], { cwd: rootPath });
+    await execFileAsync("git", ["add", "."], { cwd: rootPath });
+    await execFileAsync(
+      "git",
+      [
+        "-c",
+        "user.name=Project Atlas Test",
+        "-c",
+        "user.email=atlas@example.invalid",
+        "commit",
+        "-m",
+        "fixture",
+      ],
+      { cwd: rootPath },
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createMcpServer("core");
+    const client = new Client({
+      name: "component-atlas-core-flow-test",
+      version: "0.2.0",
+    });
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+
+    try {
+      const prepared = await client.callTool({
+        name: "atlas_prepare_task",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-core-flow",
+          objective: "Update the existing confirmation dialog without changing account settings.",
+          objective_confirmed: true,
+          budget_chars: 3600,
+        },
+      });
+      expect(prepared.isError).not.toBe(true);
+      expect(JSON.stringify(prepared.structuredContent).length).toBeLessThanOrEqual(3_600);
+      expect(prepared.structuredContent).toMatchObject({
+        taskId: "task-core-flow",
+        status: "ready",
+        risk: expect.objectContaining({ level: expect.any(String) }),
+      });
+      const preparedContent = prepared.structuredContent as {
+        code?: Array<{ id: string }>;
+      };
+      const componentId = preparedContent.code?.[0]?.id;
+      expect(componentId).toBeTruthy();
+
+      const expanded = await client.callTool({
+        name: "atlas_expand_context",
+        arguments: {
+          root_path: rootPath,
+          handle: `code:${componentId}`,
+          response_format: "concise",
+        },
+      });
+      expect(expanded.isError).not.toBe(true);
+      expect(JSON.stringify(expanded.structuredContent).length).toBeLessThanOrEqual(1_600);
+
+      const locked = await client.callTool({
+        name: "atlas_lock_change_scope",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-core-flow",
+          primary_component: componentId,
+          exclusions: ["account settings"],
+        },
+      });
+      expect(locked.structuredContent).toMatchObject({
+        taskId: "task-core-flow",
+        status: "locked",
+        surface: expect.objectContaining({ outOfScope: ["account settings"] }),
+      });
+
+      const resumed = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-core-flow",
+          action: "resume",
+        },
+      });
+      expect(resumed.structuredContent).toMatchObject({
+        format: "toon",
+        body: expect.stringContaining("taskId: task-core-flow"),
+      });
+
+      const validated = await client.callTool({
+        name: "atlas_validate_change",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-core-flow",
+        },
+      });
+      expect(validated.isError).not.toBe(true);
+
+      const outcome = await client.callTool({
+        name: "atlas_record_outcome",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-core-flow",
+          result: "success",
+          summary: "Verified the bounded core workflow fixture.",
+          verification: ["targeted tests passed"],
+          decision: "reuse",
+          rationale: "The existing filter component owns this behavior.",
+          selected_component_ids: [componentId],
+        },
+      });
+      expect(outcome.structuredContent).toMatchObject({
+        taskId: "task-core-flow",
+        status: "completed",
+        result: "success",
+      });
+    } finally {
+      await client.close();
+      await server.close();
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("serves compact Atlas and no-Dev-Mode Figma context end to end", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "component-atlas-mcp-"),
@@ -215,7 +400,7 @@ describe("Project Atlas MCP surface", () => {
 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
-    const server = createMcpServer();
+    const server = createMcpServer("legacy");
     const client = new Client({
       name: "component-atlas-integration-test",
       version: "0.1.0",

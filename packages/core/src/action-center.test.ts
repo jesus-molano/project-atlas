@@ -81,7 +81,7 @@ describe("Action Center domain", () => {
     expect(isBulkSafeAction("accept-risk")).toBe(false);
     expect(isBulkSafeAction("mark-reviewed")).toBe(true);
     expect(isBulkSafeAction("dismiss")).toBe(true);
-    expect(isBulkSafeAction("add-check")).toBe(false);
+    expect(isBulkSafeAction("connect-source")).toBe(false);
   });
 
   it("invalidates a prior resolution when canonical evidence changes", () => {
@@ -102,23 +102,22 @@ describe("Action Center domain", () => {
     expect(resolved).toMatchObject({ state: "stale", resolutionInvalidated: true });
   });
 
-  it("invalidates run-scoped decisions outside the originating run", () => {
-    const runItem = { ...item, runId: "run-new" };
-    const [resolved] = applyActionResolutions([runItem], [{
+  it("invalidates a time-scoped decision after its deadline", () => {
+    const [resolved] = applyActionResolutions([item], [{
       schemaVersion: ACTION_CENTER_SCHEMA_VERSION,
       id: "resolution",
       itemId: item.id,
       projectId: item.projectId,
       checkoutId: item.checkoutId,
-      runId: "run-old",
-      command: "save-decision-and-continue",
-      state: "resolved",
-      scope: "run",
-      reason: "Answer",
+      command: "defer",
+      state: "deferred",
+      scope: "until-date",
+      deferUntil: "2026-01-03T00:00:00.000Z",
+      reason: "Review after the release window.",
       evidenceFingerprint: item.evidenceFingerprint,
       idempotencyKey: "request-2",
       resolvedAt: "2026-01-02T00:00:00.000Z",
-    }]);
+    }], "2026-01-04T00:00:00.000Z");
     expect(resolved).toMatchObject({ state: "stale", resolutionInvalidated: true });
   });
 

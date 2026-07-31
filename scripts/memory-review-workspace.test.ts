@@ -69,14 +69,15 @@ describe("Memory review workspace contract", () => {
   });
 
   it("localizes Memory labels, enums, dates, and the document language", async () => {
-    const [page, i18n] = await Promise.all([
+    const [page, pageState, i18n] = await Promise.all([
       source("apps/viewer/app/pages/index.vue"),
+      source("apps/viewer/app/composables/useAtlasWorkspacePage.ts"),
       source("apps/viewer/app/composables/useAtlasI18n.ts"),
     ]);
     const memory = await source(
       "apps/viewer/app/components/ProjectMemoryView.vue",
     );
-    expect(page).toContain("useAtlasI18n()");
+    expect(pageState).toContain("useAtlasI18n()");
     expect(page).toContain(":memory-items=\"workspace.memoryItems\"");
     expect(i18n).toContain("htmlAttrs:");
     expect(i18n).toContain("lang: locale.value");

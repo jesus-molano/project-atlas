@@ -8,17 +8,17 @@ import {
 
 const generatedSessionToken = randomBytes(32).toString("base64url");
 
-export function agentSessionToken(): string {
+export function localSessionToken(): string {
   return process.env.ATLAS_GUI_SESSION_TOKEN || generatedSessionToken;
 }
 
-export function assertAgentSession(event: H3Event): void {
+export function assertLocalSession(event: H3Event): void {
   const supplied = getHeader(event, "x-atlas-session");
-  const expected = agentSessionToken();
+  const expected = localSessionToken();
   if (!supplied) {
     throw createError({
       statusCode: 401,
-      statusMessage: "Project Atlas agent session token is required.",
+      statusMessage: "Project Atlas local session token is required.",
     });
   }
   const suppliedBuffer = Buffer.from(supplied);
@@ -29,7 +29,7 @@ export function assertAgentSession(event: H3Event): void {
   ) {
     throw createError({
       statusCode: 403,
-      statusMessage: "Project Atlas rejected the agent session token.",
+      statusMessage: "Project Atlas rejected the local session token.",
     });
   }
 }

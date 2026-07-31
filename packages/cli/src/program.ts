@@ -48,16 +48,17 @@ import {
   clearTaskEvaluations,
   clearContextCostAudits,
   contextCostReport,
-  exportContextCostAudits,
   importContextCostAudits,
   validateDiff,
   listContextCostAudits,
   scanProject,
   searchProjectMemory,
   type MapFigmaDesignInput,
+  exportUsageTracesV2,
 } from "@component-atlas/runtime";
 import { Command, InvalidArgumentError } from "commander";
 import { openViewer } from "./viewer.js";
+import { registerTelemetryCommands } from "./telemetry-commands.js";
 
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -423,10 +424,11 @@ export function createProgram(): Command {
         rootPath: string,
         options: { output: string; limit: string },
       ) => {
-        const bundle = await exportContextCostAudits(
+        const legacy = await listContextCostAudits(
           rootPath,
           parseLimit(options.limit, 2_000),
         );
+        const bundle = await exportUsageTracesV2(rootPath, legacy);
         const outputPath = path.resolve(options.output);
         await writeFile(outputPath, `${JSON.stringify(bundle, null, 2)}\n`, {
           encoding: "utf8",
@@ -435,10 +437,13 @@ export function createProgram(): Command {
         printJson({
           output: outputPath,
           records: bundle.records.length,
+          legacyRecords: bundle.legacyRecords.length,
           sourceFingerprint: bundle.sourceFingerprint,
         });
       },
     );
+
+  registerTelemetryCommands(program);
 
   contextCost
     .command("import")

@@ -3,44 +3,39 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) (
   "project-atlas-agents-" + [guid]::NewGuid().ToString("N")
 )
 $target = Join-Path $root ".codex\AGENTS.md"
-$emptyTarget = Join-Path $root "empty\.codex\AGENTS.md"
 $dryRunTarget = Join-Path $root "dry-run\.codex\AGENTS.md"
 $malformedTarget = Join-Path $root "malformed\.codex\AGENTS.md"
-$installer = Join-Path $PSScriptRoot "install-agents-instructions.ps1"
-$block = Join-Path $PSScriptRoot "templates\AGENTS.frontend-task.block.md"
+$migration = Join-Path $PSScriptRoot "remove-agents-instructions.ps1"
+$skillManifest = Join-Path $PSScriptRoot "..\skills\frontend-task\agents\openai.yaml"
+$skillDefinition = Join-Path $PSScriptRoot "..\skills\frontend-task\SKILL.md"
+$installer = Join-Path $PSScriptRoot "install.ps1"
 
 try {
   New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) |
     Out-Null
   [System.IO.File]::WriteAllText(
     $target,
-    "# Existing instructions`r`n`r`nKeep this text.`r`n",
+    "# Existing instructions`r`n`r`nKeep this text.`r`n`r`n<!-- project-atlas:frontend-task:start -->`r`nFor frontend work, use `frontend-task` when available.`r`n<!-- project-atlas:frontend-task:end -->`r`n`r`nKeep this too.`r`n",
     [System.Text.UTF8Encoding]::new($false)
   )
 
-  & $installer -TargetPath $target -BlockPath $block
+  & $migration -TargetPath $target
   $first = [System.IO.File]::ReadAllText($target)
   if (-not $first.Contains("# Existing instructions") -or
-      -not $first.Contains("Keep this text.")) {
+      -not $first.Contains("Keep this text.") -or
+      -not $first.Contains("Keep this too.")) {
     throw "Existing AGENTS.md content was not preserved."
   }
-  & $installer -TargetPath $target -BlockPath $block
+  if ($first.Contains("project-atlas:frontend-task")) {
+    throw "Legacy Atlas routing block was not removed."
+  }
+  & $migration -TargetPath $target
   $second = [System.IO.File]::ReadAllText($target)
   if ($first -cne $second) {
-    throw "Managed block installation is not idempotent."
-  }
-  if (([regex]::Matches(
-        $second,
-        "<!-- project-atlas:frontend-task:start -->"
-      )).Count -ne 1) {
-    throw "Managed block was duplicated."
+    throw "Managed block removal is not idempotent."
   }
 
-  & $installer -TargetPath $emptyTarget -BlockPath $block
-  if (-not (Test-Path -LiteralPath $emptyTarget)) {
-    throw "Missing AGENTS.md was not created."
-  }
-  & $installer -TargetPath $dryRunTarget -BlockPath $block -DryRun
+  & $migration -TargetPath $dryRunTarget -DryRun
   if (Test-Path -LiteralPath $dryRunTarget) {
     throw "Dry run changed the target filesystem."
   }
@@ -55,7 +50,7 @@ try {
   )
   $refusedMalformed = $false
   try {
-    & $installer -TargetPath $malformedTarget -BlockPath $block
+    & $migration -TargetPath $malformedTarget
   } catch {
     $refusedMalformed = $true
   }
@@ -63,7 +58,20 @@ try {
     throw "Malformed managed markers were not refused."
   }
 
-  Write-Host "AGENTS.md managed-block tests passed."
+  $manifest = [System.IO.File]::ReadAllText((Resolve-Path $skillManifest))
+  $definition = [System.IO.File]::ReadAllText((Resolve-Path $skillDefinition))
+  $installerSource = [System.IO.File]::ReadAllText((Resolve-Path $installer))
+  if ($manifest -notmatch "allow_implicit_invocation:\s*false") {
+    throw "A generic frontend prompt could still activate frontend-task implicitly."
+  }
+  if ($definition -notmatch 'Invoke only when the user writes `\$frontend-task`') {
+    throw "The explicit frontend-task activation contract is missing."
+  }
+  if ($installerSource.Contains('For frontend work, use `frontend-task`')) {
+    throw "The installer still writes the obsolete global frontend routing rule."
+  }
+
+  Write-Host "Explicit skill activation and AGENTS.md migration tests passed."
 } finally {
   if (Test-Path -LiteralPath $root) {
     [System.IO.Directory]::Delete($root, $true)

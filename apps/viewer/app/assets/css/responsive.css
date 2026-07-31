@@ -213,7 +213,6 @@
   .source-ribbon > div,
   .settings-layout,
   .health-grid,
-  .workbench,
   .atlas-workspace.inbox-layout {
     grid-template-columns: 1fr;
   }
@@ -313,21 +312,6 @@
     border-bottom: 1px solid var(--atlas-rule);
   }
 
-  .workbench-composer {
-    padding: 22px 0;
-    border-right: 0;
-    border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  .workbench-canvas {
-    padding: 24px 0 36px;
-  }
-
-  .workbench-empty {
-    margin-top: 0;
-    padding-inline: 4px;
-  }
-
   .health-grid > section,
   .health-policy,
   .settings-panel,
@@ -336,11 +320,6 @@
     border-right: 0;
     border-left: 0;
     border-bottom: 1px solid var(--atlas-rule);
-  }
-
-  .recent-run-row {
-    grid-template-columns: 1fr;
-    gap: 2px;
   }
 
   .launch-row,
@@ -355,31 +334,6 @@
 }
 
 @container atlas-workspace (max-width: 1100px) {
-  .workbench {
-    grid-template-columns: minmax(300px, 390px) minmax(420px, 1fr);
-  }
-
-  .workbench-inspector {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: minmax(180px, 0.7fr) minmax(320px, 1.5fr);
-    gap: 20px 28px;
-    padding: 22px 0 28px;
-    border-top: 1px solid var(--atlas-rule);
-    border-left: 0;
-  }
-
-  .workbench-inspector > .eyebrow,
-  .workbench-inspector > .token-total,
-  .workbench-inspector > .budget-meter {
-    grid-column: 1;
-  }
-
-  .workbench-inspector > dl {
-    grid-column: 2;
-    grid-row: 1 / span 3;
-  }
-
   .inspector-sources,
   .boundary-legend {
     margin-top: 0;
@@ -417,8 +371,7 @@
   .atlas-workspace.three-pane,
   .atlas-workspace.memory-layout,
   .atlas-workspace.inbox-layout,
-  .health-grid,
-  .workbench {
+  .health-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -428,10 +381,7 @@
   .atlas-workspace.memory-layout > .detail-pane,
   .atlas-workspace.inbox-layout > *,
   .health-grid > section,
-  .health-policy,
-  .workbench-composer,
-  .workbench-canvas,
-  .workbench-inspector {
+  .health-policy {
     padding: 22px 0;
     border-right: 0;
     border-bottom: 1px solid var(--atlas-rule);
@@ -441,31 +391,6 @@
   .atlas-workspace.memory-layout > .inspector-pane {
     grid-column: auto;
     padding: 22px 0;
-  }
-
-  .workbench-inspector {
-    grid-column: auto;
-    display: block;
-    border-top: 0;
-    border-left: 0;
-  }
-
-  .figma-sync-band {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .figma-sync-actions {
-    grid-column: 2;
-    justify-content: flex-start;
-  }
-
-  .workbench-inspector dl > .source-count-row {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-  }
-
-  .workbench-inspector .source-count-summary {
-    text-align: left;
   }
 
   .entity-list {

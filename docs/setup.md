@@ -15,7 +15,7 @@ Requirements:
 ```powershell
 git clone https://github.com/jesus-molano/project-atlas.git
 Set-Location .\project-atlas
-.\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions
+.\frontend-codex-kit\install.ps1 -Agent codex
 ```
 
 Restart Codex and open a new task. Then open the product repository and run:
@@ -34,8 +34,9 @@ The installer:
 - globally ignores `.component-atlas/` artifacts;
 - links or copies `frontend-task`, explicit-only `visual-direction`, and
   `reuse-first` into the selected agent's skill folder;
-- optionally maintains one marked routing block in `~/.codex/AGENTS.md`;
-- registers the local stdio server in Codex or Claude;
+- removes only the obsolete marked Atlas routing block from
+  `~/.codex/AGENTS.md` and never adds global routing;
+- registers the local stdio server in Codex or Claude with the `core` profile;
 - never installs connectors or stores credentials.
 
 For Codex, the managed technical identifier is
@@ -62,7 +63,7 @@ The installer manages only:
 ```toml
 [mcp_servers.component-atlas]
 command = "C:\\absolute\\stable\\path\\to\\node.exe"
-args = ["C:\\absolute\\path\\to\\project-atlas\\packages\\mcp\\dist\\index.js"]
+args = ["C:\\absolute\\path\\to\\project-atlas\\packages\\mcp\\dist\\index.js", "--profile", "core"]
 ```
 
 It preserves unrelated text, comments, keys, and sections. Before changing an
@@ -92,14 +93,11 @@ path.
 # Install without registering MCP
 .\frontend-codex-kit\install.ps1 -Agent codex -SkipMcp
 
-# Install skills without the optional AGENTS.md routing block
-.\frontend-codex-kit\install.ps1 -Agent codex
-
 # Copy skills instead of linking them
 .\frontend-codex-kit\install.ps1 -Agent codex -InstallMode copy
 
 # Install Codex and Claude Code support
-.\frontend-codex-kit\install.ps1 -Agent both -InstallAgentsInstructions
+.\frontend-codex-kit\install.ps1 -Agent both
 ```
 
 Other recovery/development flags:
@@ -107,7 +105,8 @@ Other recovery/development flags:
 - `-SkipDependencies`: do not run `pnpm install`;
 - `-SkipBuild`: use existing package and GUI builds;
 - `-CodexSkillsRoot`, `-ClaudeSkillsRoot`: override skill destinations;
-- `-CodexAgentsPath`: override the opt-in `AGENTS.md` target.
+- `-CodexAgentsPath`: override the `AGENTS.md` path used only for legacy-block
+  removal.
 
 `-DryRun` still resolves the real Node, config, skill, and package paths, but it
 does not create directories, links, backups, or config files.
@@ -117,7 +116,7 @@ does not create directories, links, backups, or config files.
 ```powershell
 Set-Location "C:\path\to\project-atlas"
 git pull --ff-only
-.\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions
+.\frontend-codex-kit\install.ps1 -Agent codex
 ```
 
 The installer is idempotent. Restart Codex and open a new task afterwards.
@@ -132,7 +131,7 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 | `%LOCALAPPDATA%\ProjectAtlas\recent-projects.json` | Minimal recent-project registry |
 | `~/.agents/skills/` | Codex skill links/copies |
 | Codex `config.toml` | Local Atlas MCP registration |
-| `~/.codex/AGENTS.md` | Optional small managed routing block |
+| `~/.codex/AGENTS.md` | Personal instructions; obsolete marked Atlas block removed only |
 
 The task skill may scan reconstructible code and read connected sources relevant
 to the task. It cannot install plugins, authorize accounts, access unconnected

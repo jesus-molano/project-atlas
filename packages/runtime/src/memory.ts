@@ -312,6 +312,7 @@ export async function orientProject(
         graph.project.id,
         graph.project.identity?.checkoutId,
       )
+      .filter((decision) => decision.status !== "superseded")
       .slice(0, 5)
       .map((decision) => ({
         id: decision.id,

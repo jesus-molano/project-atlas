@@ -118,7 +118,7 @@ Use this compact shape when no ledger UI exists:
 > Recommended default: omit only sources you know are not part of this task.
 
 When the selector is unavailable, ask one brief question in chat with the same
-evidence and recommended default. The Project Atlas Codex handoff may render
+evidence and recommended default. The Project Atlas evidence view may render
 this contract as an inline intake form; agents must not invent a second
 conversation or block on optional sources.
 

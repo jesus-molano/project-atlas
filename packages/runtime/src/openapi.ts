@@ -68,9 +68,12 @@ export interface OpenApiTaskContext {
     summary: string;
   }>;
   errors: Array<{
+    sourceDecisionId: string;
     reference: string;
     receiptId: string;
     message: string;
+    required: boolean;
+    httpStatus?: number;
     recoverableWithConnector: boolean;
   }>;
 }
@@ -78,6 +81,7 @@ export interface OpenApiTaskContext {
 export interface ConfirmedOpenApiSource {
   sourceDecisionId: string;
   reference: string;
+  required?: boolean;
   content?: string;
   adapter?: Extract<
     SourceReceiptAdapter,
@@ -608,9 +612,14 @@ export async function loadConfirmedOpenApiContext(
       });
       failureReceipts.push(receipt);
       errors.push({
+        sourceDecisionId: source.sourceDecisionId,
         reference: source.reference,
         receiptId: receipt.id,
         message: error instanceof Error ? error.message : "OpenAPI source failed.",
+        required: source.required === true,
+        ...((error instanceof Error ? error.message : "").match(/\b(?:HTTP\s*)?(\d{3})\b/iu)?.[1]
+          ? { httpStatus: Number((error instanceof Error ? error.message : "").match(/\b(?:HTTP\s*)?(\d{3})\b/iu)![1]) }
+          : {}),
         recoverableWithConnector:
           /^https?:\/\//iu.test(source.reference) ||
           source.adapter === "openapi-internal-connector",

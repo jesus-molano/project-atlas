@@ -947,26 +947,22 @@
   text-align: left;
 }
 
-.section-empty,
-.workbench-empty {
+.section-empty {
   max-width: 660px;
   margin: auto;
   padding: 52px 32px;
 }
 
-.section-empty h2,
-.workbench-empty h2 {
+.section-empty h2 {
   margin: 8px 0;
   font-size: 1.65rem;
 }
 
-.section-empty p,
-.workbench-empty p {
+.section-empty p {
   line-height: 1.65;
 }
 
-.empty-code,
-.workbench-empty > span {
+.empty-code {
   color: var(--atlas-ink-faint);
   font-family: var(--atlas-mono);
   font-size: 0.75rem;

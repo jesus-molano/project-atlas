@@ -9,14 +9,23 @@ const page = readFileSync(
   ),
   "utf8",
 );
+const pageState = readFileSync(
+  fileURLToPath(
+    new URL(
+      "../apps/viewer/app/composables/useAtlasWorkspacePage.ts",
+      import.meta.url,
+    ),
+  ),
+  "utf8",
+);
 const css = readViewerCssSync();
 
 describe("no-project launcher recovery", () => {
   it("treats a missing active root as launcher state without requesting a workspace", () => {
-    expect(page.indexOf("useFetch<ProjectsResponse>(\"/api/projects\")")).toBeLessThan(
-      page.indexOf("useFetch<WorkspaceSnapshot>(\"/api/workspace\""),
+    expect(pageState.indexOf("useFetch<ProjectsResponse>(\"/api/projects\")")).toBeLessThan(
+      pageState.indexOf("useFetch<WorkspaceSnapshot>(\"/api/workspace\""),
     );
-    expect(page).toContain("immediate: Boolean(projects.value?.activeRoot)");
+    expect(pageState).toContain("immediate: Boolean(projects.value?.activeRoot)");
     expect(page).toContain(
       "v-if=\"!projects?.activeRoot || workspaceError\"",
     );
@@ -33,7 +42,7 @@ describe("no-project launcher recovery", () => {
   });
 
   it("previews a project/worktree/branch destination before activation", () => {
-    expect(page).toContain("\"/api/projects/inspect\"");
+    expect(pageState).toContain("\"/api/projects/inspect\"");
     expect(page).toContain("<ProjectDestinationPreview");
     expect(page).toContain("@confirm=\"activateProject()\"");
     expect(page).toContain(":title=\"workspace.git.worktreePath");

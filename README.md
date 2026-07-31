@@ -24,12 +24,13 @@ Open PowerShell and run:
 ```powershell
 git clone https://github.com/jesus-molano/project-atlas.git
 Set-Location .\project-atlas
-.\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions
+.\frontend-codex-kit\install.ps1 -Agent codex
 ```
 
-The installer builds the complete local product, installs the skills, adds the
-small optional routing instruction, and registers the local Atlas server in Codex's shared
-`config.toml`. Restart Codex and open a new task after it finishes.
+The installer builds the local product, installs the skills, removes only the
+obsolete marked Atlas routing block if it exists, and registers the six-tool
+MCP core profile in Codex's shared `config.toml`. Restart Codex and open a new
+task after it finishes.
 
 Now open your product repository in Codex and invoke:
 
@@ -116,15 +117,15 @@ The desktop-shaped local workspace lets you:
   another repository without restarting the server;
 - search code, design, and memory from one command surface;
 - choose evidence by goal: reuse, impact, tests, design state, or prior decision;
-- copy a reviewed, hard-capped handoff to native Codex;
-- optionally use the explicitly experimental embedded runner to prepare,
-  implement, cancel, correct, and continue a Codex task in the same checkout;
-- review agent progress, material questions, compact outcomes, and memory
-  proposals without storing raw external documents.
+- inspect bounded source receipts and task outcomes created by native Codex;
+- review local usage telemetry and context-cost estimates without storing
+  prompts, code, tool arguments, or tool output;
+- review evidence-backed decisions and memory proposals without storing raw
+  external documents.
 
-Browsing, searching, rescanning, and reviewing local evidence use zero agent
-tokens. Codex starts only after a launch review shows project, permissions,
-sources, budget, and possible writes.
+Browsing, searching, rescanning, and reviewing local evidence use zero model
+tokens. Model execution and filesystem permissions exist only in native Codex;
+the GUI cannot launch, resume, cancel, or reclassify a task.
 
 The loopback browser exposes **Choose folder…** through a narrowly scoped local
 directory dialog on Windows. A packaged desktop host can provide the same action
@@ -158,7 +159,7 @@ block the task.
 | `%LOCALAPPDATA%\ProjectAtlas\recent-projects.json` | Minimal recent-project registry |
 | `~/.agents/skills/` | Global `frontend-task`, explicit `visual-direction`, and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |
-| `~/.codex/AGENTS.md` | Optional short routing block installed with `-InstallAgentsInstructions` |
+| `~/.codex/AGENTS.md` | Personal instructions; the installer only removes its obsolete marked Atlas block |
 
 `component-atlas` remains the internal MCP/package identifier for compatibility.
 The product name and single storage root are Project Atlas. Import and remove a
@@ -178,7 +179,7 @@ From the Project Atlas clone:
 
 ```powershell
 git pull --ff-only
-.\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions
+.\frontend-codex-kit\install.ps1 -Agent codex
 ```
 
 The installer is idempotent. Restart Codex and open a new task afterwards.
@@ -211,13 +212,14 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 ## Technical documentation
 
 - [Installation and all flags](docs/setup.md)
-- [Automatic task workflow and advanced CLI](docs/workflow.md)
+- [Native task workflow and advanced CLI](docs/workflow.md)
 - [First-run checklist](frontend-codex-kit/FIRST-RUN-CHECKLIST.md)
 - [GUI](docs/gui.md)
 - [Action Center decisions and risks](docs/action-center.md)
-- [Desktop workspace contract and Agent Adapter](docs/desktop-workspace.md)
+- [Desktop evidence-workspace contract](docs/desktop-workspace.md)
 - [Task intake and persistence scopes](docs/task-intake-and-scopes.md)
 - [Architecture](docs/architecture.md)
+- [Atlas v2 audit, rollout gates, and independent review loop](docs/project-atlas-v2-audit.md)
 - [Frontend framework support and acceptance matrix](docs/frontend-framework-support.md)
 - [Figma Design Index](docs/design-index.md)
 - [Project Memory and write policy](docs/project-memory.md)

@@ -4,7 +4,6 @@ import { DatabaseSync } from "node:sqlite";
 import {
   type ActionResolution,
   GRAPH_SCHEMA_VERSION,
-  type AgentRunAuditRecord,
   type ComponentDecision,
   type ComponentGraph,
   type ComponentNode,
@@ -17,6 +16,7 @@ import {
   type ProjectCapabilityReport,
   type ProjectScanState,
   type TaskEvaluationRecord,
+  type UsageTraceV2,
 } from "@component-atlas/core";
 import {
   normalizeDesignIndex,
@@ -53,6 +53,20 @@ import {
   migrateContextCostAudits,
   saveContextCostAudit,
 } from "./context-cost.js";
+import {
+  clearUsageTraces,
+  findUsageTrace,
+  listUsageTraces,
+  migrateUsageTraces,
+  saveUsageTrace,
+} from "./usage-traces.js";
+import {
+  clearTaskEvaluations,
+  listActionResolutions,
+  listTaskEvaluations,
+  saveActionResolutions,
+  saveTaskEvaluation,
+} from "./evaluation-records.js";
 
 export {
   PROJECT_ATLAS_HOME_ENV,
@@ -284,14 +298,6 @@ export class AtlasStore {
       );
       CREATE INDEX IF NOT EXISTS task_evaluations_project
         ON task_evaluations(project_id, recorded_at DESC);
-      CREATE TABLE IF NOT EXISTS agent_run_audits (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        payload TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS agent_run_audits_project
-        ON agent_run_audits(project_id, updated_at DESC);
       CREATE TABLE IF NOT EXISTS action_resolutions (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -306,6 +312,7 @@ export class AtlasStore {
         ON action_resolutions(project_id, checkout_id, item_id, resolved_at DESC);
     `);
     migrateContextCostAudits(this.database);
+    migrateUsageTraces(this.database);
     migrateSemanticNodes(this.database);
     migrateThemeFingerprints(this.database);
     migrateDesignLinks(this.database);
@@ -684,112 +691,15 @@ export class AtlasStore {
   }
 
   saveTaskEvaluation(record: TaskEvaluationRecord, retention = 50): void {
-    this.database.exec("BEGIN IMMEDIATE");
-    try {
-      this.database
-        .prepare(`
-          INSERT INTO task_evaluations (
-            id, project_id, recorded_at, payload
-          ) VALUES (?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
-        `)
-        .run(
-          record.id,
-          record.projectId,
-          record.recordedAt,
-          JSON.stringify(record),
-        );
-      this.database
-        .prepare(`
-          DELETE FROM task_evaluations
-          WHERE project_id = ? AND id NOT IN (
-            SELECT id FROM task_evaluations
-            WHERE project_id = ?
-            ORDER BY recorded_at DESC
-            LIMIT ?
-          )
-        `)
-        .run(record.projectId, record.projectId, retention);
-      this.database.exec("COMMIT");
-    } catch (error) {
-      this.database.exec("ROLLBACK");
-      throw error;
-    }
+    saveTaskEvaluation(this.database, record, retention);
   }
 
   listTaskEvaluations(projectId: string, limit = 20): TaskEvaluationRecord[] {
-    const rows = this.database
-      .prepare(`
-        SELECT payload FROM task_evaluations
-        WHERE project_id = ?
-        ORDER BY recorded_at DESC
-        LIMIT ?
-      `)
-      .all(projectId, Math.max(1, Math.min(limit, 50))) as unknown as JsonRow[];
-    return rows.map((row) => JSON.parse(row.payload) as TaskEvaluationRecord);
+    return listTaskEvaluations(this.database, projectId, limit);
   }
 
   clearTaskEvaluations(projectId: string): number {
-    return Number(
-      this.database
-        .prepare("DELETE FROM task_evaluations WHERE project_id = ?")
-        .run(projectId).changes,
-    );
-  }
-
-  saveAgentRunAudit(record: AgentRunAuditRecord, retention = 30): void {
-    this.database.exec("BEGIN IMMEDIATE");
-    try {
-      this.database
-        .prepare(`
-          INSERT INTO agent_run_audits (id, project_id, updated_at, payload)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            updated_at = excluded.updated_at,
-            payload = excluded.payload
-        `)
-        .run(
-          record.id,
-          record.projectId,
-          record.updatedAt,
-          JSON.stringify(record),
-        );
-      this.database
-        .prepare(`
-          DELETE FROM agent_run_audits
-          WHERE project_id = ? AND id NOT IN (
-            SELECT id FROM agent_run_audits
-            WHERE project_id = ?
-            ORDER BY updated_at DESC
-            LIMIT ?
-          )
-        `)
-        .run(record.projectId, record.projectId, Math.max(1, Math.min(retention, 100)));
-      this.database.exec("COMMIT");
-    } catch (error) {
-      this.database.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  listAgentRunAudits(projectId: string, limit = 20): AgentRunAuditRecord[] {
-    const rows = this.database
-      .prepare(`
-        SELECT payload FROM agent_run_audits
-        WHERE project_id = ?
-        ORDER BY updated_at DESC
-        LIMIT ?
-      `)
-      .all(projectId, Math.max(1, Math.min(limit, 50))) as unknown as JsonRow[];
-    return rows.map((row) => JSON.parse(row.payload) as AgentRunAuditRecord);
-  }
-
-  clearAgentRunAudits(projectId: string): number {
-    return Number(
-      this.database
-        .prepare("DELETE FROM agent_run_audits WHERE project_id = ?")
-        .run(projectId).changes,
-    );
+    return clearTaskEvaluations(this.database, projectId);
   }
 
   saveDesignLink(link: DesignLinkRecord): void {
@@ -815,47 +725,28 @@ export class AtlasStore {
     return clearContextCostAudits(this.database, projectId);
   }
 
+  saveUsageTrace(trace: UsageTraceV2, retention = 2_000): void {
+    saveUsageTrace(this.database, trace, retention);
+  }
+
+  findUsageTrace(projectId: string, sessionIdHash: string): UsageTraceV2 | undefined {
+    return findUsageTrace(this.database, projectId, sessionIdHash);
+  }
+
+  listUsageTraces(projectId: string, limit = 100): UsageTraceV2[] {
+    return listUsageTraces(this.database, projectId, limit);
+  }
+
+  clearUsageTraces(projectId: string): number {
+    return clearUsageTraces(this.database, projectId);
+  }
+
   saveActionResolution(resolution: ActionResolution): ActionResolution {
     return this.saveActionResolutions([resolution])[0]!;
   }
 
   saveActionResolutions(resolutions: ActionResolution[]): ActionResolution[] {
-    this.database.exec("BEGIN IMMEDIATE");
-    try {
-      const select = this.database.prepare(`
-        SELECT payload FROM action_resolutions
-        WHERE project_id = ? AND checkout_id = ? AND idempotency_key = ?
-      `);
-      const insert = this.database.prepare(`
-        INSERT INTO action_resolutions (
-          id, project_id, checkout_id, item_id, resolved_at,
-          idempotency_key, payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      const saved = resolutions.map((resolution) => {
-        const existing = select.get(
-          resolution.projectId,
-          resolution.checkoutId,
-          resolution.idempotencyKey,
-        ) as JsonRow | undefined;
-        if (existing) return JSON.parse(existing.payload) as ActionResolution;
-        insert.run(
-          resolution.id,
-          resolution.projectId,
-          resolution.checkoutId,
-          resolution.itemId,
-          resolution.resolvedAt,
-          resolution.idempotencyKey,
-          JSON.stringify(resolution),
-        );
-        return resolution;
-      });
-      this.database.exec("COMMIT");
-      return saved;
-    } catch (error) {
-      this.database.exec("ROLLBACK");
-      throw error;
-    }
+    return saveActionResolutions(this.database, resolutions);
   }
 
   listActionResolutions(
@@ -863,19 +754,7 @@ export class AtlasStore {
     checkoutId: string,
     limit = 500,
   ): ActionResolution[] {
-    const rows = this.database
-      .prepare(`
-        SELECT payload FROM action_resolutions
-        WHERE project_id = ? AND checkout_id = ?
-        ORDER BY resolved_at DESC
-        LIMIT ?
-      `)
-      .all(
-        projectId,
-        checkoutId,
-        Math.max(1, Math.min(limit, 1_000)),
-      ) as unknown as JsonRow[];
-    return rows.map((row) => JSON.parse(row.payload) as ActionResolution);
+    return listActionResolutions(this.database, projectId, checkoutId, limit);
   }
 
   saveDesignIndex(projectId: string, index: DesignFileIndex): void {

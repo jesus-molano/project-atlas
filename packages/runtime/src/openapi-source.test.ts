@@ -198,4 +198,20 @@ describe("secure Swagger UI canonicalization", () => {
       /OpenAPI retrieval failed for https:\/\/api\.example\.com\/openapi\.json: Private network/u,
     );
   });
+
+  it("retries a 502 exactly once and preserves the HTTP status", async () => {
+    const request = vi.fn(async () => ({
+      status: 502,
+      content: "upstream unavailable",
+    }));
+    await expect(
+      readPublicDocument(
+        "https://api.example.com/openapi.json",
+        undefined,
+        async () => [{ address: "93.184.216.34", family: 4 }],
+        request,
+      ),
+    ).rejects.toThrow(/HTTP 502/u);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
 });

@@ -7,21 +7,31 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerAdministrationTools } from "./administration-tools.js";
 import { registerCodeTools } from "./code-tools.js";
+import { registerCoreTools } from "./core-tools.js";
 import { registerDesignTools } from "./design-tools.js";
 import { registerMemoryTools } from "./memory-tools.js";
 import { registerTaskTools } from "./task-tools.js";
 
-export function createMcpServer(): McpServer {
+export * from "./contract-cost.js";
+export * from "./skill-cost.js";
+
+export type McpProfile = "core" | "legacy";
+
+export function createMcpServer(profile: McpProfile = "core"): McpServer {
   const server = new McpServer({
     name: "component-atlas",
-    version: "0.1.0",
+    version: "0.2.0",
   });
 
-  registerAdministrationTools(server);
-  registerCodeTools(server);
-  registerDesignTools(server);
-  registerMemoryTools(server);
-  registerTaskTools(server);
+  if (profile === "core") {
+    registerCoreTools(server);
+  } else {
+    registerAdministrationTools(server);
+    registerCodeTools(server);
+    registerDesignTools(server);
+    registerMemoryTools(server);
+    registerTaskTools(server);
+  }
   return server;
 }
 
@@ -33,13 +43,17 @@ export interface McpContractCost {
   mcpContractHash: string;
 }
 
-let measuredContract: Promise<McpContractCost> | undefined;
+const measuredContracts = new Map<McpProfile, Promise<McpContractCost>>();
 
-export function measureMcpContractCost(): Promise<McpContractCost> {
-  measuredContract ??= (async () => {
+export function measureMcpContractCost(
+  profile: McpProfile = "core",
+): Promise<McpContractCost> {
+  const cached = measuredContracts.get(profile);
+  if (cached) return cached;
+  const measured = (async () => {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
-    const server = createMcpServer();
+    const server = createMcpServer(profile);
     const client = new Client({
       name: "project-atlas-context-cost",
       version: "0.1.0",
@@ -73,17 +87,30 @@ export function measureMcpContractCost(): Promise<McpContractCost> {
       await Promise.all([client.close(), server.close()]);
     }
   })();
-  return measuredContract;
+  measuredContracts.set(profile, measured);
+  return measured;
 }
 
-export async function startMcpServer(): Promise<void> {
-  const server = createMcpServer();
+export async function startMcpServer(profile: McpProfile = "core"): Promise<void> {
+  const server = createMcpServer(profile);
   await server.connect(new StdioServerTransport());
+}
+
+export function parseMcpProfile(argumentsList: string[]): McpProfile {
+  const profileIndex = argumentsList.indexOf("--profile");
+  if (profileIndex < 0) return "core";
+  const profile = argumentsList[profileIndex + 1];
+  if (profile !== "core" && profile !== "legacy") {
+    throw new Error("Project Atlas MCP --profile must be core or legacy.");
+  }
+  return profile;
 }
 
 const entryPath = process.argv[1];
 if (entryPath && fileURLToPath(import.meta.url) === entryPath) {
-  startMcpServer().catch((error: unknown) => {
+  Promise.resolve()
+    .then(() => startMcpServer(parseMcpProfile(process.argv.slice(2))))
+    .catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
     process.exitCode = 1;
   });

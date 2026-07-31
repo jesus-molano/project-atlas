@@ -5,11 +5,10 @@ import {
   buildProjectOverviewViewModel,
   contextCostReport,
   getProjectCapabilities,
-  listAgentRunAudits,
   listTaskEvaluations,
+  listUsageTracesV2,
   validateDiff,
 } from "@component-atlas/runtime";
-import { agentAdapterStatus } from "../utils/agent-runs";
 import {
   buildActionCenterSnapshot,
   listActionResolutionsForSnapshot,
@@ -134,17 +133,15 @@ export default defineEventHandler(async () => {
   const [
     capabilities,
     evaluations,
-    agentRuns,
-    agent,
     contextCost,
+    usageTraces,
     diffValidation,
   ] =
     await Promise.all([
     getProjectCapabilities(snapshot.graph.project.rootPath),
     listTaskEvaluations(snapshot.graph.project.rootPath, 20),
-    listAgentRunAudits(snapshot.graph.project.rootPath, 12),
-    agentAdapterStatus(),
     contextCostReport(snapshot.graph.project.rootPath, 500),
+    listUsageTracesV2(snapshot.graph.project.rootPath, 100),
     validateDiff(snapshot.graph.project.rootPath).catch(() => ({
       schemaVersion: 1 as const,
       files: 0,
@@ -186,7 +183,6 @@ export default defineEventHandler(async () => {
   const actionCenter = buildActionCenterSnapshot(
     snapshot,
     capabilities,
-    agentRuns,
     actionResolutions,
   );
   return {
@@ -200,10 +196,9 @@ export default defineEventHandler(async () => {
     memoryProposals: snapshot.memoryProposals,
     currentDecisions,
     capabilities,
-    agent,
     evaluations,
-    agentRuns,
     contextCost,
+    usageTraces,
     diffValidation,
     actionResolutions: actionResolutions.slice(0, 12),
     actionCenterCounts: actionCenter.counts,

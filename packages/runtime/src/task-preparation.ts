@@ -60,7 +60,9 @@ export async function preflightConfirmedSourceIntegrity(
   relations: TaskSourceRelation[] = [],
 ): Promise<TaskSourcePreflight> {
   const reasons: string[] = [];
-  const figmaSources = confirmed.filter((source) => source.kind === "figma");
+  const figmaSources = confirmed.filter(
+    (source) => source.kind === "figma" && source.required,
+  );
   if (figmaSources.length > 0) {
     const parsedTargets = figmaSources.map((source) => {
       try {
@@ -240,6 +242,7 @@ export async function prepareTaskContext(
     .map((source) => ({
       sourceDecisionId: source.id,
       reference: source.reference,
+      required: source.required,
     }));
   const preflight = await (
     dependencies.preflightSources ?? preflightConfirmedSourceIntegrity

@@ -1,15 +1,15 @@
 import type { ActionCenterMutation } from "@component-atlas/core";
-import { getProjectCapabilities, listAgentRunAudits } from "@component-atlas/runtime";
+import { getProjectCapabilities } from "@component-atlas/runtime";
 import {
   buildActionCenterSnapshot,
   executeActionMutation,
   listActionResolutionsForSnapshot,
 } from "../../utils/action-center";
-import { assertAgentSession } from "../../utils/agent-session";
+import { assertLocalSession } from "../../utils/local-session";
 import { loadProjectAtlasSnapshot } from "../../utils/project";
 
 export default defineEventHandler(async (event) => {
-  assertAgentSession(event);
+  assertLocalSession(event);
   const body = await readBody<ActionCenterMutation>(event);
   if (!body) {
     throw createError({
@@ -18,14 +18,12 @@ export default defineEventHandler(async (event) => {
     });
   }
   const snapshot = loadProjectAtlasSnapshot();
-  const [capabilities, runs] = await Promise.all([
-    getProjectCapabilities(snapshot.graph.project.rootPath),
-    listAgentRunAudits(snapshot.graph.project.rootPath, 50),
-  ]);
+  const capabilities = await getProjectCapabilities(
+    snapshot.graph.project.rootPath,
+  );
   const center = buildActionCenterSnapshot(
     snapshot,
     capabilities,
-    runs,
     listActionResolutionsForSnapshot(snapshot),
   );
   return executeActionMutation(center, body);

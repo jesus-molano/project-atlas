@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { access, readdir } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -188,7 +188,7 @@ export async function waitForViewer(
       throw options.signal.reason;
     }
     try {
-      const sessionEndpoint = "/api/agent/session";
+      const sessionEndpoint = "/api/session";
       const sessionProbe = await probeViewerJson(
         url,
         sessionEndpoint,
@@ -240,8 +240,8 @@ export async function waitForViewer(
         }
         throw new Error(
           readiness.expectedProjectId
-            ? "/api/agent/session returned a different project fingerprint"
-            : "/api/agent/session returned a project session instead of the selector",
+            ? "/api/session returned a different project fingerprint"
+            : "/api/session returned a project session instead of the selector",
         );
       }
 
@@ -380,99 +380,6 @@ export function parseViewerPort(value: string): number | undefined {
   return port;
 }
 
-export async function resolveBundledCodexBinary(
-  repositoryRoot: string,
-): Promise<string | undefined> {
-  const target =
-    process.platform === "win32" && process.arch === "x64"
-      ? {
-          packageSuffix: "-win32-x64",
-          binary: path.join(
-            "vendor",
-            "x86_64-pc-windows-msvc",
-            "bin",
-            "codex.exe",
-          ),
-        }
-      : process.platform === "win32" && process.arch === "arm64"
-        ? {
-            packageSuffix: "-win32-arm64",
-            binary: path.join(
-              "vendor",
-              "aarch64-pc-windows-msvc",
-              "bin",
-              "codex.exe",
-            ),
-          }
-        : process.platform === "linux" && process.arch === "x64"
-          ? {
-              packageSuffix: "-linux-x64",
-              binary: path.join(
-                "vendor",
-                "x86_64-unknown-linux-musl",
-                "bin",
-                "codex",
-              ),
-            }
-          : process.platform === "linux" && process.arch === "arm64"
-            ? {
-                packageSuffix: "-linux-arm64",
-                binary: path.join(
-                  "vendor",
-                  "aarch64-unknown-linux-musl",
-                  "bin",
-                  "codex",
-                ),
-              }
-            : process.platform === "darwin" && process.arch === "x64"
-              ? {
-                  packageSuffix: "-darwin-x64",
-                  binary: path.join(
-                    "vendor",
-                    "x86_64-apple-darwin",
-                    "bin",
-                    "codex",
-                  ),
-                }
-              : process.platform === "darwin" && process.arch === "arm64"
-                ? {
-                    packageSuffix: "-darwin-arm64",
-                    binary: path.join(
-                      "vendor",
-                      "aarch64-apple-darwin",
-                      "bin",
-                      "codex",
-                    ),
-                  }
-                : undefined;
-  if (!target) return undefined;
-  const pnpmRoot = path.join(repositoryRoot, "node_modules", ".pnpm");
-  let entries: string[];
-  try {
-    entries = await readdir(pnpmRoot);
-  } catch {
-    return undefined;
-  }
-  const packageDirectory = entries
-    .filter(
-      (entry) =>
-        entry.startsWith("@openai+codex@") &&
-        entry.endsWith(target.packageSuffix),
-    )
-    .sort()
-    .at(-1);
-  if (!packageDirectory) return undefined;
-  const candidate = path.join(
-    pnpmRoot,
-    packageDirectory,
-    "node_modules",
-    "@openai",
-    "codex",
-    target.binary,
-  );
-  return (await fileExists(candidate)) ? candidate : undefined;
-}
-
 export async function openViewer(
   rootPath: string | undefined,
   options: { port: string; browser: boolean },
@@ -493,7 +400,6 @@ export async function openViewer(
       `Project Atlas is not built at ${serverEntry}. From ${repositoryRoot}, run "pnpm atlas" to build and open it.`,
     );
   }
-  const codexPath = await resolveBundledCodexBinary(repositoryRoot);
   const explicitPort = parseViewerPort(options.port);
   const port = explicitPort ?? (await findAvailableLoopbackPort());
   const url = `http://127.0.0.1:${port}`;
@@ -523,7 +429,6 @@ export async function openViewer(
         : {}),
       ATLAS_CLI_ENTRY: currentFile,
       ATLAS_GUI_SESSION_TOKEN: sessionToken,
-      ...(codexPath ? { ATLAS_CODEX_PATH: codexPath } : {}),
       NITRO_HOST: "127.0.0.1",
       NITRO_PORT: String(port),
     },

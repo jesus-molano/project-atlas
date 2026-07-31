@@ -750,6 +750,7 @@ export async function combineMemoryProposals(input: {
 
 export interface RecordOutcomeInput {
   rootPath: string;
+  taskId?: string;
   task: string;
   result: "success" | "failure" | "partial";
   summary: string;
@@ -773,7 +774,7 @@ export async function recordProjectOutcome(input: RecordOutcomeInput) {
   const graph = await loadProjectGraph(input.rootPath);
   const createdAt = new Date().toISOString();
   const id = `outcome:${hash(
-    `${graph.project.id}\0${graphCheckoutId(graph)}\0${createdAt}\0${input.task}`,
+    `${graph.project.id}\0${graphCheckoutId(graph)}\0${input.taskId ?? createdAt}\0${input.task}`,
   ).slice(0, 20)}`;
   let item: MemoryItem = {
     schemaVersion: MEMORY_SCHEMA_VERSION,

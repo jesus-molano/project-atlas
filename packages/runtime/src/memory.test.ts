@@ -550,6 +550,56 @@ paths:
     );
   });
 
+  it("injects only the active task-relevant decision and keeps writes idempotent", async () => {
+    const input = {
+      rootPath,
+      taskId: "task-confirmation-sync",
+      intent: "extend the existing confirmation behavior",
+      decision: "compose" as const,
+      selectedComponentIds: [],
+      rationale: "Use the existing confirmation flow before API synchronization.",
+    };
+    const first = await recordDecision(input);
+    const duplicate = await recordDecision(input);
+    const replacement = await recordDecision({
+      ...input,
+      rationale: "Use the existing confirmation flow with the verified API synchronization.",
+    });
+    await recordDecision({
+      rootPath,
+      taskId: "task-unrelated-navigation",
+      intent: "change the account navigation",
+      decision: "compose",
+      selectedComponentIds: [],
+      rationale: "Keep the unrelated navigation decision isolated.",
+    });
+
+    expect(duplicate.id).toBe(first.id);
+    expect(replacement.id).not.toBe(first.id);
+    expect(replacement.supersedes).toEqual([first.id]);
+
+    const context = await getTaskContext(
+      rootPath,
+      "synchronize the existing confirmation behavior with the API",
+      {
+        taskId: "task-confirmation-sync",
+        budgetChars: 3_200,
+        topK: 3,
+      },
+    );
+    expect(context.decisions).toEqual([
+      expect.objectContaining({
+        id: replacement.id,
+        taskId: "task-confirmation-sync",
+        rationale: replacement.rationale,
+      }),
+    ]);
+    expect(JSON.stringify(context.decisions)).not.toContain(first.id);
+    expect(JSON.stringify(context.decisions)).not.toContain(
+      "task-unrelated-navigation",
+    );
+  });
+
   it("raises conflicts, stale knowledge, and failed attempts before change", async () => {
     await indexProjectMemory(rootPath);
     const gate = await checkBeforeChange(

@@ -68,6 +68,20 @@ export {
   type RecordContextCostAuditInput,
 } from "./context-cost.js";
 export {
+  clearUsageTracesV2,
+  configureUsageTelemetry,
+  disableUsageTelemetry,
+  exportUsageTracesV2,
+  ingestUsageTelemetryPayload,
+  importCodexJsonlUsage,
+  listUsageTracesV2,
+  recordCompactHook,
+  startUsageTelemetryServer,
+  usageTelemetryStatus,
+  type UsageTelemetryOptions,
+  type UsageTelemetryStatus,
+} from "./usage-telemetry.js";
+export {
   detectFramework,
   loadProjectGraph,
   scanProject,
@@ -195,6 +209,7 @@ export interface RecordDecisionInput {
   author?: string;
   scope?: "checkout" | "project";
   confirmedProjectScope?: boolean;
+  taskId?: string;
 }
 
 export interface MapFigmaDesignInput extends BuildFigmaDesignIndexInput {
@@ -292,11 +307,29 @@ export async function recordDecision(
       ...createCandidates.map((candidate) => candidate.component.id),
     ]),
   ];
+  if (input.taskId && !/^[A-Za-z0-9_.:-]{1,160}$/u.test(input.taskId)) {
+    throw new Error("Component decision task ID is invalid.");
+  }
+  const decisionKey = input.taskId
+    ? createHash("sha256")
+        .update(
+          [
+            graph.project.id,
+            checkoutId ?? "",
+            input.taskId,
+            input.decision,
+            scope,
+            [...(input.selectedComponentIds ?? [])].sort().join(","),
+          ].join("\0"),
+        )
+        .digest("hex")
+        .slice(0, 24)
+    : undefined;
   const id = createHash("sha256")
     .update(
       [
         graph.project.id,
-        createdAt,
+        input.taskId ?? createdAt,
         input.intent,
         input.decision,
         input.rationale,
@@ -306,6 +339,20 @@ export async function recordDecision(
     )
     .digest("hex")
     .slice(0, 24);
+  const store = new AtlasStore(graph.project.id);
+  const decisions = store.listDecisions(graph.project.id, checkoutId);
+  const existing = decisions.find((candidate) => candidate.id === id);
+  if (existing) {
+    store.close();
+    return existing;
+  }
+  const prior = decisionKey
+    ? decisions.find(
+        (candidate) =>
+          candidate.decisionKey === decisionKey &&
+          candidate.status !== "superseded",
+      )
+    : undefined;
   const decision: ComponentDecision = {
     id,
     projectId: graph.project.id,
@@ -319,6 +366,9 @@ export async function recordDecision(
     ...(input.author ? { author: input.author } : {}),
     scope,
     ...(scope === "checkout" && checkoutId ? { checkoutId } : {}),
+    ...(input.taskId ? { taskId: input.taskId } : {}),
+    ...(decisionKey ? { decisionKey, status: "active" as const } : {}),
+    ...(prior ? { supersedes: [prior.id] } : {}),
     provenance: {
       scope,
       origin:
@@ -332,8 +382,14 @@ export async function recordDecision(
         scope === "project" ? "explicit-replacement" : "checkout-change",
     },
   };
-  const store = new AtlasStore(graph.project.id);
   try {
+    if (prior) {
+      store.saveDecision({
+        ...prior,
+        status: "superseded",
+        supersededBy: decision.id,
+      });
+    }
     store.saveDecision(decision);
   } finally {
     store.close();

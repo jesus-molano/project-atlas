@@ -90,7 +90,7 @@ test("recognizes an equivalent literal-string TOML block", async (context) => {
   const original = [
     "[mcp_servers.component-atlas]",
     `command = '${nodePath}'`,
-    `args = ['${entryPath}']`,
+    `args = ['${entryPath}', '--profile', 'core']`,
     "",
   ].join("\n");
   await writeFile(configPath, original, "utf8");
@@ -101,6 +101,32 @@ test("recognizes an equivalent literal-string TOML block", async (context) => {
   });
   assert.equal(result.status, "unchanged");
   assert.equal(await readFile(configPath, "utf8"), original);
+});
+
+test("upgrades the previous one-argument Atlas block to core", async (context) => {
+  const root = await temporaryRoot();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = path.join(root, "config.toml");
+  await writeFile(
+    configPath,
+    [
+      "[mcp_servers.component-atlas]",
+      `command = '${nodePath}'`,
+      `args = ['${entryPath}']`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const result = await updateCodexMcpConfig({
+    configPath,
+    nodeExecutable: nodePath,
+    mcpEntry: entryPath,
+  });
+  assert.equal(result.status, "updated");
+  assert.match(
+    await readFile(configPath, "utf8"),
+    /args = \[.*?, "--profile", "core"\]/,
+  );
 });
 
 test("refuses a stale or non-managed block without explicit force", async (context) => {

@@ -149,11 +149,11 @@ one activates it and returns to the last useful section.
 **Bad:** A single project row that opens a diagnostic popover while adding a
 project is impossible or hidden.
 
-**Good:** The Task Workbench initially shows task intent and “Prepare task”.
-Optional sources and context limits are collapsed into clearly named controls.
+**Good:** Native Codex receives a compact locked visual contract with exact
+source IDs and expands only a named handle when required.
 
-**Bad:** The initial screen exposes Jira, Figma, budgets, top-k, execution modes,
-and an empty inspector simultaneously.
+**Bad:** A generic frontend task automatically loads Jira, Figma, budgets,
+execution modes, and complete source bodies before the plan is formed.
 
 **Good:** Code Atlas offers “What can I reuse?”, “What changes?”, and “Where is
 it tested?” as clear modes, then reveals evidence for the selected component.

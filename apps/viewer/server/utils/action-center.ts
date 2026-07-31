@@ -13,7 +13,6 @@ import {
   type ActionCenterSnapshot,
   type ActionEvidenceHandle,
   type ActionResolution,
-  type AgentRunAuditRecord,
   type ProjectCapabilityReport,
 } from "@component-atlas/core";
 import { designIndexSummary } from "@component-atlas/design";
@@ -21,7 +20,6 @@ import { assertMemoryContentSafe } from "@component-atlas/memory";
 import type { ProjectAtlasSnapshot } from "@component-atlas/runtime";
 import { AtlasStore } from "@component-atlas/store";
 import { createError } from "h3";
-import { getAgentRun, resumeAgentRun } from "./agent-runs";
 
 function shortHash(value: unknown): string {
   return createHash("sha256")
@@ -213,7 +211,7 @@ function memoryRiskItems(snapshot: ProjectAtlasSnapshot): ActionCenterItem[] {
           : "The task may regress the affected behavior or repeat prior rework.",
         recommendation: stale
           ? "Verify the memory against current evidence, add it as a check, postpone it, or ignore it with a reason."
-          : "Mitigate in the current task, create a bounded follow-up task, or explicitly accept the risk.",
+          : "Review the evidence, then explicitly accept the risk or defer the decision.",
         source: "memory",
         provenance: [{
           source: "memory",
@@ -288,82 +286,6 @@ function designItems(snapshot: ProjectAtlasSnapshot): ActionCenterItem[] {
   );
 }
 
-function agentRunItems(
-  snapshot: ProjectAtlasSnapshot,
-  runs: AgentRunAuditRecord[],
-): ActionCenterItem[] {
-  return runs
-    .filter(
-      (run) =>
-        run.projectId === snapshot.graph.project.id &&
-        run.checkoutId === checkoutId(snapshot) &&
-        ["awaiting-input", "failed", "cancelled"].includes(run.state),
-    )
-    .map((run) => {
-      const awaiting = run.state === "awaiting-input";
-      const failed = run.state === "failed";
-      const evidence: ActionEvidenceHandle[] = [{
-        id: run.id,
-        source: "agent",
-        label: `Run ${run.id.slice(0, 8)}`,
-        handle: `agent:${run.id}`,
-        summary: `${
-          awaiting
-            ? "Awaiting one material answer"
-            : failed
-              ? "Run failed and remains recoverable by ID"
-              : "Run cancelled with its checkpoint retained"
-        } · ${run.contextChars}/${run.budgetChars} context characters.`,
-        observedAt: run.updatedAt,
-      }];
-      return baseItem(snapshot, {
-        id: `run-${run.state}:${run.id}`,
-        type: awaiting ? "decision-required" : failed ? "risk" : "warning",
-        state: awaiting ? "awaiting-decision" : "new",
-        severity: awaiting || failed ? "high" : "info",
-        blocking: awaiting || failed,
-        title: awaiting
-          ? "Codex is waiting for a project decision"
-          : failed
-            ? "A Codex task failed and needs review"
-            : "A Codex task was cancelled safely",
-        detected:
-          awaiting
-            ? "The originating run completed with needs-input and remains bound to this checkout."
-            : failed
-              ? "The terminal run audit retained the failure, confirmed sources, and task identity."
-              : "Cancellation reached a terminal state and retained the run audit.",
-        whyItMatters:
-          awaiting
-            ? "Only a human answer can unblock this run; starting or resuming another run would lose provenance."
-            : "The run can be recovered or investigated without recreating its source ledger from memory.",
-        affectedTask: `Originating Codex run ${run.id.slice(0, 8)}`,
-        consequence: awaiting
-          ? "The originating task remains paused."
-          : failed
-            ? "The originating task did not complete."
-            : "No further execution will occur unless the task is explicitly resumed.",
-        recommendation:
-          awaiting
-            ? "Record a concise answer and continue this exact run, or postpone it with explicit scope."
-            : failed
-              ? "Open the exact Codex task, review the terminal error, and resume from its checkpoint only after confirming current scope."
-              : "Mark reviewed, or resume this exact task if the cancelled work is still required.",
-        source: "agent",
-        provenance: [{
-          source: "agent",
-          canonicalId: run.id,
-          rule: `agent-run-${run.state}`,
-          observedAt: run.updatedAt,
-        }],
-        evidence,
-        runId: run.id,
-        detectedAt: run.startedAt,
-        updatedAt: run.updatedAt,
-      });
-    });
-}
-
 function missingEvidenceItems(
   snapshot: ProjectAtlasSnapshot,
   capabilities: ProjectCapabilityReport,
@@ -424,12 +346,10 @@ function missingEvidenceItems(
 export function buildActionCenterSnapshot(
   snapshot: ProjectAtlasSnapshot,
   capabilities: ProjectCapabilityReport,
-  runs: AgentRunAuditRecord[],
   resolutions: ActionResolution[],
 ): ActionCenterSnapshot {
   const projected = [
     ...contradictionItems(snapshot),
-    ...agentRunItems(snapshot, runs),
     ...designItems(snapshot),
     ...memoryRiskItems(snapshot),
     ...missingEvidenceItems(snapshot, capabilities),
@@ -470,8 +390,6 @@ export interface ActionMutationResult {
   resolution: ActionResolution;
   duplicate: boolean;
   delta?: ReturnType<typeof compactActionDelta>;
-  followUpTask?: { id: string; intent: string; handles: string[] };
-  continuedRun?: ReturnType<typeof resumeAgentRun>;
   connector?: { id: string; available: false; next: "connections" };
 }
 
@@ -481,18 +399,13 @@ function resolutionFromMutation(
   mutation: ActionCenterMutation,
   resolvedAt: string,
 ): ActionResolution {
-  const followUpId =
-    mutation.command === "create-follow-up-task" ? randomUUID() : undefined;
   return {
     schemaVersion: ACTION_CENTER_SCHEMA_VERSION,
     id: randomUUID(),
     itemId: item.id,
     projectId: center.projectId,
     checkoutId: center.checkoutId,
-    ...(mutation.runId ? { runId: mutation.runId } : {}),
-    ...(mutation.taskId || followUpId
-      ? { taskId: mutation.taskId ?? followUpId }
-      : {}),
+    ...(mutation.taskId ? { taskId: mutation.taskId } : {}),
     command: mutation.command,
     state: actionStateForCommand(mutation.command),
     scope: mutation.scope,
@@ -566,25 +479,6 @@ export function executeActionMutation(
     }
 
     const delta = compactActionDelta(item, mutation);
-    let continuedRun: ReturnType<typeof resumeAgentRun> | undefined;
-    if (mutation.command === "save-decision-and-continue") {
-      const run = getAgentRun(item.runId!);
-      if (
-        run.id !== mutation.runId ||
-        run.projectId !== center.projectId ||
-        run.checkoutId !== center.checkoutId ||
-        run.state !== "awaiting-input"
-      ) {
-        throw createError({
-          statusCode: 409,
-          statusMessage:
-            "The originating run is unavailable, belongs to another scope, or is no longer awaiting this decision.",
-        });
-      }
-      continuedRun = resumeAgentRun(item.runId!, {
-        answer: JSON.stringify(delta),
-      });
-    }
 
     const resolution = resolutionFromMutation(
       center,
@@ -596,21 +490,11 @@ export function executeActionMutation(
     return {
       resolution: saved,
       duplicate: false,
-      ...(["resolve-decision", "mitigate-current-task", "add-check", "use-alternative"].includes(
+      ...(["resolve-decision", "use-alternative"].includes(
         mutation.command,
       )
         ? { delta }
         : {}),
-      ...(mutation.command === "create-follow-up-task"
-        ? {
-            followUpTask: {
-              id: saved.taskId!,
-              intent: `${item.recommendation} Resolve Atlas action ${item.id}.`,
-              handles: item.evidence.map((entry) => entry.handle).slice(0, 8),
-            },
-          }
-        : {}),
-      ...(continuedRun ? { continuedRun } : {}),
       ...(mutation.command === "connect-source"
         ? {
             connector: {

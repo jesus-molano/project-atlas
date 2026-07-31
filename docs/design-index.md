@@ -109,9 +109,9 @@ The cache lives in the repository's Atlas SQLite database under local
 application data. An identical source/scope hash returns `unchanged`. New page
 snapshots merge into the same version. A different `version` or `lastModified`
 starts a fresh map so nodes removed from Figma do not remain indefinitely.
-The Codex handoff sidecar refreshes the workspace snapshot while confirmed Figma
-ingestion runs, so the Design view can show the persisted map before code
-components are created or the task completes. It reports loading, available,
+The local workspace refreshes its snapshot while confirmed Figma ingestion
+runs, so the Design view can show the persisted map before code components are
+created or the native task completes. It reports loading, available,
 confirmed-but-unsynchronized, and access/sync-error states explicitly.
 
 The stored node model is deliberately sparse: ID, URL, name, type, page,

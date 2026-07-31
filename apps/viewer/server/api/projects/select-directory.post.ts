@@ -1,15 +1,15 @@
 import { createError } from "h3";
 import {
-  assertAgentSession,
+  assertLocalSession,
   assertSameOrigin,
-} from "../../utils/agent-session";
+} from "../../utils/local-session";
 import { selectLocalProjectDirectory } from "../../utils/directory-picker";
 
 let pickerPending = false;
 
 export default defineEventHandler(async (event) => {
   assertSameOrigin(event);
-  assertAgentSession(event);
+  assertLocalSession(event);
   if (pickerPending) {
     throw createError({
       statusCode: 409,

@@ -11,8 +11,10 @@ import {
   recordContextCostAudit,
   scanProject,
 } from "../packages/runtime/dist/index.js";
-import { measureFrontendTaskSkillCost } from "../packages/agent/dist/index.js";
-import { measureMcpContractCost } from "../packages/mcp/dist/index.js";
+import {
+  measureFrontendTaskSkillCost,
+  measureMcpContractCost,
+} from "../packages/mcp/dist/index.js";
 
 const sourceFixture = path.resolve("fixtures/vue-nuxt");
 const figmaFixture = path.resolve("fixtures/figma/account-page.xml");
@@ -78,7 +80,7 @@ paths:
   for (const [index, [taskType, task]] of cases.entries()) {
     const complex = taskType === "complex";
     const context = await getTaskContext(rootPath, task, {
-      budgetChars: complex ? 4_000 : taskType === "small" ? 2_000 : 3_200,
+      budgetChars: complex ? 3_600 : taskType === "small" ? 2_000 : 3_200,
       topK: complex ? 5 : 3,
       ...(complex
         ? {

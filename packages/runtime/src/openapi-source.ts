@@ -309,22 +309,32 @@ export async function readPublicDocument(
   reference: string,
   maximumBytes = MAX_REMOTE_BYTES,
   resolveAddresses: PublicAddressResolver = systemAddressResolver,
+  requestDocument: typeof requestPinned = requestPinned,
 ): Promise<PublicDocument> {
   const requestedUrl = normalizedRemoteUrl(reference);
   let url = new URL(requestedUrl);
   const redirectChain = [requestedUrl];
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-    let response: Awaited<ReturnType<typeof requestPinned>>;
-    try {
-      const addresses = await assertPublicRemoteUrl(url, resolveAddresses);
-      response = await requestPinned(url, addresses[0]!, maximumBytes);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `OpenAPI retrieval failed for ${url.origin}${url.pathname}: ${detail}`,
-        { cause: error },
-      );
+    let response: Awaited<ReturnType<typeof requestPinned>> | undefined;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const addresses = await assertPublicRemoteUrl(url, resolveAddresses);
+        response = await requestDocument(url, addresses[0]!, maximumBytes);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `OpenAPI retrieval failed for ${url.origin}${url.pathname}: ${detail}`,
+          { cause: error },
+        );
+      }
+      if (
+        ![502, 503, 504].includes(response.status) ||
+        attempt === 1
+      ) {
+        break;
+      }
     }
+    if (!response) throw new Error("The confirmed OpenAPI URL could not be loaded.");
     if (response.status >= 300 && response.status < 400) {
       if (!response.location || redirect === MAX_REDIRECTS) {
         throw new Error("The confirmed OpenAPI URL redirected too many times.");

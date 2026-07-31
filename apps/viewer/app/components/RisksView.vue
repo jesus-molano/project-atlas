@@ -13,7 +13,6 @@ import {
 import { localizeActionCenterItem } from "~/i18n/generated";
 
 const emit = defineEmits<{
-  prepareTask: [payload: { intent: string; handles: string[] }];
   openEvidence: [handle: string];
   changed: [];
 }>();
@@ -89,7 +88,9 @@ const materialBlockers = computed(
 );
 
 const availableCommands = computed(() =>
-  selected.value ? commandsForActionItem(selected.value.type) : [],
+  selected.value
+    ? commandsForActionItem(selected.value.type)
+    : [],
 );
 
 const bulkItems = computed(() =>
@@ -131,14 +132,10 @@ watch(selectedId, () => {
 
 function actionLabel(command: ActionCenterCommand): string {
   const labels: Record<ActionCenterCommand, string> = {
-    "save-decision-and-continue": "Resolve & continue origin run",
     "resolve-decision": "Resolve decision",
     "resolve-contradiction": "Choose authority & resolve",
     "request-clarification": "Request clarification",
-    "mitigate-current-task": "Mitigate in current task",
-    "create-follow-up-task": "Create follow-up task",
     "accept-risk": "Accept risk",
-    "add-check": "Add as task check",
     "mark-reviewed": "Mark reviewed",
     defer: "Postpone",
     "connect-source": "Connect / select source",
@@ -163,17 +160,8 @@ function commandDisabledReason(
   if (scope.value === "until-date" && !deferUntil.value) {
     return t("Choose a future date for this scope.");
   }
-  if (scope.value === "run" && !item.runId) {
-    return t("This item is not bound to an originating run.");
-  }
   if (commandNeedsConfirmation(command) && !confirmed.value) {
     return t("Confirm the consequence and scope first.");
-  }
-  if (
-    command === "save-decision-and-continue" &&
-    !item.runId
-  ) {
-    return t("No originating run is bound to this decision.");
   }
   if (
     command === "resolve-contradiction" &&
@@ -188,7 +176,7 @@ function commandDisabledReason(
 }
 
 async function sessionToken(): Promise<string> {
-  const session = await $fetch<{ token: string }>("/api/agent/session");
+  const session = await $fetch<{ token: string }>("/api/session");
   return session.token;
 }
 
@@ -202,7 +190,6 @@ function mutationFor(
     itemId: item.id,
     projectId: item.projectId,
     checkoutId: item.checkoutId,
-    ...(item.runId ? { runId: item.runId } : {}),
     ...(item.taskId ? { taskId: item.taskId } : {}),
     command,
     scope: scope.value,
@@ -236,25 +223,13 @@ async function runAction(command: ActionCenterCommand): Promise<void> {
     const token = await sessionToken();
     const result = await $fetch<{
       duplicate: boolean;
-      followUpTask?: { id: string; intent: string; handles: string[] };
-      delta?: { evidenceHandles: string[] };
       connector?: { next: "connections" };
     }>("/api/action-center/actions", {
       method: "POST",
       headers: { "x-atlas-session": token },
       body: mutationFor(item, command, crypto.randomUUID()),
     });
-    if (result.followUpTask) {
-      emit("prepareTask", {
-        intent: result.followUpTask.intent,
-        handles: result.followUpTask.handles,
-      });
-    } else if (result.delta) {
-      emit("prepareTask", {
-        intent: `${actionLabel(command)}: ${reason.value.trim()}`,
-        handles: result.delta.evidenceHandles,
-      });
-    } else if (result.connector) {
+    if (result.connector) {
       emit("openEvidence", "integration:connections");
     }
     actionNotice.value = result.duplicate
@@ -443,7 +418,6 @@ function resetResolutionForm(): void {
             <option value="repository">{{ t("Repository") }}</option>
             <option value="design">{{ t("Design") }}</option>
             <option value="memory">{{ t("Memory") }}</option>
-            <option value="agent">{{ t("Agent run") }}</option>
             <option value="integration">{{ t("Integration") }}</option>
           </select>
         </label>
@@ -642,10 +616,6 @@ function resetResolutionForm(): void {
             </label>
             <div class="resolution-scope">
               <label>
-                <input v-model="scope" type="radio" value="run">
-                <span>{{ t("Only the originating run") }}</span>
-              </label>
-              <label>
                 <input v-model="scope" type="radio" value="evidence">
                 <span>{{ t("Until evidence, code, or design changes") }}</span>
               </label>
@@ -680,8 +650,7 @@ function resetResolutionForm(): void {
                 :class="
                   commandNeedsConfirmation(command)
                     ? 'danger-button'
-                    : command === 'save-decision-and-continue'
-                        || command === 'resolve-decision'
+                    : command === 'resolve-decision'
                         || command === 'resolve-contradiction'
                       ? 'primary-button'
                       : 'secondary-button'

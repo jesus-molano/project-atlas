@@ -235,23 +235,7 @@ export function localizeActionCenterItem(
       consequence:
         "La tarea puede provocar una regresión o repetir trabajo ya descartado.",
       recommendation:
-        "Mitiga el riesgo en la tarea actual, crea una tarea de seguimiento acotada o acepta el riesgo de forma explícita.",
-    };
-  }
-
-  if (rule === "agent-run-needs-input") {
-    const run = item.runId?.slice(0, 8) ?? item.evidence[0]?.id.slice(0, 8) ?? "";
-    return {
-      ...original,
-      title: "Codex está esperando una decisión del proyecto",
-      detected:
-        "La ejecución de origen terminó solicitando información y sigue vinculada a este checkout.",
-      whyItMatters:
-        "Solo una respuesta humana puede desbloquearla; iniciar o reanudar otra ejecución perdería la procedencia.",
-      affectedTask: `Ejecución de Codex de origen ${run}`,
-      consequence: "La tarea de origen permanece pausada.",
-      recommendation:
-        "Registra una respuesta concisa y continúa esa misma ejecución, o posponla con un alcance explícito.",
+        "Revisa la evidencia y después acepta el riesgo o aplaza la decisión de forma explícita.",
     };
   }
 

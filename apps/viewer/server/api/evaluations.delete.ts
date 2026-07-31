@@ -1,20 +1,20 @@
 import {
-  clearAgentRunAudits,
   clearContextCostAudits,
   clearTaskEvaluations,
+  clearUsageTracesV2,
 } from "@component-atlas/runtime";
-import { assertAgentSession } from "../utils/agent-session";
+import { assertLocalSession } from "../utils/local-session";
 import { projectRootPath } from "../utils/project";
 
 export default defineEventHandler(async (event) => {
-  assertAgentSession(event);
+  assertLocalSession(event);
   const rootPath = projectRootPath();
-  const [evaluations, runs, contextCosts] = await Promise.all([
+  const [evaluations, contextCosts, usage] = await Promise.all([
     clearTaskEvaluations(rootPath),
-    clearAgentRunAudits(rootPath),
     clearContextCostAudits(rootPath),
+    clearUsageTracesV2(rootPath),
   ]);
   return {
-    cleared: evaluations.cleared + runs.cleared + contextCosts.cleared,
+    cleared: evaluations.cleared + contextCosts.cleared + usage.cleared,
   };
 });

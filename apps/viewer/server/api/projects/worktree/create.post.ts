@@ -1,10 +1,9 @@
 import { scanProject } from "@component-atlas/runtime";
 import { createError } from "h3";
-import { hasActiveAgentRun } from "../../../utils/agent-runs";
 import {
-  assertAgentSession,
+  assertLocalSession,
   assertSameOrigin,
-} from "../../../utils/agent-session";
+} from "../../../utils/local-session";
 import { createProjectWorktree } from "../../../utils/git-worktrees";
 import {
   rememberRecentProject,
@@ -15,14 +14,7 @@ import { parseWorktreeCreateRequest } from "../../../utils/worktree-request";
 
 export default defineEventHandler(async (event) => {
   assertSameOrigin(event);
-  assertAgentSession(event);
-  if (hasActiveAgentRun()) {
-    throw createError({
-      statusCode: 409,
-      statusMessage:
-        "Finish or cancel the active Codex run before changing projects.",
-    });
-  }
+  assertLocalSession(event);
   const input = parseWorktreeCreateRequest(await readBody(event));
   const worktree = createProjectWorktree(projectRootPath(), input);
   let graph: Awaited<ReturnType<typeof scanProject>>;

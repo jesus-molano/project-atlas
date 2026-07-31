@@ -5,38 +5,26 @@ import { fileURLToPath } from "node:url";
 
 export interface FrontendTaskSkillCost {
   skillChars: number;
-  skillReferenceChars: number;
+  skillReferenceChars: 0;
   skillManifestHash: string;
   measurement: "exact" | "unavailable";
 }
-
-const requiredFiles = [
-  "SKILL.md",
-  path.join("references", "source-precheck.md"),
-  path.join("references", "brief-contract.md"),
-];
 
 let measuredSkill: Promise<FrontendTaskSkillCost> | undefined;
 
 export function measureFrontendTaskSkillCost(): Promise<FrontendTaskSkillCost> {
   measuredSkill ??= (async () => {
-    const skillRoot = path.resolve(
+    const skillPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../../../skills/frontend-task",
+      "../../../skills/frontend-task/SKILL.md",
     );
     try {
-      const contents = await Promise.all(
-        requiredFiles.map((file) => readFile(path.join(skillRoot, file), "utf8")),
-      );
-      const manifest = requiredFiles
-        .map((file, index) => `${file}\0${contents[index]}`)
-        .join("\0");
+      const contents = await readFile(skillPath, "utf8");
       return {
-        skillChars: contents[0]?.length ?? 0,
-        skillReferenceChars:
-          (contents[1]?.length ?? 0) + (contents[2]?.length ?? 0),
+        skillChars: contents.length,
+        skillReferenceChars: 0,
         skillManifestHash: createHash("sha256")
-          .update(manifest)
+          .update(`SKILL.md\0${contents}`)
           .digest("hex"),
         measurement: "exact",
       };

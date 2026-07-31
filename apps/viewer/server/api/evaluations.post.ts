@@ -1,5 +1,5 @@
 import { recordTaskEvaluation } from "@component-atlas/runtime";
-import { assertAgentSession } from "../utils/agent-session";
+import { assertLocalSession } from "../utils/local-session";
 import { projectRootPath } from "../utils/project";
 
 interface EvaluationBody {
@@ -12,7 +12,7 @@ interface EvaluationBody {
 }
 
 export default defineEventHandler(async (event) => {
-  assertAgentSession(event);
+  assertLocalSession(event);
   const body = await readBody<EvaluationBody>(event);
   if (!body?.task) {
     throw createError({

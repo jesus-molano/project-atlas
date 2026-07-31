@@ -148,6 +148,35 @@ describe("OpenAPI task context", () => {
     expect(context?.operations[0]?.sourceReceiptIds).toHaveLength(1);
   });
 
+  it("preserves optionality and HTTP status for bounded fallback decisions", async () => {
+    const reference = "https://api.example.com/openapi.json";
+    const context = await loadConfirmedOpenApiContext(
+      "/repo",
+      "Update the checkout client",
+      [
+        {
+          sourceDecisionId: taskSourceId("openapi", reference),
+          reference,
+          required: false,
+        },
+      ],
+      async () => {
+        throw new Error("The confirmed OpenAPI URL returned HTTP 502.");
+      },
+    );
+    expect(context).toMatchObject({
+      available: false,
+      errors: [
+        expect.objectContaining({
+          reference,
+          required: false,
+          httpStatus: 502,
+          recoverableWithConnector: true,
+        }),
+      ],
+    });
+  });
+
   it("keeps Swagger UI identity while recording a verified derived spec", async () => {
     const reference = "https://api.example.com/swagger";
     const context = await loadConfirmedOpenApiContext(

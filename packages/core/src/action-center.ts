@@ -21,17 +21,13 @@ export type ActionItemState =
   | "stale";
 
 export type ActionSeverity = "critical" | "high" | "medium" | "low" | "info";
-export type ActionResolutionScope = "run" | "evidence" | "until-date" | "project";
+export type ActionResolutionScope = "evidence" | "until-date" | "project";
 
 export type ActionCenterCommand =
-  | "save-decision-and-continue"
   | "resolve-decision"
   | "resolve-contradiction"
   | "request-clarification"
-  | "mitigate-current-task"
-  | "create-follow-up-task"
   | "accept-risk"
-  | "add-check"
   | "mark-reviewed"
   | "defer"
   | "connect-source"
@@ -46,7 +42,6 @@ export interface ActionEvidenceHandle {
     | "design"
     | "memory"
     | "task"
-    | "agent"
     | "integration";
   label: string;
   handle: string;
@@ -68,7 +63,6 @@ export interface ActionResolution {
   itemId: string;
   projectId: string;
   checkoutId: string;
-  runId?: string;
   taskId?: string;
   command: ActionCenterCommand;
   state: ActionItemState;
@@ -103,7 +97,6 @@ export interface ActionCenterItem {
   evidenceFingerprint: string;
   source: ActionEvidenceHandle["source"];
   taskId?: string;
-  runId?: string;
   componentIds?: string[];
   options?: Array<{ id: string; label: string; detail?: string }>;
   connector?: "figma" | "atlassian-rovo" | "github" | "codex";
@@ -132,7 +125,6 @@ export interface ActionCenterMutation {
   itemId: string;
   projectId: string;
   checkoutId: string;
-  runId?: string;
   taskId?: string;
   command: ActionCenterCommand;
   scope: ActionResolutionScope;
@@ -159,19 +151,13 @@ export interface ActionContextDelta {
 
 const allowedCommands: Record<ActionItemType, readonly ActionCenterCommand[]> = {
   "decision-required": [
-    "save-decision-and-continue",
     "resolve-decision",
     "request-clarification",
     "defer",
   ],
   contradiction: ["resolve-contradiction", "request-clarification", "defer"],
-  risk: [
-    "mitigate-current-task",
-    "create-follow-up-task",
-    "accept-risk",
-    "defer",
-  ],
-  warning: ["add-check", "mark-reviewed", "defer", "dismiss"],
+  risk: ["accept-risk", "defer"],
+  warning: ["mark-reviewed", "defer", "dismiss"],
   "missing-evidence": [
     "connect-source",
     "use-alternative",
@@ -216,9 +202,6 @@ export function actionStateForCommand(command: ActionCenterCommand): ActionItemS
       return "reviewed";
     case "dismiss":
       return "dismissed";
-    case "mitigate-current-task":
-    case "add-check":
-      return "mitigated";
     case "request-clarification":
       return "awaiting-decision";
     case "connect-source":
@@ -234,7 +217,6 @@ export function resolutionApplies(
   now = new Date().toISOString(),
 ): boolean {
   if (resolution.evidenceFingerprint !== item.evidenceFingerprint) return false;
-  if (resolution.scope === "run" && resolution.runId !== item.runId) return false;
   if (resolution.scope === "until-date") {
     return Boolean(resolution.deferUntil && resolution.deferUntil > now);
   }
@@ -314,9 +296,6 @@ export function validateActionMutation(
   if (!mutation.reason.trim() || mutation.reason.trim().length > 500) {
     errors.push("A reason between 1 and 500 characters is required.");
   }
-  if (mutation.scope === "run" && (!item.runId || mutation.runId !== item.runId)) {
-    errors.push("Run-scoped resolutions require the originating run.");
-  }
   if (mutation.scope === "until-date") {
     const now = options.now ?? new Date().toISOString();
     if (!mutation.deferUntil || mutation.deferUntil <= now) {
@@ -333,12 +312,6 @@ export function validateActionMutation(
     ) {
       errors.push("Choose one of the compared evidence sources as authority.");
     }
-  }
-  if (
-    mutation.command === "save-decision-and-continue" &&
-    (!item.runId || mutation.runId !== item.runId)
-  ) {
-    errors.push("Only the originating run can be continued.");
   }
   if (
     mutation.command === "use-alternative" &&

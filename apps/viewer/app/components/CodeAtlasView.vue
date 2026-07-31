@@ -26,9 +26,6 @@ const props = defineProps<{
   }>;
   initialComponentId?: string;
 }>();
-const emit = defineEmits<{
-  useInTask: [handle: string, intent: string];
-}>();
 const { statusLabel, t } = useAtlasI18n();
 
 const query = ref("");
@@ -393,17 +390,6 @@ function entityApiLabel(entity: FrontendEntity): string {
   return statusLabel(entity.kind);
 }
 
-function useEntityInTask(entity: FrontendEntity): void {
-  emit(
-    "useInTask",
-    `code:${entity.id}`,
-    t("Use {name} at {path} as repository evidence for this task.", {
-      name: entity.name,
-      path: entity.relativePath,
-    }),
-  );
-}
-
 async function copyEntityPath(entity: FrontendEntity): Promise<void> {
   await navigator.clipboard.writeText(entity.relativePath);
 }
@@ -520,23 +506,6 @@ function previousPage(): void {
 function nextPage(): void {
   page.value = Math.min(totalPages.value - 1, page.value + 1);
   if (componentList.value) componentList.value.scrollTop = 0;
-}
-
-function useSelectedInTask(): void {
-  if (!selected.value) return;
-  const intent =
-    goal.value === "impact"
-      ? t("Assess the impact of changing {name}.", {
-          name: selected.value.effectiveName,
-        })
-      : goal.value === "tests"
-        ? t("Review or extend the tests for {name}.", {
-            name: selected.value.effectiveName,
-          })
-        : t("Evaluate whether {name} should be reused for this task.", {
-            name: selected.value.effectiveName,
-          });
-  emit("useInTask", `code:${selected.value.id}`, intent);
 }
 
 async function copySelectedPath(): Promise<void> {
@@ -674,9 +643,6 @@ onBeforeUnmount(() => {
           <div>
             <button class="text-button" @click="copyEntityPath(selectedEntity)">
               {{ t("Copy path") }}
-            </button>
-            <button class="secondary-button" @click="useEntityInTask(selectedEntity)">
-              {{ t("Use in task") }}
             </button>
           </div>
         </article>
@@ -872,9 +838,6 @@ onBeforeUnmount(() => {
           </span>
         </div>
         <div class="entity-actions">
-          <button class="primary-button" @click="useSelectedInTask">
-            {{ t("Use in task") }}
-          </button>
           <button class="text-button" @click="copySelectedPath">
             {{ t("Copy path") }}
           </button>

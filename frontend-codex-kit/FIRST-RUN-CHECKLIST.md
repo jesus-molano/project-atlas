@@ -4,8 +4,7 @@
 
 - [ ] Clone or pull `project-atlas` to a stable local path.
 - [ ] Check `node --version` is 24+ and `pnpm --version` is 11+.
-- [ ] Run
-      `.\frontend-codex-kit\install.ps1 -Agent codex -InstallAgentsInstructions`.
+- [ ] Run `.\frontend-codex-kit\install.ps1 -Agent codex`.
 - [ ] Confirm the installer reports `[mcp_servers.component-atlas]` in the
       expected `$CODEX_HOME/config.toml` or `~/.codex/config.toml`.
 - [ ] Restart Codex and open a new task so it reloads the shared MCP config.
@@ -43,10 +42,10 @@
 - [ ] The final implementation records a reuse decision and runs repository
       validation.
 - [ ] Task context reports its hard budget and does not dump every source.
-- [ ] `check_before_change` surfaces only evidence-backed conflicts/warnings.
+- [ ] `atlas_validate_change` surfaces only evidence-backed conflicts/warnings.
 - [ ] A durable memory lesson is proposed, not silently applied.
-- [ ] `pnpm atlas -- "<repo>"` exposes all nine GUI sections and Task Context shows
-      the budget used before copying a package.
+- [ ] `pnpm atlas -- "<repo>"` exposes the evidence/review GUI and no model
+      execution controls or runner routes.
 
 ## Optional GUI check
 

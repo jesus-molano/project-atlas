@@ -225,115 +225,41 @@ describe("frontend-task capability routing fixtures", () => {
     );
   });
 
-  it("keeps the high-risk source checkpoint and continuation rules in the skill contract", async () => {
-    const [skill, precheck, continuation, brief, routing, memoryCloseout] =
-      await Promise.all([
-        readFile(
-          new URL("../skills/frontend-task/SKILL.md", import.meta.url),
-          "utf8",
+  it("keeps the explicit bounded v2 workflow in the skill contract", async () => {
+    const [skill, metadata] = await Promise.all([
+      readFile(
+        new URL("../skills/frontend-task/SKILL.md", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL(
+          "../skills/frontend-task/agents/openai.yaml",
+          import.meta.url,
         ),
-        readFile(
-          new URL(
-            "../skills/frontend-task/references/source-precheck.md",
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-        readFile(
-          new URL(
-            "../skills/frontend-task/references/continuation-mode.md",
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-        readFile(
-          new URL(
-            "../skills/frontend-task/references/brief-contract.md",
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-        readFile(
-          new URL(
-            "../skills/frontend-task/references/capability-routing.md",
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-        readFile(
-          new URL(
-            "../skills/frontend-task/references/memory-closeout.md",
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-      ]);
+        "utf8",
+      ),
+    ]);
 
-    expect(skill).toMatch(/new high-risk task/i);
-    expect(skill).toMatch(/before repository investigation or external retrieval/i);
-    expect(skill).toMatch(/Jira, Confluence, Figma, and Swagger\/OpenAPI/i);
-    expect(skill).toMatch(/reuse evidence, not a\s+continuation signal/i);
-    expect(precheck).toMatch(/regardless of connector availability/i);
-    expect(precheck).toMatch(
-      /empty ledger or\s+one containing detected links only leaves the other rows unresolved/i,
-    );
-    expect(precheck).toMatch(/do not call a\s+connector[\s\S]*before the user confirms/i);
-    expect(continuation).toMatch(/biometrics in Problem Tags like Back Office/i);
-    expect(brief).toMatch(/jira \| confluence \| figma \| github \| openapi/i);
-    expect(brief).toMatch(/openapi: required \| recommended \| optional/i);
-    expect(routing).toMatch(/Swagger\/OpenAPI contract/i);
-    expect(skill).toMatch(/Figma Desktop\s+MCP.*first route for every context read/is);
-    expect(skill).toMatch(/http:\/\/127\.0\.0\.1:3845\/mcp/i);
-    expect(skill).toMatch(
-      /before any full `get_design_context` retrieval[\s\S]*`get_metadata`/i,
-    );
-    expect(skill).toMatch(
-      /never repeat the same request unchanged with a larger\s+timeout/i,
-    );
-    expect(skill).toMatch(
-      /full-page read still exceeds limits, fails, or times out[\s\S]*preserve the\s+original page link and identity/i,
-    );
-    expect(skill).toMatch(
-      /small adaptive batches[\s\S]*covered and remaining scope IDs/i,
-    );
-    expect(routing).toMatch(
-      /Codex\/Figma skill supplies[\s\S]*mandatory operation\s+prerequisite/i,
-    );
-    expect(routing).toMatch(
-      /before any global MCP registration or remote\s+Figma connector/i,
-    );
-    expect(routing).toMatch(
-      /rejects or times out on the request, does not\s+respond, is unauthorized, or does not expose the operation/i,
-    );
-    expect(routing).toMatch(
-      /Add one concise\s+explanation naming that condition and the fallback route used/i,
-    );
-    expect(routing).toMatch(
-      /segment from the outset[\s\S]*On timeout, do not retry an unchanged request with a higher timeout/i,
-    );
-    expect(routing).toMatch(
-      /lightweight global\s+view with `get_screenshot`[\s\S]*economical\s+`get_metadata` hierarchy\/IDs/i,
-    );
-    expect(routing).toMatch(
-      /Batching need not degrade immediately to one\s+node per request/i,
-    );
-    expect(routing).toMatch(
-      /names the original page, covered scope\s+IDs, omitted unrelated scopes, and any remaining gaps/i,
-    );
-    expect(skill).toMatch(/Finish every completed task with the compact \*\*Memory candidates\*\*/i);
-    expect(memoryCloseout).toMatch(/`none`[\s\S]*No novel durable knowledge/i);
-    expect(memoryCloseout).toMatch(
-      /`canonical-candidate`[\s\S]*explicit canonical-write confirmation/i,
-    );
-    expect(memoryCloseout).toMatch(
-      /`local-only`[\s\S]*do not ask for canonical promotion/i,
-    );
-    expect(memoryCloseout).toMatch(/`declined`[\s\S]*do not ask again/i);
-    expect(memoryCloseout).toMatch(
-      /do not call\s+`record_outcome`, `propose_memory_update`, or `apply_memory_update`/i,
-    );
-    expect(brief).toMatch(
-      /closeout_status: none \| canonical-candidate \| canonical-stored \| local-only \| declined/i,
-    );
+    expect(metadata).toMatch(/allow_implicit_invocation:\s*false/i);
+    expect(skill.length).toBeLessThanOrEqual(8_000);
+    expect(skill).toMatch(/call `atlas_prepare_task` once/i);
+    expect(skill).toMatch(/Classify only sources that are supplied or materially required/i);
+    expect(skill).toMatch(/Missing optional evidence is a warning, not a blocker/i);
+    expect(skill).toMatch(/transient Swagger\/OpenAPI failure, retry once/i);
+    expect(skill).toMatch(/call `atlas_lock_change_scope`/i);
+    expect(skill).toMatch(/Plan mode and filesystem permissions belong to native Codex/i);
+    expect(skill).toMatch(/same native task/i);
+    expect(skill).toMatch(/Checkpoint with `atlas_task_state` only at a semantic boundary/i);
+    expect(skill).toMatch(/call `atlas_validate_change`/i);
+    expect(skill).toMatch(/main native Codex task is coordinator and sole writer/i);
+    expect(skill).toMatch(/small\/low: no agent reviewer/i);
+    expect(skill).toMatch(/medium: one read-only correctness\/architecture reviewer/i);
+    expect(skill).toMatch(/high: up to three narrow read-only reviewers/i);
+    expect(skill).toMatch(/Stop after two review passes/i);
+    expect(skill).toMatch(/Atlas must not create, route, resume, cancel, or grant permissions/i);
+    expect(skill).toMatch(/tight file\/line evidence/i);
+    expect(skill).toMatch(/call `atlas_record_outcome` once/i);
+    expect(skill).toMatch(/invoke `\$visual-direction` explicitly/i);
+    expect(skill).not.toMatch(/confirm Jira, Confluence, Figma, and Swagger\/OpenAPI/i);
   });
 });

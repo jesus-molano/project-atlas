@@ -1,7 +1,7 @@
-import { agentSessionToken } from "../../utils/agent-session";
+import { localSessionToken } from "../utils/local-session";
 
 export default defineEventHandler(() => ({
-  token: agentSessionToken(),
+  token: localSessionToken(),
   expires: "server-restart",
   launch: {
     mode: process.env.ATLAS_PROJECT_ROOT ? "project" : "selector",

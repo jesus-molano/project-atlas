@@ -27,18 +27,7 @@ const generatedFiles = new Set([
   "apps/viewer/app/i18n/generated.ts",
 ]);
 
-// These pre-existing modules are tracked as bounded debt. They may shrink, but
-// the audit rejects any growth and every new or extracted module must stay
-// below the normal 1,200-line ceiling.
-const legacyOversizedLimits = new Map([
-  ["apps/viewer/app/i18n/messages.ts", 1_600],
-  ["apps/viewer/app/pages/index.vue", 2_000],
-  ["packages/design/src/ingest.ts", 1_650],
-  ["packages/store/src/index.ts", 1_300],
-]);
-
 const oversized = [];
-const legacy = [];
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -63,11 +52,8 @@ async function walk(directory) {
 
     const content = await readFile(absolutePath, "utf8");
     const lines = content.length === 0 ? 0 : content.split(/\r?\n/u).length;
-    const limit = legacyOversizedLimits.get(relativePath) ?? maximumLines;
-    if (lines > limit) {
-      oversized.push({ relativePath, lines, limit });
-    } else if (lines > maximumLines) {
-      legacy.push({ relativePath, lines, limit });
+    if (lines > maximumLines) {
+      oversized.push({ relativePath, lines, limit: maximumLines });
     }
   }
 }
@@ -84,9 +70,4 @@ if (oversized.length > 0) {
   );
 }
 
-console.log(
-  `Maintainability audit passed. ${legacy.length} bounded legacy module(s) remain above ${maximumLines} lines.`,
-);
-for (const item of legacy) {
-  console.log(`- ${item.relativePath}: ${item.lines}/${item.limit}`);
-}
+console.log(`Maintainability audit passed. Every checked module is at or below ${maximumLines} lines.`);

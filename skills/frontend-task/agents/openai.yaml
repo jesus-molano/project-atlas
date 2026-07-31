@@ -1,5 +1,7 @@
 interface:
   display_name: "Frontend Task"
-  short_description: "Preflight sources and prepare frontend work"
+  short_description: "Prepare, implement, and review frontend work"
   brand_color: "#57D6B6"
-  default_prompt: "Use $frontend-task to prepare or continue this frontend task from the current worktree and relevant evidence, asking only for material decisions."
+  default_prompt: "Use $frontend-task to prepare, implement, validate, and proportionally review this frontend task from the current worktree and relevant evidence."
+policy:
+  allow_implicit_invocation: false

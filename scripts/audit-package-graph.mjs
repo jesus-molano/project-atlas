@@ -10,7 +10,12 @@ for (const workspaceRoot of workspaceRoots) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const filePath = path.join(directory, entry.name, "package.json");
-    const manifest = JSON.parse(await readFile(filePath, "utf8"));
+    const source = await readFile(filePath, "utf8").catch((error) => {
+      if (error?.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!source) continue;
+    const manifest = JSON.parse(source);
     manifests.push({ filePath, manifest });
   }
 }
@@ -50,7 +55,6 @@ for (const name of dependencies.keys()) visit(name);
 const allowed = {
   "@component-atlas/core": [],
   "@component-atlas/memory": [],
-  "@component-atlas/agent": [],
   "@component-atlas/design": ["@component-atlas/core"],
   "@component-atlas/adapter-astro": ["@component-atlas/core"],
   "@component-atlas/adapter-react": ["@component-atlas/core"],
@@ -81,7 +85,6 @@ const allowed = {
     "@component-atlas/runtime",
   ],
   "@component-atlas/viewer": [
-    "@component-atlas/agent",
     "@component-atlas/core",
     "@component-atlas/design",
     "@component-atlas/memory",

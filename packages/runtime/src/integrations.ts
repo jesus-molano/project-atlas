@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type {
-  AgentRunAuditRecord,
   CapabilityObservation,
   CapabilityState,
   ConnectorKind,
@@ -346,31 +345,6 @@ export async function clearTaskEvaluations(
   const store = new AtlasStore(graph.project.id);
   try {
     return { cleared: store.clearTaskEvaluations(graph.project.id) };
-  } finally {
-    store.close();
-  }
-}
-
-export async function listAgentRunAudits(
-  rootPath: string,
-  limit = 20,
-): Promise<AgentRunAuditRecord[]> {
-  const graph = await loadProjectGraph(rootPath);
-  const store = new AtlasStore(graph.project.id);
-  try {
-    return store.listAgentRunAudits(graph.project.id, limit);
-  } finally {
-    store.close();
-  }
-}
-
-export async function clearAgentRunAudits(
-  rootPath: string,
-): Promise<{ cleared: number }> {
-  const graph = await loadProjectGraph(rootPath);
-  const store = new AtlasStore(graph.project.id);
-  try {
-    return { cleared: store.clearAgentRunAudits(graph.project.id) };
   } finally {
     store.close();
   }

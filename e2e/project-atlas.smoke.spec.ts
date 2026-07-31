@@ -50,28 +50,24 @@ test("shows the scanned Code Atlas catalog", async ({ page }) => {
     .not.toHaveCount(0);
 });
 
-test("prepares a compact task and produces a resume capsule", async ({
-  page,
-}) => {
-  await page
-    .getByRole("navigation", { name: "Project Atlas navigation" })
-    .getByRole("button", { name: "Codex handoff", exact: true })
-    .click();
-  await page.locator(".workbench-intent textarea").fill(
-    "Change the helper copy in the existing notification banner.",
-  );
-  const prepareTask = page.getByRole("button", {
-    name: "Prepare task",
-    exact: true,
+test("keeps model execution out of the visual workspace", async ({ page }) => {
+  const navigation = page.getByRole("navigation", {
+    name: "Project Atlas navigation",
   });
-  await expect(prepareTask).toBeEnabled();
-  await prepareTask.click();
+  await expect(
+    navigation.getByRole("button", { name: "Codex handoff", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator(".workbench")).toHaveCount(0);
 
-  await expect(page.getByText("Reviewed local brief")).toBeVisible();
-  await expect(page.locator(".checkpoint-disclosure")).toContainText(
-    "Resume capsule",
-  );
-  await expect(page.locator(".token-total")).toContainText("tokens");
+  const response = await page.request.post("/api/agent/runs", {
+    data: { mode: "prepare" },
+  });
+  expect(response.status()).toBe(404);
+
+  await navigation.getByRole("button", { name: "Connections", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "What evidence can Atlas actually reach?" }),
+  ).toBeVisible();
 });
 
 test("navigates the explicitly cached Figma Design Index", async ({ page }) => {

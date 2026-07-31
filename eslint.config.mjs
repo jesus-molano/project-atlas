@@ -73,14 +73,6 @@ export default createConfigForNuxt({
     },
   })
   .append({
-    name: "atlas/external-vue-template",
-    files: ["apps/viewer/app/components/TaskWorkbenchView.vue"],
-    rules: {
-      // vue-eslint-parser cannot resolve variables referenced by <template src>.
-      "@typescript-eslint/no-unused-vars": "off",
-    },
-  })
-  .append({
     name: "atlas/scripts",
     files: ["scripts/**/*.{js,mjs,ts}", "eslint.config.mjs"],
     rules: {

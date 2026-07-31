@@ -643,7 +643,6 @@ export function ensureTaskSourceDecisions(
   current: TaskSourceDecision[],
 ): TaskSourceDecision[] {
   const requiredKinds = new Set(taskRequiredSourceKinds(task));
-  const risk = assessTaskRisk(task);
   const byId = new Map(
     current.map((source) => [
       source.id,
@@ -657,10 +656,7 @@ export function ensureTaskSourceDecisions(
     if (!byId.has(detected.id)) byId.set(detected.id, detected);
   }
   let sources = [...byId.values()];
-  const intakeKinds = new Set<TaskSourceKind>([
-    ...(risk.level === "high" ? HIGH_RISK_INTAKE_SOURCE_KINDS : []),
-    ...requiredKinds,
-  ]);
+  const intakeKinds = new Set<TaskSourceKind>(requiredKinds);
   for (const kind of intakeKinds) {
     const concrete = sources.filter(
       (source) =>
@@ -749,20 +745,6 @@ export function assessTaskIntake(
   }
   if (intake.sources.some((source) => source.state === "pending")) {
     reasons.push("Confirm, replace, omit, or mark every detected source unavailable.");
-  }
-  if (intake.risk.level === "high") {
-    const unresolvedKinds = HIGH_RISK_INTAKE_SOURCE_KINDS.filter((kind) => {
-      const decisions = intake.sources.filter((source) => source.kind === kind);
-      return (
-        decisions.length === 0 ||
-        decisions.every((source) => source.state === "pending")
-      );
-    });
-    if (unresolvedKinds.length > 0) {
-      reasons.push(
-        `Resolve the grouped high-risk source intake for ${unresolvedKinds.join(", ")} before repository context or connector access.`,
-      );
-    }
   }
   const requiredUnavailable = intake.sources.filter(
     (source) =>

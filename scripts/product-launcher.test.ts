@@ -224,7 +224,7 @@ describe.sequential("built local product launcher", () => {
   it("uses lightweight launch identity without probing a blocking state route", async () => {
     let stateRequests = 0;
     const server = createServer((request, response) => {
-      if (request.url === "/api/agent/session") {
+      if (request.url === "/api/session") {
         response.setHeader("content-type", "application/json");
         response.end(
           JSON.stringify({
@@ -253,7 +253,7 @@ describe.sequential("built local product launcher", () => {
   it("identifies the first readiness endpoint that stalls", async () => {
     const diagnostics: string[] = [];
     const server = createServer((request, response) => {
-      if (request.url === "/api/agent/session") {
+      if (request.url === "/api/session") {
         response.setHeader("content-type", "application/json");
         response.end(JSON.stringify({ token: "legacy-session" }));
       }
@@ -304,7 +304,7 @@ describe.sequential("built local product launcher", () => {
           },
         ),
       ).rejects.toThrow(
-        /\/api\/agent\/session: \d+ attempts, HTTP 503, 0 successful.*last \d+ ms \(\/api\/agent\/session returned HTTP 503 after \d+ ms\)/,
+        /\/api\/session: \d+ attempts, HTTP 503, 0 successful.*last \d+ ms \(\/api\/session returned HTTP 503 after \d+ ms\)/,
       );
     } finally {
       server.closeAllConnections();

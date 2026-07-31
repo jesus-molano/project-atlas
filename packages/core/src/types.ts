@@ -283,51 +283,6 @@ export interface TaskEvaluationRecord {
   reworkRequired: boolean;
 }
 
-export interface AgentRunAuditRecord {
-  schemaVersion: 1 | 2;
-  id: string;
-  projectId: string;
-  checkoutId?: string;
-  startedAt: string;
-  updatedAt: string;
-  mode: "prepare" | "implement" | "continue" | "correct";
-  state:
-    | "queued"
-    | "running"
-    | "awaiting-input"
-    | "completed"
-    | "failed"
-    | "cancelled";
-  sourceKinds: Array<
-    "jira" | "confluence" | "figma" | "github" | "openapi" | "other"
-  >;
-  sourceDecisions?: {
-    confirmed: number;
-    omitted: number;
-    unavailable: number;
-    external?: number;
-    replaced: number;
-  };
-  selectedKinds: Array<"code" | "design" | "memory">;
-  sandbox: "read-only" | "workspace-write";
-  budgetChars: number;
-  contextChars: number;
-  estimatedTokens: number;
-  truncated: boolean;
-  eventCount: number;
-  questionCount: number;
-  stale: boolean;
-  resultStatus?: "completed" | "needs-input";
-  cost?: {
-    promptChars: number;
-    compactContextChars: number;
-    delegatedInputChars: number;
-    inputTokens?: number;
-    cachedInputTokens?: number;
-    outputTokens?: number;
-  };
-}
-
 export type FrontendEntityKind =
   | "module"
   | "service"
@@ -495,6 +450,82 @@ export interface ContextCostExportBundle {
   exportedAt: string;
   sourceFingerprint: string;
   records: PortableContextCostRecord[];
+}
+
+export type UsageTraceSource =
+  | "codex-otel"
+  | "codex-jsonl"
+  | "character-estimate";
+
+export type UsageTraceState =
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "blocked";
+
+export interface UsageTraceV2 {
+  schemaVersion: 2;
+  id: string;
+  projectId: string;
+  checkoutId?: string;
+  sessionIdHash: string;
+  startedAt: string;
+  updatedAt: string;
+  model?: string;
+  source: UsageTraceSource;
+  exactTotals: boolean;
+  state: UsageTraceState;
+  tokens: {
+    input: number;
+    cachedInput: number;
+    output: number;
+    reasoning: number;
+    total: number;
+  };
+  interaction: {
+    turns: number;
+    toolCalls: number;
+    errors: number;
+    durationMs: number;
+    compactions: {
+      manual: number;
+      automatic: number;
+    };
+  };
+  atlas: {
+    contractTokens: number;
+    skillTokens: number;
+    contextTokens: number;
+    responseTokens: number;
+    totalTokens: number;
+    estimated: true;
+  };
+  privacy: {
+    promptsStored: false;
+    codeStored: false;
+    toolPayloadsStored: false;
+  };
+  legacy?: {
+    incomplete: true;
+    sourceSchemaVersion: 1;
+  };
+}
+
+export interface PortableUsageTraceV2
+  extends Omit<UsageTraceV2, "id" | "projectId" | "checkoutId"> {
+  sourceId: string;
+}
+
+export interface UsageTraceExportBundleV2 {
+  schemaVersion: 2;
+  exportedAt: string;
+  sourceFingerprint: string;
+  records: PortableUsageTraceV2[];
+  legacyRecords: Array<{
+    sourceId: string;
+    label: "incomplete-estimate";
+    record: PortableContextCostRecord;
+  }>;
 }
 
 export interface ComponentGraph {
@@ -690,6 +721,11 @@ export interface ComponentDecision {
   author?: string;
   scope?: "project" | "checkout";
   checkoutId?: string;
+  taskId?: string;
+  decisionKey?: string;
+  status?: "active" | "superseded";
+  supersedes?: string[];
+  supersededBy?: string;
   provenance?: AtlasProvenance;
 }
 

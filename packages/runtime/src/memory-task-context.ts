@@ -306,14 +306,26 @@ export async function getTaskContext(
       })) ?? []),
       ...(api?.errors.map((failure) => ({
         id: `openapi-source-error:${failure.receiptId}`,
-        level: "decision-required" as const,
+        level: failure.required ? ("decision-required" as const) : ("warning" as const),
         code: "source-unavailable" as const,
-        title: "A confirmed OpenAPI contract could not be resolved",
-        evidence: [failure.receiptId, failure.message],
-        recommendation: failure.recoverableWithConnector
-          ? "Resolve this exact contract through an authenticated/internal connector or paste the confirmed contract content."
-          : "Correct the confirmed contract reference or explicitly replace/omit it.",
-        question: "How should this confirmed OpenAPI source be resolved?",
+        title: failure.required
+          ? "A required OpenAPI contract could not be resolved"
+          : "An optional OpenAPI source is unavailable",
+        evidence: [
+          failure.receiptId,
+          ...(failure.httpStatus ? [`HTTP ${failure.httpStatus}`] : []),
+          failure.message,
+          "Repository clients, types, and tests remain available as bounded secondary evidence.",
+        ],
+        recommendation: failure.required
+          ? "Confirm cached repository evidence for only the contract-dependent scope, or provide a local specification."
+          : "Continue with repository evidence and retain this structured source warning.",
+        ...(failure.required
+          ? {
+              question:
+                "Use cached repository evidence for the blocked contract scope, or provide a local specification?",
+            }
+          : {}),
         source: "api" as const,
       })) ?? []),
     ];
@@ -332,18 +344,23 @@ export async function getTaskContext(
           ? decisionGate(designFindings)
           : { status: "clear", questions: [] },
       api: {
-        status: apiFindings.length > 0 ? ("blocked" as const) : ("clear" as const),
-        questions: apiFindings.map((finding) => finding.question),
+        status: apiFindings.some((finding) => finding.level === "decision-required")
+          ? ("blocked" as const)
+          : apiFindings.length > 0
+            ? ("review" as const)
+            : ("clear" as const),
+        questions: apiFindings.flatMap((finding) => finding.question ? [finding.question] : []),
       },
     };
     const overallGate = {
       status:
         gate.memory.status === "blocked" ||
         gate.design.status === "blocked" ||
-        gate.api.status === "blocked"
+         gate.api.status === "blocked"
           ? ("blocked" as const)
-          : gate.memory.status === "review" ||
-              gate.design.status === "review"
+            : gate.memory.status === "review" ||
+              gate.design.status === "review" ||
+              gate.api.status === "review"
             ? ("review" as const)
             : ("clear" as const),
       questions: [
@@ -383,12 +400,40 @@ export async function getTaskContext(
         directConsumers: candidate.impact.directConsumers,
         transitiveConsumers: candidate.impact.transitiveConsumers,
       })),
-    ]
+      ]
       .filter(
         (candidate, index, collection) =>
           collection.findIndex((item) => item.id === candidate.id) === index,
       )
       .slice(0, topK);
+    const taskTokens = new Set(tokenize(task));
+    const codeCandidateIds = new Set(codeCandidates.map((candidate) => candidate.id));
+    const relevantDecisions = store
+      .listDecisions(graph.project.id, graphCheckoutId(graph))
+      .filter((decision) => decision.status !== "superseded")
+      .map((decision) => ({
+        decision,
+        score:
+          (decision.taskId && decision.taskId === options.taskId ? 100 : 0) +
+          decision.selectedComponentIds.filter((id) => codeCandidateIds.has(id)).length * 20 +
+          tokenize(`${decision.intent} ${decision.rationale}`)
+            .filter((term) => taskTokens.has(term)).length,
+      }))
+      .filter(({ score }) => score > 0)
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          right.decision.createdAt.localeCompare(left.decision.createdAt),
+      )
+      .slice(0, topK)
+      .map(({ decision }) => ({
+        id: decision.id,
+        taskId: decision.taskId,
+        decision: decision.decision,
+        intent: decision.intent,
+        selectedComponentIds: decision.selectedComponentIds,
+        rationale: decision.rationale,
+      }));
     const taskTerms = new Set(tokenize(task));
     const candidateIds = new Set(codeCandidates.map((candidate) => candidate.id));
     const linkedEntityIds = new Set(
@@ -544,6 +589,9 @@ export async function getTaskContext(
         score,
         reasons: reasons.slice(0, 2),
       })),
+      ...(relevantDecisions.length > 0
+        ? { decisions: relevantDecisions }
+        : {}),
       selections: selectedHandles,
       code: codeCandidates,
       semantic: {
@@ -623,7 +671,13 @@ export async function getTaskContext(
         ...reuse.candidates.map((candidate) => candidate.component.id),
         ...(design?.candidates.map((candidate) => candidate.node.id) ?? []),
       ],
-      preserveKeys: ["findings", "questions", "selections", "sourceReceiptIds"],
+      preserveKeys: [
+        "findings",
+        "questions",
+        "decisions",
+        "selections",
+        "sourceReceiptIds",
+      ],
       preserveFirstKeys: ["memory", "code", "candidates", "operations"],
       retrieval: {
         indexedBytesInjected: 0,
