@@ -65,6 +65,8 @@ export interface MemoryProvenance {
     | "import";
   uri?: string;
   evidence?: string[];
+  operationId?: string;
+  operationContentHash?: string;
 }
 
 export interface MemoryItem {
@@ -148,8 +150,11 @@ export interface MemoryProposal {
   findings: MemoryFinding[];
   appliedAt?: string;
   appliedItemIds?: string[];
+  appliedTarget?: MemoryWriteTarget;
+  appliedByOperation?: string;
   rejectedAt?: string;
   rejectionReason?: string;
+  rejectedByOperation?: string;
 }
 
 export type MemoryWriteTarget = "local" | "canonical";
@@ -158,6 +163,12 @@ export interface MemoryProposalReviewItem {
   id: string;
   type: MemoryType;
   title: string;
+  summary: string;
+  body?: string;
+  confidence: number;
+  authority: MemoryAuthority;
+  tags: string[];
+  relations: MemoryRelation[];
   scope: MemoryScope;
   path: string;
   absolutePath: string;
@@ -167,7 +178,11 @@ export interface MemoryProposalReviewItem {
 export interface MemoryProposalReview {
   schemaVersion: typeof MEMORY_SCHEMA_VERSION;
   proposalId: string;
+  proposalHash: string;
   proposalStatus: MemoryProposal["status"];
+  rationale: string;
+  evidence: string[];
+  proposedBy?: string;
   target: MemoryWriteTarget;
   canApply: boolean;
   requiresCanonicalConfirmation: boolean;

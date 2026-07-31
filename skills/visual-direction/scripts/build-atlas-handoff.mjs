@@ -23,12 +23,23 @@ const REVIEW_RESULTS = new Set([
   "fix-and-recapture",
   "blocked",
 ]);
-const RECEIPT_ID = /^receipt-[a-f0-9]{16}$/u;
+const RECEIPT_ID = /^receipt-(?:[a-f0-9]{16}|[a-f0-9]{64})$/u;
 const ATLAS_HANDLE = /^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/u;
 const VISUAL_HANDLE = /^visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}$/u;
-const HASH = /^[a-f0-9]{16,64}$/u;
+const HASH = /^[a-f0-9]{64}$/u;
+const SELECTION_RECEIPT =
+  /^selection-receipt:v1:[a-f0-9]{16}:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}:[a-z0-9]+:[a-f0-9]{16}$/u;
 const RETRY_ID = /^vd-[A-Za-z0-9_-]+$/u;
-const MAX_HANDOFF_BYTES = 3_072;
+const CAPTURE_HANDLE = /^artifact-([a-f0-9]{12})-[a-f0-9]{8}$/u;
+const SHA256 = /^[a-f0-9]{64}$/u;
+const CAPTURE_RECEIPT =
+  /^capture-receipt:v1:[a-f0-9]{16}:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}:[a-f0-9]{16}$/u;
+const REVIEW_HANDLE =
+  /^visual-review:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}$/u;
+const CLEANUP_RECEIPT =
+  /^cleanup:v1:[a-f0-9]{16}:vd-[A-Za-z0-9_-]+:(?:close|cancel|expired):[a-z0-9]+:[a-f0-9]{16}$/u;
+const MAX_HANDOFF_BYTES = 8_192;
+const MAX_VISUAL_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function requireObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -65,6 +76,16 @@ function requireInteger(value, label, minimum, maximum) {
     throw new RangeError(
       `${label} must be an integer from ${minimum} to ${maximum}.`,
     );
+  }
+  return value;
+}
+
+function requireArray(value, label, maximumItems) {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array.`);
+  }
+  if (value.length > maximumItems) {
+    throw new RangeError(`${label} exceeds ${maximumItems} items.`);
   }
   return value;
 }
@@ -139,14 +160,11 @@ function parseDirectionCards(value, previewCount, workflowState) {
   });
 }
 
-function parseSelectedContract(value, workflowState, mode) {
+function parseSelectedContract(value, workflowState) {
   if (value === undefined) {
-    if (
-      ["locked", "review"].includes(workflowState) &&
-      mode !== "fidelity"
-    ) {
+    if (["locked", "review"].includes(workflowState)) {
       throw new Error(
-        "A locked non-fidelity direction requires a selected contract receipt.",
+        "Locked or review state requires a selected visual contract receipt, including fidelity mode.",
       );
     }
     return undefined;
@@ -166,16 +184,47 @@ function parseSelectedContract(value, workflowState, mode) {
     "selectedContract.expiresAt",
     64,
   );
+  const selectionReceipt = requireString(
+    selected.selectionReceipt,
+    "selectedContract.selectionReceipt",
+    260,
+  );
   if (!VISUAL_HANDLE.test(contractHandle)) {
     throw new Error("selectedContract.contractHandle is invalid.");
   }
   if (!HASH.test(contractHash)) {
     throw new Error("selectedContract.contractHash is invalid.");
   }
+  if (!SELECTION_RECEIPT.test(selectionReceipt)) {
+    throw new Error("selectedContract.selectionReceipt is invalid.");
+  }
   if (!Number.isFinite(Date.parse(expiresAt))) {
     throw new Error("selectedContract.expiresAt must be an ISO timestamp.");
   }
-  return { contractHandle, contractHash, expiresAt };
+  const ttl = Date.parse(expiresAt) - Date.now();
+  if (ttl <= 0 || ttl > MAX_VISUAL_TTL_MS) {
+    throw new Error(
+      "selectedContract.expiresAt must be in the future and at most seven days away.",
+    );
+  }
+  const summary = value.summary
+    ? requireString(value.summary, "selectedContract.summary", 360)
+    : undefined;
+  const selectedDirectionId = value.selectedDirectionId
+    ? requireString(
+        value.selectedDirectionId,
+        "selectedContract.selectedDirectionId",
+        160,
+      )
+    : undefined;
+  return {
+    contractHandle,
+    contractHash,
+    selectionReceipt,
+    expiresAt,
+    ...(summary ? { summary } : {}),
+    ...(selectedDirectionId ? { selectedDirectionId } : {}),
+  };
 }
 
 function parseStateMatrix(value) {
@@ -208,6 +257,77 @@ function parseReview(value, workflowState) {
     return undefined;
   }
   const review = requireObject(value, "visualReview");
+  const captures = review.captures === undefined
+    ? []
+    : requireArray(review.captures, "visualReview.captures", 24).map(
+        (rawCapture, index) => {
+          const capture = requireObject(
+            rawCapture,
+            `visualReview.captures[${index}]`,
+          );
+          const handle = requireString(
+              capture.handle,
+              `visualReview.captures[${index}].handle`,
+              260,
+            );
+          const hash = requireString(
+            capture.hash,
+            `visualReview.captures[${index}].hash`,
+            64,
+          );
+          const receipt = requireString(
+            capture.receipt,
+            `visualReview.captures[${index}].receipt`,
+            260,
+          );
+          const handleMatch = CAPTURE_HANDLE.exec(handle);
+          if (!handleMatch || !SHA256.test(hash) || handleMatch[1] !== hash.slice(0, 12)) {
+            throw new Error(
+              `visualReview.captures[${index}] must bind a temporary-artifact handle to its full SHA256.`,
+            );
+          }
+          if (!CAPTURE_RECEIPT.test(receipt)) {
+            throw new Error(
+              `visualReview.captures[${index}].receipt is invalid.`,
+            );
+          }
+          return {
+            handle,
+            hash,
+            receipt,
+            viewport: requireString(
+              capture.viewport,
+              `visualReview.captures[${index}].viewport`,
+              48,
+            ),
+            state: requireString(
+              capture.state,
+              `visualReview.captures[${index}].state`,
+              48,
+            ),
+          };
+        },
+      );
+  const captureCount = requireInteger(
+    review.captureCount ?? captures.length,
+    "visualReview.captureCount",
+    0,
+    24,
+  );
+  if (captures.length > 0 && captureCount !== captures.length) {
+    throw new Error("visualReview.captureCount must match captures.length.");
+  }
+  let preliminaryReviewHandle;
+  if (review.preliminaryReviewHandle !== undefined) {
+    preliminaryReviewHandle = requireString(
+      review.preliminaryReviewHandle,
+      "visualReview.preliminaryReviewHandle",
+      260,
+    );
+    if (!REVIEW_HANDLE.test(preliminaryReviewHandle)) {
+      throw new Error("visualReview.preliminaryReviewHandle is invalid.");
+    }
+  }
   return {
     result: requireEnum(
       review.result,
@@ -220,12 +340,9 @@ function parseReview(value, workflowState) {
       0,
       99,
     ),
-    captureCount: requireInteger(
-      review.captureCount ?? 0,
-      "visualReview.captureCount",
-      0,
-      24,
-    ),
+    captureCount,
+    captures,
+    ...(preliminaryReviewHandle ? { preliminaryReviewHandle } : {}),
   };
 }
 
@@ -245,6 +362,7 @@ function parseCleanup(value, workflowState) {
     );
   }
   let retrySessionId;
+  let receipt;
   if (state === "cleanup-pending") {
     retrySessionId = requireString(
       cleanup.retrySessionId,
@@ -255,10 +373,19 @@ function parseCleanup(value, workflowState) {
       throw new Error("cleanup.retrySessionId is invalid.");
     }
   }
+  if (state === "clean") {
+    receipt = requireString(cleanup.receipt, "cleanup.receipt", 260);
+    if (!CLEANUP_RECEIPT.test(receipt)) {
+      throw new Error("cleanup.receipt is not a content-free cleanup receipt.");
+    }
+  } else if (cleanup.receipt !== undefined) {
+    throw new Error("Only clean cleanup state may carry a cleanup receipt.");
+  }
   return {
     state,
     blocksCompletion: state === "cleanup-pending",
     ...(retrySessionId ? { retrySessionId } : {}),
+    ...(receipt ? { receipt } : {}),
   };
 }
 
@@ -283,6 +410,14 @@ function deriveNextSafeAction(status, review) {
 
 export function buildAtlasHandoff(rawInput) {
   const input = requireObject(rawInput, "input");
+  const rootPath = requireString(input.rootPath, "rootPath", 1_024);
+  if (!path.isAbsolute(rootPath)) {
+    throw new Error("rootPath must be an absolute repository path.");
+  }
+  const taskId = requireString(input.taskId, "taskId", 160);
+  if (!/^[A-Za-z0-9_.:-]{1,160}$/u.test(taskId)) {
+    throw new Error("taskId is invalid.");
+  }
   const authority = requireObject(
     input.authorityDecision,
     "authorityDecision",
@@ -326,11 +461,82 @@ export function buildAtlasHandoff(rawInput) {
   const selectedContract = parseSelectedContract(
     input.selectedContract,
     workflowState,
-    mode,
   );
+  if (
+    selectedContract &&
+    !new Set(["exact-figma", "existing-system", "selected-direction"]).has(
+      visualAuthority,
+    )
+  ) {
+    throw new Error(
+      "A selected visual contract requires resolved visual authority.",
+    );
+  }
   const stateMatrix = parseStateMatrix(input.stateMatrix);
   const visualReview = parseReview(input.visualReview, workflowState);
   const cleanup = parseCleanup(input.cleanup, workflowState);
+  if (visualReview) {
+    if (!stateMatrix) {
+      throw new Error("A structured visual review requires a stateMatrix.");
+    }
+    const pairs = visualReview.captures.map(
+      (capture) => `${capture.viewport}\0${capture.state}`,
+    );
+    if (new Set(pairs).size !== pairs.length) {
+      throw new Error("Visual review capture viewport/state pairs must be unique.");
+    }
+    if (
+      visualReview.captures.some(
+        (capture) =>
+          !stateMatrix.viewports.includes(capture.viewport) ||
+          !stateMatrix.requiredStates.includes(capture.state),
+      )
+    ) {
+      throw new Error("Every visual review capture must belong to the stateMatrix.");
+    }
+    const coveredViewports = new Set(
+      visualReview.captures.map((capture) => capture.viewport),
+    );
+    const coveredStates = new Set(
+      visualReview.captures.map((capture) => capture.state),
+    );
+    if (
+      visualReview.result === "pass" &&
+      (!stateMatrix.viewports.every((viewport) => coveredViewports.has(viewport)) ||
+        !stateMatrix.requiredStates.every((state) => coveredStates.has(state)))
+    ) {
+      throw new Error(
+        "A passing visual review must cover every viewport and required state in stateMatrix.",
+      );
+    }
+    if (
+      visualReview.result === "pass" &&
+      cleanup.state === "clean" &&
+      !cleanup.receipt?.includes(":close:")
+    ) {
+      throw new Error(
+        "A passing clean review requires a normal close cleanup receipt.",
+      );
+    }
+    if (visualReview.result === "pass" && cleanup.state === "not-applicable") {
+      throw new Error(
+        "Registered temporary-artifact captures require clean cleanup evidence for a passing review.",
+      );
+    }
+    if (cleanup.state === "clean" && !visualReview.preliminaryReviewHandle) {
+      throw new Error(
+        "A final clean review requires visualReview.preliminaryReviewHandle.",
+      );
+    }
+    if (
+      cleanup.state !== "clean" &&
+      visualReview.preliminaryReviewHandle
+    ) {
+      throw new Error(
+        "Only a final clean review may reference a preliminary review.",
+      );
+    }
+  }
   const sourceReceiptIds = uniqueCheckedStrings(
     input.sourceReceiptIds,
     "sourceReceiptIds",
@@ -345,12 +551,110 @@ export function buildAtlasHandoff(rawInput) {
   );
   const status = deriveStatus(workflowState, cleanup.state);
   const nextSafeAction = deriveNextSafeAction(status, visualReview);
+  const visualSummary = selectedContract
+    ? selectedContract.summary ??
+      [
+        `${mode} visual contract`,
+        stateMatrix?.surface,
+        visualReview ? `review:${visualReview.result}` : undefined,
+      ]
+        .filter(Boolean)
+        .join("; ")
+    : undefined;
+  const attachEvidence =
+    selectedContract || sourceReceiptIds.length > 0
+      ? {
+          root_path: rootPath,
+          task_id: taskId,
+          action: "attach-evidence",
+          ...(sourceReceiptIds.length > 0
+            ? { receipt_ids: sourceReceiptIds }
+            : {}),
+          ...(selectedContract
+            ? {
+                visual_contract: {
+                  handle: selectedContract.contractHandle,
+                  hash: selectedContract.contractHash,
+                  selection_receipt: selectedContract.selectionReceipt,
+                  authority: visualAuthority,
+                  summary: visualSummary,
+                  ...(selectedContract.selectedDirectionId
+                    ? {
+                        selected_direction_id:
+                          selectedContract.selectedDirectionId,
+                      }
+                    : {}),
+                  ...(exactFigmaIdentity
+                    ? {
+                        figma: {
+                          file_key: exactFigmaIdentity.fileKey,
+                          node_id: exactFigmaIdentity.nodeId,
+                        },
+                      }
+                    : {}),
+                  receipt_ids: sourceReceiptIds,
+                  expires_at: selectedContract.expiresAt,
+                },
+              }
+            : {}),
+        }
+      : undefined;
+  let taskState = attachEvidence;
+  if (visualReview) {
+    if (!selectedContract || !stateMatrix) {
+      throw new Error(
+        "A structured visual review requires the locked selectedContract and stateMatrix.",
+      );
+    }
+    if (visualReview.result === "pass" && visualReview.captures.length === 0) {
+      throw new Error("A passing visual review requires capture handles.");
+    }
+    if (
+      !new Set([
+        "clean",
+        "selected-retained",
+        "not-applicable",
+        "cleanup-pending",
+      ]).has(cleanup.state)
+    ) {
+      throw new Error("Visual review cleanup state is not ready for Atlas handoff.");
+    }
+    taskState = {
+      root_path: rootPath,
+      task_id: taskId,
+      action: "attach-review",
+      visual_review: {
+        contract_handle: selectedContract.contractHandle,
+        contract_hash: selectedContract.contractHash,
+        state_matrix: {
+          surface: stateMatrix.surface,
+          viewports: stateMatrix.viewports,
+          required_states: stateMatrix.requiredStates,
+        },
+        captures: visualReview.captures,
+        result: visualReview.result,
+        deviation_count: visualReview.deviationCount,
+        cleanup: {
+          state: cleanup.state,
+          ...(cleanup.receipt
+            ? { receipt: cleanup.receipt }
+            : {}),
+        },
+        ...(visualReview.preliminaryReviewHandle
+          ? {
+              preliminary_review_handle:
+                visualReview.preliminaryReviewHandle,
+            }
+          : {}),
+      },
+    };
+  }
 
   const handoff = {
     schemaVersion: 1,
     surface: {
-      primary: "codex-handoff",
-      runner: "secondary-experimental",
+      owner: "native-codex",
+      atlasProfile: "core-six-tool",
       inspector: "progressive-disclosure",
     },
     status,
@@ -365,7 +669,21 @@ export function buildAtlasHandoff(rawInput) {
     ...(directionCards.length > 0 ? { directionCards } : {}),
     ...(selectedContract ? { selectedContract } : {}),
     ...(stateMatrix ? { stateMatrix } : {}),
-    ...(visualReview ? { visualReview } : {}),
+    ...(visualReview
+      ? {
+          visualReview: {
+            result: visualReview.result,
+            deviationCount: visualReview.deviationCount,
+            captureCount: visualReview.captureCount,
+            ...(visualReview.preliminaryReviewHandle
+              ? {
+                  preliminaryReviewHandle:
+                    visualReview.preliminaryReviewHandle,
+                }
+              : {}),
+          },
+        }
+      : {}),
     provenance: {
       sourceReceiptIds,
       atlasHandles,
@@ -373,17 +691,32 @@ export function buildAtlasHandoff(rawInput) {
     },
     cleanup,
     nextSafeAction,
-    capsuleProjection: {
-      sourceReceiptIds,
-      handles: selectedContract
-        ? [selectedContract.contractHandle, ...atlasHandles].slice(0, 4)
-        : atlasHandles.slice(0, 4),
-      nextSafeAction,
+    coreProjection: {
+      ...(taskState ? { taskState } : {}),
+      resumeHandles: [
+        ...(selectedContract ? [selectedContract.contractHandle] : []),
+        ...atlasHandles,
+      ].slice(0, 4),
+      checkpoint: {
+        root_path: rootPath,
+        task_id: taskId,
+        action: "checkpoint",
+        covered: [
+          `visual-authority:${mode}`,
+          ...(selectedContract ? ["visual-contract:locked"] : []),
+          ...(visualReview ? [`visual-review:${visualReview.result}`] : []),
+        ],
+        remaining:
+          status === "clean"
+            ? ["parent-technical-close"]
+            : [nextSafeAction],
+        next_action: nextSafeAction,
+      },
     },
   };
 
   if (Buffer.byteLength(JSON.stringify(handoff), "utf8") > MAX_HANDOFF_BYTES) {
-    throw new Error("Visual-direction handoff exceeds its 3 KB context budget.");
+    throw new Error("Visual-direction handoff exceeds its 8 KB evidence budget.");
   }
   return handoff;
 }

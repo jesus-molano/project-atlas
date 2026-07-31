@@ -3,7 +3,7 @@
 This is the authoritative installation reference. For the shortest path, start
 with the [root quick start](../README.md).
 
-## Recommended Windows installation
+## Recommended installation
 
 Requirements:
 
@@ -16,9 +16,24 @@ Requirements:
 git clone https://github.com/jesus-molano/project-atlas.git
 Set-Location .\project-atlas
 .\frontend-codex-kit\install.ps1 -Agent codex
+.\frontend-codex-kit\doctor.ps1
 ```
 
-Restart Codex and open a new task. Then open the product repository and run:
+On Ubuntu/macOS install PowerShell 7 and use:
+
+```sh
+pwsh -NoProfile -File ./frontend-codex-kit/install.ps1 -Agent codex
+pwsh -NoProfile -File ./frontend-codex-kit/doctor.ps1
+```
+
+Required on every platform: Git, Node.js 24+, and pnpm 11.x. Windows PowerShell
+5.1 or PowerShell 7 works on Windows; non-Windows requires `pwsh`. Link mode
+uses a Windows junction or a symbolic link; select `-InstallMode copy` if the
+host policy disallows links.
+
+The doctor is read-only and prints one action for every failed check. After it
+passes, restart Codex and open a new task. Then open the product repository and
+run:
 
 ```text
 /plan $frontend-task Prepara e implementa esta tarea: <description>
@@ -31,11 +46,12 @@ No manual Atlas bootstrap is required for the normal task flow.
 The installer:
 
 - installs workspace dependencies and builds the CLI, MCP, and local GUI product;
-- globally ignores `.component-atlas/` artifacts;
-- links or copies `frontend-task`, explicit-only `visual-direction`, and
-  `reuse-first` into the selected agent's skill folder;
+- does not add repository-local Atlas state or alter Git ignore configuration;
+- links or copies explicit-only `frontend-task`, `reuse-first`, and
+  `visual-direction` into the selected agent's skill folder;
 - removes only the obsolete marked Atlas routing block from
-  `~/.codex/AGENTS.md` and never adds global routing;
+  `~/.codex/AGENTS.md`, preserving a neighboring backup, and never adds global
+  routing;
 - registers the local stdio server in Codex or Claude with the `core` profile;
 - never installs connectors or stores credentials.
 
@@ -52,6 +68,12 @@ Use `-CodexMcpMode auto|config|cli`:
 | `auto` | Recommended. On Windows, edits Codex `config.toml` directly. Elsewhere, tries the CLI and falls back to config |
 | `config` | Always manage the Codex TOML section directly |
 | `cli` | Explicitly run `codex mcp get/add`; not recommended for packaged Windows builds |
+
+On non-Windows systems, `auto` preserves an existing CLI entry with the same
+name because CLI display output is not a stable machine-readable contract. The
+doctor still verifies its exact executable, Atlas entry path, and
+`--profile core`. Use `config` mode for deterministic comparison and
+conflict-safe replacement.
 
 Codex config is resolved in this order:
 
@@ -111,12 +133,28 @@ Other recovery/development flags:
 `-DryRun` still resolves the real Node, config, skill, and package paths, but it
 does not create directories, links, backups, or config files.
 
+## Read-only doctor
+
+Run after installation, update, or an MCP/skill detection problem:
+
+```powershell
+.\frontend-codex-kit\doctor.ps1
+```
+
+It verifies Git, a stable Node 24+ executable, pnpm 11.x, CLI/MCP builds, the
+live six-tool core contract through a stdio MCP smoke test, all three
+installed skill manifests, their explicit-only policy, and the exact
+`component-atlas` Codex entry pointing to this clone with `--profile core`. It
+never writes. A failed check prints the reinstall/config action; review
+conflicts before using `-ForceMcpConfig`.
+
 ## Update
 
 ```powershell
 Set-Location "C:\path\to\project-atlas"
 git pull --ff-only
 .\frontend-codex-kit\install.ps1 -Agent codex
+.\frontend-codex-kit\doctor.ps1
 ```
 
 The installer is idempotent. Restart Codex and open a new task afterwards.
@@ -126,9 +164,7 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 | Location | Purpose |
 | --- | --- |
 | Product repository | Product code; Atlas queries do not edit it |
-| `%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\` | All durable Atlas data for one logical project |
-| `%LOCALAPPDATA%\ProjectAtlas\temp\` | Ephemeral owned sessions with TTL/purge |
-| `%LOCALAPPDATA%\ProjectAtlas\recent-projects.json` | Minimal recent-project registry |
+| Platform application-data root (`%LOCALAPPDATA%\ProjectAtlas\` on Windows, `~/Library/Application Support/ProjectAtlas/` on macOS, `${XDG_DATA_HOME:-~/.local/share}/ProjectAtlas/` on Linux) | Durable `projects/` and `recent-projects.json`, plus managed ephemeral data under `temp/` |
 | `~/.agents/skills/` | Codex skill links/copies |
 | Codex `config.toml` | Local Atlas MCP registration |
 | `~/.codex/AGENTS.md` | Personal instructions; obsolete marked Atlas block removed only |
@@ -169,6 +205,23 @@ pnpm typecheck
 pnpm build
 pnpm test:kit
 ```
+
+## Repository protection policy
+
+The repository-owned CI contract is `.github/workflows/ci.yml`. Protect
+`main` with a GitHub ruleset that requires pull requests, resolved review
+threads, a current branch, and these two stable status checks:
+
+- `Validate (ubuntu-latest)`;
+- `Validate (windows-latest)`.
+
+Disable force pushes and branch deletion. The workflow also handles
+`merge_group`, so those same checks can gate a merge queue if the repository
+enables one. Requiring approvals or CODEOWNERS is an organization policy choice,
+but administrators should not bypass the two CI checks for normal delivery.
+GitHub stores and enforces branch rules outside the Git checkout, so cloning
+this repository cannot activate them automatically; an owner must configure or
+audit the ruleset in repository settings.
 
 See [workflow.md](workflow.md) for normal automatic behavior and advanced CLI
 diagnostics. Use

@@ -67,6 +67,12 @@ import {
   saveActionResolutions,
   saveTaskEvaluation,
 } from "./evaluation-records.js";
+import {
+  saveMemoryApplicationTransaction,
+  type AtlasMemoryApplication,
+} from "./memory-application.js";
+
+export type { AtlasMemoryApplication } from "./memory-application.js";
 
 export {
   PROJECT_ATLAS_HOME_ENV,
@@ -1008,6 +1014,21 @@ export class AtlasStore {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  saveMemoryApplication(
+    projectId: string,
+    application: AtlasMemoryApplication,
+  ): void {
+    saveMemoryApplicationTransaction({
+      database: this.database,
+      projectId,
+      application,
+      storageIdFor: memoryStorageId,
+      writeItem: (item, origin) =>
+        this.writeMemoryItem(projectId, item, origin),
+      rebuildFts: () => this.rebuildMemoryFts(projectId),
+    });
   }
 
   loadMemoryItem(

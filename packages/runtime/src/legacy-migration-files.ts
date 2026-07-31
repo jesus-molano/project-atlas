@@ -42,6 +42,7 @@ const DECISION_KINDS = new Set<DecisionKind>([
   "compose",
   "extract-and-reuse",
   "create",
+  "not-applicable",
 ]);
 
 export type LegacyMigrationMode = "status" | "dry-run" | "apply";

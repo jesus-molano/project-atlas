@@ -3,21 +3,29 @@
 ## Installation
 
 - [ ] Clone or pull `project-atlas` to a stable local path.
-- [ ] Check `node --version` is 24+ and `pnpm --version` is 11+.
-- [ ] Run `.\frontend-codex-kit\install.ps1 -Agent codex`.
+- [ ] Check `node --version` is 24+ and `pnpm --version` is 11.x.
+- [ ] On Windows run `.\frontend-codex-kit\install.ps1 -Agent codex`; on
+      Ubuntu/macOS run
+      `pwsh -NoProfile -File ./frontend-codex-kit/install.ps1 -Agent codex`.
+- [ ] Run `.\frontend-codex-kit\doctor.ps1` on Windows or
+      `pwsh -NoProfile -File ./frontend-codex-kit/doctor.ps1` elsewhere; every
+      check passes and no file is changed by the doctor.
 - [ ] Confirm the installer reports `[mcp_servers.component-atlas]` in the
       expected `$CODEX_HOME/config.toml` or `~/.codex/config.toml`.
 - [ ] Restart Codex and open a new task so it reloads the shared MCP config.
 - [ ] Open the real frontend repository in Codex.
-- [ ] Start with
-      `/plan $frontend-task Prepara e implementa esta tarea: <description>`.
+- [ ] Start a localized low-risk change with
+      `$frontend-task Implementa este cambio localizado: <description>`; use
+      `/plan $frontend-task ...` for medium/large/high-risk work.
 
 ## First task acceptance check
 
 - [ ] The brief uses only available sources and identifies unavailable optional
       sources without blocking.
-- [ ] The skill performs the Code Atlas scan; no manual bootstrap command was
-      required.
+- [ ] Bare external references remain pending and no deep scan/retrieval starts
+      until they are confirmed, omitted, replaced, or marked unavailable.
+- [ ] Once preflight is resolved, `atlas_prepare_task` refreshes Code Atlas as
+      needed; no manual bootstrap command was required.
 - [ ] Existing allowed memory is indexed/reused without loading every item.
 - [ ] Atlas proposes existing components before new component creation.
 - [ ] Each candidate includes source/scope and a reason.
@@ -39,13 +47,28 @@
 - [ ] Preview, sandbox, contact-sheet, and review-capture paths stay outside the
       repository and are purged on selection/close; cleanup failures remain
       visible and retryable.
-- [ ] The final implementation records a reuse decision and runs repository
-      validation.
+- [ ] A visual task attaches a pre-clean immutable review while registered
+      captures exist, then a final review for the locked contract with full
+      capture SHA256s, complete state matrix, unique viewport/state pairs, and
+      a task-bound `clean` receipt before close.
+- [ ] The reuse/extend/compose/extract/create/not-applicable decision is visible
+      and persisted by `atlas_lock_change_scope` before the first edit.
+- [ ] The final implementation runs repository validation and
+      `atlas_validate_change` against the complete task delta.
 - [ ] Task context reports its hard budget and does not dump every source.
 - [ ] `atlas_validate_change` surfaces only evidence-backed conflicts/warnings.
-- [ ] A durable memory lesson is proposed, not silently applied.
+- [ ] Technical close uses `atlas_task_state` action `complete` and writes no
+      memory.
+- [ ] A proposal can be reviewed by exact ID, but a durable lesson is only
+      recorded/proposed/applied/rejected through the matching consent-bound
+      `atlas_memory` action; generic completion approval does not count.
+- [ ] The first mutating memory call writes nothing and returns the complete
+      bounded scope plus an issued token/receipt; only an unchanged second call
+      after literal approval writes and returns a consumed receipt.
 - [ ] `pnpm atlas -- "<repo>"` exposes the evidence/review GUI and no model
-      execution controls or runner routes.
+      execution controls or task-execution routes.
+- [ ] Small, medium, and large fixtures receive proportionate planning,
+      validation, and independent review.
 
 ## Optional GUI check
 
@@ -61,8 +84,8 @@ pnpm atlas -- "C:\path\to\product-repository"
 - [ ] Code Atlas relationships and impact match one known component.
 - [ ] Design Atlas provenance/status matches an approved Figma source, if used.
 - [ ] One Task Context package stays within its displayed hard cap.
-- [ ] One synthetic memory proposal can be reviewed before real knowledge is
-      written.
+- [ ] One exact synthetic proposal can be reviewed without mutation; applying
+      or rejecting it still requires literal action-specific consent.
 
 ## Real-data validation
 

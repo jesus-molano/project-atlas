@@ -732,6 +732,70 @@ export function assessTaskRisk(task: string): TaskRiskAssessment {
   };
 }
 
+export interface ScopedTaskRiskEvidence {
+  selection?: "explicit" | "ranked" | "unresolved" | "non-component";
+  impact?: {
+    level?: "contained" | "shared" | "high";
+    directConsumers?: number;
+    transitiveConsumers?: number;
+  };
+  publicApiChanged?: boolean;
+  implementationFiles?: number;
+  confirmedAuthorityRoles?: TaskSourceAuthorityRole[];
+}
+
+/**
+ * Recomputes risk after Atlas knows the real implementation surface. Risk is
+ * monotonic: repository evidence may escalate an intake classification but
+ * never silently downgrade it.
+ */
+export function assessScopedTaskRisk(
+  task: string,
+  evidence: ScopedTaskRiskEvidence = {},
+): TaskRiskAssessment {
+  const initial = assessTaskRisk(task);
+  const reasons = [...initial.reasons];
+  let level = initial.level;
+  const elevate = (next: TaskRiskLevel, reason: string) => {
+    const order: Record<TaskRiskLevel, number> = { low: 0, medium: 1, high: 2 };
+    if (order[next] > order[level]) level = next;
+    if (!reasons.includes(reason)) reasons.push(reason);
+  };
+
+  if (
+    evidence.impact?.level === "high" ||
+    (evidence.impact?.transitiveConsumers ?? 0) > 10
+  ) {
+    elevate("high", "High-impact shared surface");
+  } else if (
+    evidence.impact?.level === "shared" ||
+    (evidence.impact?.directConsumers ?? 0) > 2
+  ) {
+    elevate("medium", "Shared component consumers");
+  }
+  if (evidence.publicApiChanged) {
+    elevate("medium", "Public component API change");
+  }
+  if ((evidence.implementationFiles ?? 0) > 8) {
+    elevate("high", "Broad implementation surface");
+  } else if ((evidence.implementationFiles ?? 0) > 3) {
+    elevate("medium", "Multi-file implementation surface");
+  }
+  if (
+    new Set(evidence.confirmedAuthorityRoles ?? []).size > 1 &&
+    level === "low"
+  ) {
+    elevate("medium", "Multiple confirmed authorities");
+  }
+
+  return {
+    level,
+    reasons,
+    requiresObjectiveConfirmation:
+      initial.requiresObjectiveConfirmation || level !== "low",
+  };
+}
+
 export function assessTaskIntake(
   intake: TaskIntakeState,
 ): TaskIntakeAssessment {
@@ -749,10 +813,14 @@ export function assessTaskIntake(
   const requiredUnavailable = intake.sources.filter(
     (source) =>
       source.required &&
-      (source.state === "omitted" || source.state === "unavailable"),
+      (source.state === "omitted" ||
+        source.state === "unavailable" ||
+        source.state === "external"),
   );
   if (requiredUnavailable.length > 0) {
-    reasons.push("A required source is unavailable or omitted.");
+    reasons.push(
+      "A required source is unavailable, omitted, or outside Atlas authority.",
+    );
     return { status: "blocked", reasons };
   }
   return {

@@ -45,8 +45,10 @@ function scoreItem(
   matches(fields.tags, 5, "tags");
   matches(fields.summary, 3, "summary");
   matches(fields.body, 1, "body");
-  if (item.authority === "verified") score += 1;
-  else if (item.authority === "decided") score += 0.75;
+  // Authority breaks ties between relevant matches; it must never make an
+  // unrelated item relevant by itself.
+  if (score > 0 && item.authority === "verified") score += 1;
+  else if (score > 0 && item.authority === "decided") score += 0.75;
   return { score, reasons };
 }
 

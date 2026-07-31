@@ -1,7 +1,7 @@
 import { access, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeProjectAtlasArguments } from "./project-atlas-arguments.mjs";
@@ -22,6 +22,14 @@ const legacyFixture = fileURLToPath(
     import.meta.url,
   ),
 );
+const { createProgram } = await import(pathToFileURL(cliEntry).href);
+
+function registeredCommandNames(): string[] {
+  const program = createProgram() as {
+    commands: Array<{ name: () => string }>;
+  };
+  return program.commands.map((command) => command.name());
+}
 
 function cli(args: string[]) {
   return spawnSync(process.execPath, [cliEntry, ...args], {
@@ -72,21 +80,18 @@ describe.sequential("CLI compact contracts", () => {
   });
 
   it("routes storage diagnostics as a CLI command instead of a project path", () => {
-    expect(normalizeProjectAtlasArguments(["storage", "--json"])).toEqual([
-      "storage",
-      "--json",
-    ]);
-    expect(normalizeProjectAtlasArguments(["C:\\work\\checkout"])).toEqual([
-      "open",
-      "C:\\work\\checkout",
-    ]);
+    const commandNames = registeredCommandNames();
     expect(
-      normalizeProjectAtlasArguments([
-        "storage",
-        "migrate",
-        rootPath,
-        "--dry-run",
-      ]),
+      normalizeProjectAtlasArguments(["storage", "--json"], commandNames),
+    ).toEqual(["storage", "--json"]);
+    expect(
+      normalizeProjectAtlasArguments(["C:\\work\\checkout"], commandNames),
+    ).toEqual(["open", "C:\\work\\checkout"]);
+    expect(
+      normalizeProjectAtlasArguments(
+        ["storage", "migrate", rootPath, "--dry-run"],
+        commandNames,
+      ),
     ).toEqual(["storage", "migrate", rootPath, "--dry-run"]);
     const migration = cli([
       "storage",
@@ -101,6 +106,22 @@ describe.sequential("CLI compact contracts", () => {
       state: "not-found",
       source: { untouched: true },
     });
+  });
+
+  it("routes every registered top-level command from one source of truth", () => {
+    const commandNames = registeredCommandNames();
+    expect(commandNames).toEqual(
+      expect.arrayContaining(["telemetry", "context-cost", "validate-diff"]),
+    );
+
+    for (const commandName of commandNames) {
+      expect(
+        normalizeProjectAtlasArguments([commandName, "--help"], commandNames),
+      ).toEqual([commandName, "--help"]);
+    }
+    expect(
+      normalizeProjectAtlasArguments(["C:\\work\\checkout"], commandNames),
+    ).toEqual(["open", "C:\\work\\checkout"]);
   });
 
   it("migrates and removes a verified repository-local legacy directory", async () => {

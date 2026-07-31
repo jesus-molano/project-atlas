@@ -3,11 +3,12 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   readdir,
   realpath,
+  rename,
   rm,
-  writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -49,6 +50,7 @@ const CONTRACT_NAME = ".selected-design-contract.json";
 const CLEANUP_PREFIX = ".cleanup-";
 const MAX_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const MAX_CONTRACT_BYTES = 8_192;
+const WINDOWS_RENAME_RETRY_DELAYS_MS = [8, 24, 64];
 const ARTIFACT_KINDS = new Set([
   "moodboard",
   "mockup",
@@ -64,6 +66,41 @@ const SELECTABLE_KINDS = new Set([
   "selected-preview",
 ]);
 
+function selectionReceipt(manifest, selection) {
+  const proof = hashText(
+    [
+      OWNER,
+      manifest.taskFingerprint,
+      manifest.sessionId,
+      selection.contractHandle,
+      selection.directionHash,
+      selection.expiresAt,
+    ].join("\0"),
+  ).slice(0, 16);
+  return `selection-receipt:v1:${manifest.taskFingerprint.slice(0, 16)}:${
+    manifest.sessionId
+  }:${selection.directionHash.slice(0, 16)}:${Date.parse(
+    selection.expiresAt,
+  ).toString(36)}:${proof}`;
+}
+
+function captureReceipt(manifest, artifact) {
+  const proof = hashText(
+    [
+      OWNER,
+      manifest.taskFingerprint,
+      manifest.sessionId,
+      artifact.handle,
+      artifact.hash,
+      artifact.kind,
+      artifact.recordedAt,
+    ].join("\0"),
+  ).slice(0, 16);
+  return `capture-receipt:v1:${manifest.taskFingerprint.slice(0, 16)}:${
+    manifest.sessionId
+  }:${artifact.hash.slice(0, 16)}:${proof}`;
+}
+
 export class CleanupPendingError extends Error {
   constructor(message, receipt) {
     super(message);
@@ -74,6 +111,36 @@ export class CleanupPendingError extends Error {
 
 function hashText(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export class CorruptManifestError extends Error {
+  constructor({ sessionPath, manifestFile, cause }) {
+    const sessionId = path.basename(sessionPath);
+    super(
+      `Session ${sessionId} has an invalid JSON manifest. Its files were preserved; restore a valid owned manifest or review and remove the session explicitly.`,
+      { cause },
+    );
+    this.name = "CorruptManifestError";
+    this.code = "MANIFEST_JSON_INVALID";
+    this.diagnostic = Object.freeze({
+      state: "manual-review-required",
+      code: this.code,
+      sessionId,
+      manifestFile,
+      preserved: true,
+      recovery:
+        "Restore a valid owned manifest or inspect and remove this session explicitly; TTL sweep will not delete it.",
+    });
+  }
+}
+
+function cleanReceipt({ taskFingerprint, sessionId, reason, cleanedAt }) {
+  const proof = hashText(
+    [OWNER, taskFingerprint, sessionId, reason, cleanedAt].join("\0"),
+  ).slice(0, 16);
+  return `cleanup:v1:${taskFingerprint.slice(0, 16)}:${sessionId}:${reason}:${Date.parse(
+    cleanedAt,
+  ).toString(36)}:${proof}`;
 }
 
 function stableStringify(value) {
@@ -162,8 +229,56 @@ function cleanupReceiptPath(rootPath, sessionId) {
   return path.join(rootPath, `${CLEANUP_PREFIX}${sessionId}.json`);
 }
 
-async function writeJsonAtomic(target, value) {
-  await writeFile(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+function isWindowsRenameContention(error) {
+  return (
+    process.platform === "win32" &&
+    ["EACCES", "EBUSY", "EEXIST", "EPERM"].includes(errorCode(error))
+  );
+}
+
+async function replaceFileAtomically(temporaryFile, target) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(temporaryFile, target);
+      return;
+    } catch (error) {
+      const delay = WINDOWS_RENAME_RETRY_DELAYS_MS[attempt];
+      if (!isWindowsRenameContention(error) || delay === undefined) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+export async function writeJsonAtomic(
+  target,
+  value,
+  { faultInjector } = {},
+) {
+  const resolvedTarget = path.resolve(target);
+  const temporaryFile = path.join(
+    path.dirname(resolvedTarget),
+    `.${path.basename(resolvedTarget)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  let handle;
+  try {
+    handle = await open(temporaryFile, "wx", 0o600);
+    try {
+      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+      handle = undefined;
+    }
+    await faultInjector?.({
+      stage: "after-sync-before-rename",
+      target: resolvedTarget,
+      temporaryFile,
+    });
+    await replaceFileAtomically(temporaryFile, resolvedTarget);
+  } finally {
+    if (handle) await handle.close().catch(() => undefined);
+    await rm(temporaryFile, { force: true }).catch(() => undefined);
+  }
 }
 
 async function readOwnedManifest(sessionPath, root = DEFAULT_ROOT) {
@@ -183,10 +298,21 @@ async function readOwnedManifest(sessionPath, root = DEFAULT_ROOT) {
   if (path.dirname(realSession) !== path.resolve(rootPath)) {
     throw new Error("Session resolves outside the owned temp root.");
   }
-  const manifest = JSON.parse(await readFile(manifestPath(realSession), "utf8"));
+  const ownedManifestPath = manifestPath(realSession);
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(ownedManifestPath, "utf8"));
+  } catch (cause) {
+    if (!(cause instanceof SyntaxError)) throw cause;
+    throw new CorruptManifestError({
+      sessionPath: realSession,
+      manifestFile: ownedManifestPath,
+      cause,
+    });
+  }
   if (
-    manifest.owner !== OWNER ||
-    manifest.sessionId !== path.basename(realSession)
+    manifest?.owner !== OWNER ||
+    manifest?.sessionId !== path.basename(realSession)
   ) {
     throw new Error("Session manifest ownership check failed.");
   }
@@ -318,16 +444,20 @@ export async function recordArtifact({
   const existing = owned.manifest.artifacts.find(
     (entry) => entry.relativePath === artifact.relativePath,
   );
+  const recordedAt = new Date().toISOString();
   const entry = {
     handle:
-      existing?.handle ??
+      (existing?.hash === content.hash ? existing.handle : undefined) ??
       `artifact-${content.hash.slice(0, 12)}-${randomUUID().slice(0, 8)}`,
     kind,
     relativePath: artifact.relativePath,
     hash: content.hash,
     bytes: content.bytes,
-    recordedAt: new Date().toISOString(),
+    recordedAt,
   };
+  if (kind === "review-capture") {
+    entry.captureReceipt = captureReceipt(owned.manifest, entry);
+  }
   owned.manifest.artifacts = [
     ...owned.manifest.artifacts.filter(
       (item) => item.relativePath !== artifact.relativePath,
@@ -345,6 +475,7 @@ export async function recordArtifact({
     kind: entry.kind,
     hash: entry.hash,
     bytes: entry.bytes,
+    ...(entry.captureReceipt ? { receipt: entry.captureReceipt } : {}),
     lifecycle: "task-temporary",
   };
 }
@@ -409,6 +540,7 @@ export async function selectDirection({
   }
 
   const directionHash = hashText(stableStringify(direction));
+  const expiresAt = new Date(Date.now() + owned.manifest.ttlMs).toISOString();
   const pendingSelection = {
     directionHash,
     contractHandle: `visual:${owned.manifest.sessionId}:${directionHash.slice(0, 16)}`,
@@ -416,7 +548,12 @@ export async function selectDirection({
     selectedArtifactHandle: selectedArtifact?.handle ?? null,
     selectedArtifactHash: selectedArtifact?.hash ?? null,
     selectedAt: new Date().toISOString(),
+    expiresAt,
   };
+  pendingSelection.selectionReceipt = selectionReceipt(
+    owned.manifest,
+    pendingSelection,
+  );
   const contractBytes = Buffer.byteLength(JSON.stringify(direction), "utf8");
   if (contractBytes > MAX_CONTRACT_BYTES) {
     throw new Error("Selected DesignContract exceeds its 8 KB task budget.");
@@ -452,9 +589,7 @@ export async function selectDirection({
 
   owned.manifest.state = "selected";
   owned.manifest.selection = pendingSelection;
-  owned.manifest.expiresAt = new Date(
-    Date.now() + owned.manifest.ttlMs,
-  ).toISOString();
+  owned.manifest.expiresAt = expiresAt;
   owned.manifest.artifacts = selectedArtifact ? [selectedArtifact] : [];
   owned.manifest.cleanup.pendingPaths = [];
   owned.manifest.cleanup.lastErrorCode = null;
@@ -466,6 +601,7 @@ export async function selectDirection({
     state: "selected",
     directionHash,
     contractHandle: pendingSelection.contractHandle,
+    selectionReceipt: pendingSelection.selectionReceipt,
     selectedHandle: selectedArtifact?.handle ?? null,
     selectedHash: selectedArtifact?.hash ?? null,
     expiresAt: owned.manifest.expiresAt,
@@ -518,10 +654,18 @@ export async function cleanupSession({
   try {
     await remove(owned.sessionPath, { recursive: true, force: true });
     await rm(receiptPath, { force: true });
+    const cleanedAt = new Date().toISOString();
     return {
       state: "clean",
       sessionId: owned.manifest.sessionId,
       reason,
+      cleanedAt,
+      receipt: cleanReceipt({
+        taskFingerprint: owned.manifest.taskFingerprint,
+        sessionId: owned.manifest.sessionId,
+        reason,
+        cleanedAt,
+      }),
     };
   } catch (error) {
     receipt = {
@@ -573,11 +717,19 @@ export async function retryCleanup({
   try {
     await remove(sessionPath, { recursive: true, force: true });
     await rm(owned.receiptPath, { force: true });
+    const cleanedAt = new Date().toISOString();
     return {
       state: "clean",
       sessionId,
       reason: owned.receipt.reason,
       attempts: nextReceipt.attempts,
+      cleanedAt,
+      receipt: cleanReceipt({
+        taskFingerprint: owned.receipt.taskFingerprint,
+        sessionId,
+        reason: owned.receipt.reason,
+        cleanedAt,
+      }),
     };
   } catch (error) {
     nextReceipt.lastErrorCode = errorCode(error);
@@ -644,9 +796,7 @@ export async function retrySelectionCleanup({
   }
   owned.manifest.state = "selected";
   owned.manifest.selection = pendingSelection;
-  owned.manifest.expiresAt = new Date(
-    Date.now() + owned.manifest.ttlMs,
-  ).toISOString();
+  owned.manifest.expiresAt = pendingSelection.expiresAt;
   owned.manifest.artifacts = selectedArtifact ? [selectedArtifact] : [];
   owned.manifest.cleanup.pendingPaths = [];
   owned.manifest.cleanup.lastErrorCode = null;
@@ -657,6 +807,7 @@ export async function retrySelectionCleanup({
     state: "selected",
     directionHash: pendingSelection.directionHash,
     contractHandle: pendingSelection.contractHandle,
+    selectionReceipt: pendingSelection.selectionReceipt,
     selectedHandle: selectedArtifact?.handle ?? null,
     selectedHash: selectedArtifact?.hash ?? null,
     expiresAt: owned.manifest.expiresAt,
@@ -696,6 +847,7 @@ export async function readSelectedContract({
   return {
     contractHandle,
     directionHash,
+    selectionReceipt: owned.manifest.selection.selectionReceipt,
     expiresAt: owned.manifest.expiresAt,
     contract,
   };
@@ -708,10 +860,10 @@ export async function sweepExpired({
 }) {
   const rootPath = await assertSafeRoot(root, { create: false });
   if (!(await pathExists(rootPath))) {
-    return { cleaned: [], pending: [], ignored: [] };
+    return { cleaned: [], pending: [], ignored: [], diagnostics: [] };
   }
   const entries = await readdir(rootPath, { withFileTypes: true });
-  const result = { cleaned: [], pending: [], ignored: [] };
+  const result = { cleaned: [], pending: [], ignored: [], diagnostics: [] };
 
   for (const entry of entries) {
     if (!entry.isDirectory() || !entry.name.startsWith("vd-")) continue;
@@ -731,6 +883,9 @@ export async function sweepExpired({
         result.pending.push(error.receipt);
       } else {
         result.ignored.push(entry.name);
+        if (error instanceof CorruptManifestError) {
+          result.diagnostics.push(error.diagnostic);
+        }
       }
     }
   }
@@ -858,6 +1013,8 @@ if (isMain) {
     const output =
       error instanceof CleanupPendingError
         ? error.receipt
+        : error instanceof CorruptManifestError
+          ? error.diagnostic
         : { state: "error", message: error instanceof Error ? error.message : String(error) };
     process.stderr.write(`${JSON.stringify(output, null, 2)}\n`);
     process.exitCode = error instanceof CleanupPendingError ? 2 : 1;

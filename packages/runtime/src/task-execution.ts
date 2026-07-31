@@ -274,10 +274,15 @@ export async function writeTaskExecutionManifest(
 export async function loadTaskExecutionManifest(
   rootPath: string,
   handle: string,
+  expectedTaskId?: string,
 ): Promise<TaskExecutionManifest> {
+  if (expectedTaskId !== undefined) checkedTaskId(expectedTaskId);
   const match = handle.match(MANIFEST_HANDLE);
   if (!match) throw new Error("Task execution manifest handle is invalid.");
   const [, taskId, expectedHash] = match;
+  if (expectedTaskId !== undefined && taskId !== expectedTaskId) {
+    throw new Error("Task execution manifest belongs to a different task.");
+  }
   const root = await taskExecutionRoot(rootPath);
   const manifest = normalizedManifest(
     JSON.parse(
@@ -441,10 +446,15 @@ export async function completeTaskRetrieval(
 export async function loadTaskRetrievalResult(
   rootPath: string,
   handle: string,
+  expectedTaskId?: string,
 ): Promise<unknown> {
+  if (expectedTaskId !== undefined) checkedTaskId(expectedTaskId);
   const match = handle.match(RETRIEVAL_HANDLE);
   if (!match) throw new Error("Task retrieval handle is invalid.");
   const [, taskId] = match;
+  if (expectedTaskId !== undefined && taskId !== expectedTaskId) {
+    throw new Error("Task retrieval result belongs to a different task.");
+  }
   const ledger = await loadRetrievalLedger(rootPath, taskId!);
   const entry = ledger.entries.find(
     (candidate) =>

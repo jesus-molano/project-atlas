@@ -1,99 +1,77 @@
 # Memory closeout
 
-`memoryCloseout` in the shared `AgentCompactResult` domain contract is the only
-memory-closeout decision. `$frontend-task` and Codex produce it once. Chat
-presents it conversationally; the Project Atlas GUI renders the same structured
-object. Neither surface may independently detect candidates, change status, or
-authorize persistence.
+Keep technical completion and Project Memory independent.
 
-End every completed frontend task with that result plus a compact `Memory
-candidates` presentation. Do not omit it and do not turn it into a broad
-interview. The shared result reports one of these states:
+1. Complete implementation with `atlas_task_state` action `complete` after
+   checks, review, and cleanup. This must not write Project Memory.
+2. Decide conversationally whether any novel knowledge is worth retaining.
+3. Default to `none` and make no `atlas_memory` call.
 
-| Status | Use when | Write or question |
+## Closeout states
+
+| Status | Use when | Action |
 | --- | --- | --- |
-| `none` | No novel durable knowledge was detected | State that clearly; do not ask a question |
-| `canonical-candidate` | A novel reusable decision, convention, constraint, integration, known issue, or lesson may help later tasks | Present up to three candidates and ask one explicit canonical-write confirmation |
-| `canonical-stored` | The user explicitly authorized the named canonical write and it succeeded | Report the stored item and evidence; do not ask again |
-| `local-only` | The useful result is an implementation episode, validation result, temporary condition, or checkout-specific fact | State the local/episodic outcome; do not ask for canonical promotion |
-| `declined` | The user rejected, skipped, or omitted the candidate | State that nothing was stored; do not ask again unless scope or evidence changes |
+| `none` | No novel reusable or episodic knowledge exists | State that; do not ask or write |
+| `episodic-candidate` | A verified task/check-out outcome may help diagnose this local project later | Ask one exact `record-episodic` question |
+| `canonical-candidate` | A durable decision, convention, constraint, integration, known issue, or note may help future tasks | Ask one exact `propose-canonical` question |
+| `proposal-pending` | A canonical proposal exists but has not been authorized for application | Review the exact ID if needed; do not apply |
+| `stored` | The exact episodic record or canonical proposal was explicitly authorized and succeeded | Report its ID, scope, and evidence |
+| `declined` | The user rejected or skipped the named candidate/proposal | Call `reject-proposal` only for an existing named proposal; otherwise write nothing |
 
-For each `canonical-candidate`, include:
+## Consent rules
 
-- type;
-- short title and one-sentence reusable summary;
-- exact evidence handles or verified facts;
-- `canonical` scope;
-- confidence from `0` to `1`;
-- one question that names the candidate and asks whether to store it as
-  canonical Project Memory.
+Literal consent must name the intended mutating memory action or unmistakably
+approve the specific candidate/proposal just presented. Implementation
+approval, technical completion, generic "continue", prior broad consent, or
+silence is not memory consent.
 
-Before presenting a candidate, search the relevant active memory. Do not
-re-propose an equivalent item. If new evidence changes an existing item,
-propose an update or supersession and name the existing ID.
+Every mutating action uses the same two-call handshake:
 
-Completion, implementation approval, a prior generic “continue”, or silence is
-not memory confirmation. Until the user confirms the exact write, do not call
-`record_outcome`, `propose_memory_update`, or `apply_memory_update`.
+1. Call `atlas_memory` with the complete intended payload and no `consent`.
+   Atlas writes no memory and returns `needs-consent`, the full bounded scope,
+   a payload-bound `consentToken`, and an issued consent receipt.
+2. Show that exact scope to the user. Only after literal approval, repeat the
+   unchanged call with `consent` equal to that token. Atlas rejects a token
+   from another task/action or any payload change and returns a consumed
+   receipt only after the mutation succeeds.
 
-Map an explicit conversational acceptance to the shared
-`confirm-canonical` action and a rejection/omission to `decline`. The GUI sends
-those same actions back through the originating Codex task; it does not apply
-memory itself.
+Do not manufacture a token, reuse one for a corrected payload, or treat the
+first receipt as approval. If the proposed content changes, restart at step 1.
 
-After an unequivocal confirmation:
+Use only these `atlas_memory` actions:
 
-1. repeat the duplicate/current-memory check;
-2. call `propose_memory_update` with the reviewed evidence, scope, and
-   confidence;
-3. inspect the normalized proposal;
-4. call `apply_memory_update` with `confirmed: true` only when the user's
-   confirmation explicitly authorized canonical persistence. If the user only
-   authorized drafting, leave the proposal pending;
-5. report `canonical-stored` only after the canonical apply succeeds.
+- `review-proposal`: read one exact proposal ID; this is non-mutating and never
+  authorizes its application or rejection;
+- `record-episodic`: after consent to retain the named task-local outcome;
+- `propose-canonical`: after consent to create the named durable proposal;
+- `apply-canonical`: after separate consent to apply the exact proposal ID;
+- `reject-proposal`: after rejection of an existing proposal ID.
 
-If the user asks to retain a `local-only` result, call `record_outcome` with the
-observed or verified evidence and report the local scope. Otherwise do not save
-it.
+Never combine proposal and application into one implicit step. Before proposing
+canonical knowledge, search only the relevant active memory returned by
+`atlas_prepare_task`; expand one candidate with `atlas_expand_context` if needed.
+Do not re-propose an equivalent item. Name any superseded item.
 
-Emit this exact structured shape:
+## Candidate content
 
-```json
-{
-  "memoryCloseout": {
-    "status": "none | canonical-candidate | canonical-stored | local-only | declined",
-    "summary": "Compact status summary",
-    "candidates": [
-      {
-        "type": "decision | convention | constraint | integration | known-issue | lesson",
-        "title": "Candidate title",
-        "summary": "Reusable knowledge",
-        "evidence": ["Exact evidence handle or verified fact"],
-        "scope": "canonical",
-        "confidence": 0.9
-      }
-    ],
-    "localOutcome": {
-      "summary": "Checkout-only or episodic result",
-      "evidence": ["Verified local evidence"]
-    },
-    "confirmationRequired": false,
-    "confirmationPrompt": ""
-  }
-}
-```
+Present at most three candidates. Include:
 
-Omit `localOutcome` unless status is `local-only`. `canonical-candidate` requires
-at least one candidate, `confirmationRequired: true`, and one non-empty
-confirmation prompt. `canonical-stored` requires a successful explicitly
-authorized canonical write. All other statuses use no candidates, no
-confirmation, and an empty prompt.
+- type: decision, convention, constraint, integration, known issue, or note;
+- short title and reusable one-sentence summary;
+- exact verified evidence or receipt/handle IDs;
+- proposed scope: episodic or canonical;
+- confidence;
+- one confirmation question naming the exact action.
 
-Present the same object compactly in conversation as:
+Keep the final conversation compact:
 
 ```text
-Memory candidates — <status>
-- <candidate, local outcome, decline, or “No durable project knowledge detected.”>
-- Evidence and scope/confidence when applicable
-- Confirmation: <only for canonical-candidate>
+Memory - <status>
+- <candidate, stored item, declined proposal, or no memory>
+- Evidence/scope/confidence when applicable
+- Confirmation: <only when an action still needs consent>
 ```
+
+The GUI may display the same proposal and return the user's decision through the
+originating native task. It must not detect candidates, reclassify scope, or
+apply memory independently.

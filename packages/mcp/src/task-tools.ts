@@ -3,6 +3,7 @@ import {
   assessTaskRisk,
   normalizeTaskSourceDecisions,
   normalizeTaskSourceRelations,
+  SOURCE_RECEIPT_ID_PATTERN,
 } from "@component-atlas/core";
 import {
   expandSourceReceipt,
@@ -156,7 +157,7 @@ export function registerTaskTools(server: McpServer): void {
     "Expand one SourceReceipt by immutable ID under a hard budget. Task context returns only these IDs.",
     {
       root_path: z.string(),
-      receipt_id: z.string().regex(/^receipt-[a-f0-9]{16}$/u),
+      receipt_id: z.string().regex(SOURCE_RECEIPT_ID_PATTERN),
       budget_chars: z.number().int().min(800).max(3000).optional(),
     },
     async ({ root_path, receipt_id, budget_chars }) =>
@@ -284,7 +285,7 @@ export function registerTaskTools(server: McpServer): void {
       source_decisions: z.array(taskSourceDecisionSchema).max(12).optional(),
       source_relations: z.array(taskSourceRelationSchema).max(12).optional(),
       source_receipt_ids: z
-        .array(z.string().regex(/^receipt-[a-f0-9]{16}$/u))
+        .array(z.string().regex(SOURCE_RECEIPT_ID_PATTERN))
         .max(20)
         .optional(),
       handles: z

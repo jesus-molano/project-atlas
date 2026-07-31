@@ -128,6 +128,8 @@ export function fitBudgetedResponse<T extends Record<string, unknown>>(
   options: BudgetOptions = {},
 ): T & { metrics: ResponseMetrics } {
   const budgetChars = normalizedBudget(options.budgetChars);
+  const expandableLimit =
+    budgetChars <= 2_400 ? 6 : budgetChars <= 3_600 ? 12 : 20;
   const response = {
     ...clone(payload),
     metrics: {
@@ -137,7 +139,10 @@ export function fitBudgetedResponse<T extends Record<string, unknown>>(
       truncated: false,
       totalMatches: options.totalMatches ?? 0,
       ...(options.nextCursor ? { nextCursor: options.nextCursor } : {}),
-      expandableIds: [...new Set(options.expandableIds ?? [])].slice(0, 20),
+      expandableIds: [...new Set(options.expandableIds ?? [])].slice(
+        0,
+        expandableLimit,
+      ),
       ...(options.retrieval ? { retrieval: options.retrieval } : {}),
     },
   } as T & { metrics: ResponseMetrics };
@@ -191,8 +196,14 @@ export function fitBudgetedResponse<T extends Record<string, unknown>>(
 
   const used = settleMetrics(response);
   if (used > budgetChars) {
+    const largestFields = Object.entries(response)
+      .map(([key, value]) => [key, serializedLength(value)] as const)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 4)
+      .map(([key, size]) => `${key}=${size}`)
+      .join(", ");
     throw new Error(
-      `Compact response cannot fit the minimum ${budgetChars}-character budget.`,
+      `Compact response cannot fit the minimum ${budgetChars}-character budget (${used} characters; largest fields: ${largestFields}).`,
     );
   }
   return response;

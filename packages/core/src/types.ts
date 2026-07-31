@@ -33,7 +33,8 @@ export type DecisionKind =
   | "extend"
   | "compose"
   | "extract-and-reuse"
-  | "create";
+  | "create"
+  | "not-applicable";
 export type DesignTokenKind =
   | "color"
   | "space"
@@ -636,7 +637,18 @@ export interface ReuseContextBundle {
 export interface ChangeSurfaceBundle {
   schemaVersion: 1;
   intent: string;
-  selection: "explicit" | "ranked" | "unresolved";
+  selection: "explicit" | "ranked" | "unresolved" | "non-component";
+  primarySurface?: {
+    kind:
+      | "component"
+      | "route"
+      | "service"
+      | "state"
+      | "api"
+      | "configuration"
+      | "files";
+    id: string;
+  };
   primary?: ComponentContextReference;
   references: Array<{
     component: ComponentContextReference;
@@ -648,10 +660,13 @@ export interface ChangeSurfaceBundle {
     role:
       | "implementation"
       | "test"
+      | "authorized"
       | "dependency-reference"
       | "consumer-reference";
     componentId?: string;
   }>;
+  /** Explicit editable paths supplied by the caller; never presentation-truncated. */
+  authorizedFiles: string[];
   publicApi?: {
     props: ComponentProp[];
     events: ComponentEvent[];

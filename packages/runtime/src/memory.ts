@@ -236,21 +236,91 @@ export async function getProjectMemoryItem(
     if (!item) {
       throw new Error(`Project memory item "${id}" was not found.`);
     }
+    const relatedHandles = item.relations.reduce<
+      Array<{
+        kind: MemoryItem["relations"][number]["kind"];
+        id: string;
+        handle: string;
+      }>
+    >((handles, relation) => {
+      if (relation.kind === "references_code") {
+        const component = graph.components.find(
+          (candidate) =>
+            candidate.id === relation.targetId ||
+            candidate.relativePath === relation.targetId ||
+            candidate.sourcePath === relation.targetId ||
+            candidate.name === relation.targetId,
+        );
+        if (component) {
+          handles.push({
+            kind: relation.kind,
+            id: relation.targetId,
+            handle: `code:${component.id}`,
+          });
+          return handles;
+        }
+        const entity = graph.entities.find(
+          (candidate) =>
+            candidate.id === relation.targetId ||
+            candidate.relativePath === relation.targetId ||
+            candidate.sourcePath === relation.targetId ||
+            candidate.name === relation.targetId,
+        );
+        if (entity) {
+          handles.push({
+            kind: relation.kind,
+            id: relation.targetId,
+            handle: `entity:${entity.id}`,
+          });
+        }
+        return handles;
+      }
+      if (relation.kind === "references_design") {
+        handles.push({
+          kind: relation.kind,
+          id: relation.targetId,
+          handle: `design:${relation.targetId}`,
+        });
+        return handles;
+      }
+      if (
+        store.loadMemoryItem(
+          graph.project.id,
+          relation.targetId,
+          graphCheckoutId(graph),
+        )
+      ) {
+        handles.push({
+          kind: relation.kind,
+          id: relation.targetId,
+          handle: relation.targetId.startsWith("memory:")
+            ? relation.targetId
+            : `memory:${relation.targetId}`,
+        });
+      }
+      return handles;
+    }, []);
     return fitBudgetedResponse(
       {
         schemaVersion: MEMORY_SCHEMA_VERSION,
         item,
-        relatedHandles: item.relations.map((relation) => ({
-          kind: relation.kind,
-          id: relation.targetId,
-        })),
+        relatedHandles,
+        unresolvedRelations: item.relations
+          .filter(
+            (relation) =>
+              !relatedHandles.some(
+                (related) =>
+                  related.kind === relation.kind && related.id === relation.targetId,
+              ),
+          )
+          .map((relation) => ({ kind: relation.kind, id: relation.targetId })),
       },
       {
         budgetChars: options.budgetChars,
         totalMatches: 1,
         expandableIds: [
-          item.id,
-          ...item.relations.map((relation) => relation.targetId),
+          item.id.startsWith("memory:") ? item.id : `memory:${item.id}`,
+          ...relatedHandles.map((relation) => relation.handle),
         ],
       },
     );
@@ -575,8 +645,16 @@ export async function checkBeforeChange(
     const ranked = rankMemoryItems(candidates, query, {
       includeInactive: true,
     });
+    // The pre-change gate must not block on weak lexical coincidences. Require
+    // at least one title/tag hit; summary/body-only overlap remains searchable
+    // context but is not strong enough to govern an unrelated change.
+    const relevantRanked = ranked.filter(
+      (candidate) =>
+        candidate.score >= 5 &&
+        candidate.reasons.some((reason) => /^(?:title|tags):/u.test(reason)),
+    );
     const memoryFindings =
-      ranked.length === 0
+      relevantRanked.length === 0
         ? [
             {
               id: "cold-start:memory",
@@ -585,10 +663,10 @@ export async function checkBeforeChange(
               title: "No relevant project memory exists yet",
               evidence: ["The scoped memory search returned no matching items."],
               recommendation:
-                "Continue with repository evidence and propose a memory delta only if the task teaches something durable.",
+                "Continue with repository evidence. Memory retention requires a separate explicit request after technical close.",
             },
           ]
-        : findingsForMemory(ranked);
+        : findingsForMemory(relevantRanked);
     const indexes = store.listDesignIndexes(graph.project.id);
     const designResult =
       indexes.length === 1
@@ -639,7 +717,7 @@ export async function checkBeforeChange(
         relevantMemory:
           findings.length > 0
             ? []
-            : ranked.slice(0, 4).map(({ item, score }) => ({
+            : relevantRanked.slice(0, 4).map(({ item, score }) => ({
                 id: item.id,
                 type: item.type,
                 title: item.title,
@@ -650,8 +728,8 @@ export async function checkBeforeChange(
       },
       {
         budgetChars: options.budgetChars,
-        totalMatches: ranked.length,
-        expandableIds: ranked.slice(0, 10).map(({ item }) => item.id),
+        totalMatches: relevantRanked.length,
+        expandableIds: relevantRanked.slice(0, 10).map(({ item }) => item.id),
         preserveKeys: ["findings", "questions"],
       },
     );

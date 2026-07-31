@@ -14,17 +14,17 @@ Direct route:
 
 1. The user provides or selects one concrete frame or component.
 2. At the start of preparation, read sparse metadata for the confirmed scope
-   through Figma Desktop MCP at `http://127.0.0.1:3845/mcp` and pass it to
-   `map_figma_file` with the stable task ID and source-decision ID. Atlas
-   resolves the confirmed identity from its task ledger, then creates a
-   SourceReceipt with the actual
-   adapter/route/operation, node scope, observation, coverage, and freshness.
+   through the confirmed Figma route. Pass the exact file/node identity and
+   bounded metadata to `atlas_prepare_task` as one confirmed `figma` source
+   with its actual adapter, route, operation, scope, observation, hash, and
+   freshness. Atlas validates the evidence and creates an immutable
+   SourceReceipt bound to the stable task/source decision.
    A direct link skips candidate ranking, not Design Atlas persistence.
    `fileKey+nodeId` remains an immutable pin: a missing, mismatched, or stale
-   node blocks and Atlas never substitutes a ranked candidate. Resolve this local connection before any global MCP
-   registration or remote connector.
-3. If the node is cached, call `inspect_design_node`; otherwise use the
-   just-mapped node identity.
+   node blocks and Atlas never substitutes a ranked candidate.
+3. Use the returned `design:` handle directly or expand exactly that handle
+   with `atlas_expand_context`; never call a legacy design tool from the core
+   workflow.
 4. Always use `get_metadata` or the available sparse hierarchy to estimate
    complexity before full context. A shallow bounded component/frame is small;
    a broad page, large screen, deep tree, or many sibling sections/frames is
@@ -40,7 +40,7 @@ Direct route:
    URL/file/node identity and obtain a lightweight overview:
    `get_screenshot` for the page/frame when available, or a supplied
    screenshot/cached Atlas summary. Pair it with economical `get_metadata`
-   hierarchy/IDs. Cached `inspect_design_node` can supplement this only when
+   hierarchy/IDs. A cached `design:` expansion can supplement this only when
    the scope already exists in Design Atlas.
 8. Group relevant components, related siblings, or flow/viewport families in
    small adaptive batches. Keep successful batches, shrink the next batch
@@ -63,11 +63,13 @@ General route:
 1. The user provides a Figma file or page.
 2. Use the local Desktop MCP first. Call Figma `get_metadata` without a node ID
    to discover pages.
-3. Retrieve sparse XML only for relevant pages and pass each snapshot to
-   `map_figma_file`. Repeated snapshots merge by page/scope.
-4. Call `find_design_candidates` with the task. It returns a few candidates,
-   evidence, confidence, findings, and a decision gate. These are explicitly
-   Atlas candidates, never claims that they match a user-confirmed direct node.
+3. Retrieve sparse XML only for relevant pages and pass each bounded snapshot
+   as confirmed Figma evidence to `atlas_prepare_task`. Repeated snapshots merge
+   by page/scope behind the same evidence version.
+4. Use the few ranked design candidates and `design:` handles returned by
+   `atlas_prepare_task`; expand only a candidate that can change the decision.
+   These are explicitly Atlas candidates, never claims that they match a
+   user-confirmed direct node.
 5. Confirm one node before following the direct route.
 
 If the local Desktop MCP is not connected, rejects/times out, does not respond,
@@ -84,15 +86,18 @@ never requests or stores the access token.
 
 ## Inputs and cache behavior
 
-`map_figma_file` accepts:
+The core `atlas_prepare_task` Figma evidence accepts:
 
-- a Figma URL or file key;
+- the confirmed Figma URL/file key and exact node when known;
 - Figma MCP `get_metadata` XML or REST file JSON;
-- optional file version, modification date, and scope node;
+- at most 2 MB of UTF-8 metadata per task evidence payload, whether supplied as
+  text or structured JSON;
+- the actual adapter, route, operation, observation time, content hash,
+  freshness, scope, and optional file version/modification date;
 - optional parent page ID/name for section or frame-only snapshots;
 - optional enrichment for dev status/resources, libraries, and Code Connect.
 
-For authoritative ingestion, also pass `task_id` and `source_decision_id`.
+Authoritative ingestion always carries the stable task/source decision identity.
 The caller-provided URL may identify a selected child scope, while
 `requested`/`resolved` retain the immutable confirmed page or parent identity.
 Atlas validates and records `scopeRelation: contained-scope`; it does not turn
@@ -100,10 +105,11 @@ the child into a replacement source. A separate task relation can connect
 Jira/Confluence requirement authority to the selected Figma scope without
 confusing either source's identity or provenance.
 
-Variables can arrive with the initial map for backwards compatibility, but the
-normal route is the independent `sync_figma_variables` operation. This prevents
-an unchanged sparse metadata hash from hiding a Variables update and lets Atlas
-record access/permission changes without remapping nodes.
+Variables can arrive with the source evidence. File-global variable sync remains
+an explicit CLI/GUI or legacy-profile administration operation outside the six
+core task tools. This prevents an unchanged sparse metadata hash from hiding a
+Variables update and lets Atlas record access/permission changes without
+remapping nodes.
 
 The cache lives in the repository's Atlas SQLite database under local
 application data. An identical source/scope hash returns `unchanged`. New page
@@ -122,7 +128,7 @@ are excluded. Session-local asset URLs such as `localhost` resources are also
 excluded because they cannot be resolved durably; Atlas keeps the file/node ID
 and resolves relevant assets on demand. Selected assets use a separate bounded
 pipeline: Desktop MCP bytes are validated and stored only under
-`%LOCALAPPDATA%\ProjectAtlas\temp\assets\` behind an expiring handle containing
+`<platform Atlas storage root>/temp/assets/` behind an expiring handle containing
 hash, format, size, selected scope, and receipt provenance. Neither response
 bodies nor localhost URLs enter context, ledgers, capsules, or code. An
 explicit materialization step may write one validated new production asset
@@ -181,9 +187,10 @@ return an occurrence count, at most three evidence examples, at most eight node
 handles, and a truncation marker. Storyboard states remain one flow coverage
 matrix instead of being elevated as component duplicates.
 
-`map_figma_file`, `list_figma_indexes`, and `find_design_candidates` accept a
-hard response budget. MCP and CLI default to 3,600 characters and expose
-metrics plus expandable IDs when secondary evidence is trimmed.
+`atlas_prepare_task` shares its hard 3,600-character task budget across code,
+design, receipts, and allowed memory, and exposes metrics plus expandable IDs
+when secondary evidence is trimmed. Legacy/CLI design diagnostics retain their
+own explicit response budgets outside the normal skill route.
 
 Results include reasons and confidence. A high score is still a proposal, not
 permission to fetch deep context. The decision gate asks for confirmation or a
@@ -274,7 +281,7 @@ These commands are optional tools for explicit cache bootstrap, diagnostics,
 or automation. They are not required before invoking `$frontend-task`.
 
 ```powershell
-component-atlas figma map <root> <figma-url> `
+pnpm atlas:cli -- figma map <root> <figma-url> `
   --metadata <xml-or-json-file> `
   [--format auto|figma-mcp-xml|figma-rest] `
   [--file-version <version>] `
@@ -283,14 +290,15 @@ component-atlas figma map <root> <figma-url> `
   [--scope-page-id <id> --scope-page-name <name>] `
   [--enrichment <json-file>]
 
-component-atlas figma list <root>
-component-atlas figma find <root> <task> [--file <url-or-key>]
-component-atlas figma inspect <root> <url-or-key> <confirmed-node>
+pnpm atlas:cli -- figma list <root>
+pnpm atlas:cli -- figma find <root> <task> [--file <url-or-key>]
+pnpm atlas:cli -- figma inspect <root> <url-or-key> <confirmed-node>
 ```
 
-MCP equivalents are `map_figma_file`, `sync_figma_variables`,
+The legacy profile also exposes `map_figma_file`, `sync_figma_variables`,
 `get_figma_variables`, `list_figma_indexes`, `find_design_candidates`, and
-`inspect_design_node`.
+`inspect_design_node` temporarily for parity/migration. They are not available
+in the installed core profile and must not appear in `$frontend-task` calls.
 
 ## Validation boundary
 

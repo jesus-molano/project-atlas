@@ -3,6 +3,10 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     exclude: [...configDefaults.exclude, "e2e/**"],
+    // Repository setup copies and scans fixtures. Coverage instrumentation can
+    // make those hooks slower than Vitest's 10 second default on shared CI.
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "html"],
@@ -24,7 +28,11 @@ export default defineConfig({
         // processes or through protocol contracts; their domain dependencies
         // remain covered here and the adapters are exercised by contract/E2E.
         "packages/cli/src/**/*.ts",
-        "packages/mcp/src/*-tools.ts",
+        "packages/mcp/src/administration-tools.ts",
+        "packages/mcp/src/code-tools.ts",
+        "packages/mcp/src/design-tools.ts",
+        "packages/mcp/src/memory-tools.ts",
+        "packages/mcp/src/task-tools.ts",
         "packages/mcp/src/index.ts",
       ],
       thresholds: {

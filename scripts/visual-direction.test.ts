@@ -9,10 +9,11 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildAtlasHandoff } from "../skills/visual-direction/scripts/build-atlas-handoff.mjs";
+import { buildAtlasHandoff as buildRawAtlasHandoff } from "../skills/visual-direction/scripts/build-atlas-handoff.mjs";
 import { resolveAuthority } from "../skills/visual-direction/scripts/resolve-authority.mjs";
 import {
   CleanupPendingError,
+  CorruptManifestError,
   cleanupSession,
   createSession,
   readSelectedContract,
@@ -21,6 +22,7 @@ import {
   retrySelectionCleanup,
   selectDirection,
   sweepExpired,
+  writeJsonAtomic,
 } from "../skills/visual-direction/scripts/temporary-artifacts.mjs";
 
 interface AuthorityFixture {
@@ -42,6 +44,31 @@ interface AuthorityFixture {
     implementationWorktrees?: number;
     artifacts?: string;
   };
+}
+
+function futureVisualExpiry(): string {
+  return new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString();
+}
+
+const SYNTHETIC_SELECTION_RECEIPT =
+  "selection-receipt:v1:0123456789abcdef:vd-handoff:0123456789abcdef:m1234567:abcdef0123456789";
+const SYNTHETIC_PRELIMINARY_REVIEW =
+  "visual-review:task-handoff:0123456789abcdef";
+const V3_SOURCE_RECEIPT = `receipt-${"a".repeat(64)}`;
+
+function syntheticCaptureReceipt(hash: string): string {
+  return `capture-receipt:v1:0123456789abcdef:vd-handoff:${hash.slice(
+    0,
+    16,
+  )}:abcdef0123456789`;
+}
+
+function buildAtlasHandoff(input: Record<string, unknown>) {
+  return buildRawAtlasHandoff({
+    rootPath: path.resolve("C:/project-atlas-handoff"),
+    taskId: "task-handoff",
+    ...input,
+  });
 }
 
 async function exists(target: string) {
@@ -152,6 +179,96 @@ describe("visual-direction authority fixtures", () => {
 });
 
 describe("visual-direction temporary artifact lifecycle", () => {
+  it("keeps the previous manifest when an atomic write is interrupted", async () => {
+    const testRoot = await mkdtemp(
+      path.join(os.tmpdir(), "visual-direction-atomic-"),
+    );
+    const ownedRoot = path.join(testRoot, "owned");
+    try {
+      const session = await createSession({
+        taskId: "task-atomic",
+        root: ownedRoot,
+      });
+      const manifestFile = path.join(
+        session.sessionPath,
+        ".visual-direction-session.json",
+      );
+      const previous = await readFile(manifestFile, "utf8");
+      const next = { ...JSON.parse(previous), state: "selected" };
+
+      await expect(
+        writeJsonAtomic(manifestFile, next, {
+          faultInjector: ({ stage }: { stage: string }) => {
+            expect(stage).toBe("after-sync-before-rename");
+            throw new Error("simulated interruption");
+          },
+        }),
+      ).rejects.toThrow(/simulated interruption/);
+
+      expect(await readFile(manifestFile, "utf8")).toBe(previous);
+      expect(await readdir(session.sessionPath)).toEqual([
+        ".visual-direction-session.json",
+      ]);
+    } finally {
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a corrupt session during sweep and returns recovery guidance", async () => {
+    const testRoot = await mkdtemp(
+      path.join(os.tmpdir(), "visual-direction-corrupt-"),
+    );
+    const ownedRoot = path.join(testRoot, "owned");
+    try {
+      const session = await createSession({
+        taskId: "task-corrupt",
+        root: ownedRoot,
+        ttlMs: 1,
+        now: 0,
+      });
+      await writeFile(
+        path.join(session.sessionPath, ".visual-direction-session.json"),
+        "{\"owner\":",
+        "utf8",
+      );
+      let removeCalls = 0;
+      const swept = await sweepExpired({
+        root: ownedRoot,
+        now: 2,
+        remove: async () => {
+          removeCalls += 1;
+        },
+      });
+
+      expect(removeCalls).toBe(0);
+      expect(swept.cleaned).toEqual([]);
+      expect(swept.ignored).toContain(session.sessionId);
+      expect(swept.diagnostics).toEqual([
+        expect.objectContaining({
+          state: "manual-review-required",
+          code: "MANIFEST_JSON_INVALID",
+          sessionId: session.sessionId,
+          preserved: true,
+          recovery: expect.stringMatching(/restore|inspect/i),
+        }),
+      ]);
+      expect(await exists(session.sessionPath)).toBe(true);
+
+      const artifact = path.join(session.sessionPath, "capture.png");
+      await writeFile(artifact, "capture", "utf8");
+      await expect(
+        recordArtifact({
+          sessionPath: session.sessionPath,
+          artifactPath: artifact,
+          kind: "review-capture",
+          root: ownedRoot,
+        }),
+      ).rejects.toBeInstanceOf(CorruptManifestError);
+    } finally {
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  });
+
   it("purges unselected options, keeps one choice through review, and closes cleanly", async () => {
     const testRoot = await mkdtemp(
       path.join(os.tmpdir(), "visual-direction-selection-"),
@@ -205,6 +322,9 @@ describe("visual-direction temporary artifact lifecycle", () => {
         contractHandle: expect.stringMatching(/^visual:vd-[^:]+:[a-f0-9]{16}$/),
         selectedHandle: selected.handle,
         selectedHash: selected.hash,
+        selectionReceipt: expect.stringMatching(
+          /^selection-receipt:v1:[a-f0-9]{16}:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}:[a-z0-9]+:[a-f0-9]{16}$/u,
+        ),
         lifecycle: "selected-until-review-close",
       });
       expect(receipt).not.toHaveProperty("sessionPath");
@@ -227,17 +347,27 @@ describe("visual-direction temporary artifact lifecycle", () => {
 
       const reviewPath = path.join(session.sessionPath, "review-narrow.png");
       await writeFile(reviewPath, "review");
-      await recordArtifact({
+      const recordedReview = await recordArtifact({
         sessionPath: session.sessionPath,
         artifactPath: reviewPath,
         kind: "review-capture",
         root: ownedRoot,
       });
+      expect(recordedReview.receipt).toMatch(
+        /^capture-receipt:v1:[a-f0-9]{16}:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}:[a-f0-9]{16}$/u,
+      );
 
-      await cleanupSession({
+      const cleanup = await cleanupSession({
         sessionPath: session.sessionPath,
         root: ownedRoot,
         reason: "close",
+      });
+      expect(cleanup).toMatchObject({
+        state: "clean",
+        reason: "close",
+        receipt: expect.stringMatching(
+          /^cleanup:v1:[a-f0-9]{16}:vd-[A-Za-z0-9_-]+:close:[a-z0-9]+:[a-f0-9]{16}$/u,
+        ),
       });
       expect(await exists(session.sessionPath)).toBe(false);
       expect(await readdir(ownedRoot)).toEqual([]);
@@ -415,6 +545,26 @@ describe("visual-direction temporary artifact lifecycle", () => {
 });
 
 describe("visual-direction Atlas handoff", () => {
+  it("rejects locked fidelity without a persisted selected contract", () => {
+    const authorityDecision = resolveAuthority({
+      scope: "component",
+      hasExistingProject: true,
+      hasExactFigma: true,
+      exactFigma: {
+        fileKey: "ExactFile",
+        nodeId: "42:7",
+        url: "https://www.figma.com/design/ExactFile/Product?node-id=42-7",
+      },
+    });
+    expect(() =>
+      buildAtlasHandoff({
+        authorityDecision,
+        workflowState: "locked",
+        cleanup: { state: "not-applicable" },
+      }),
+    ).toThrow(/including fidelity mode/i);
+  });
+
   it("preserves exact Figma identity and exposes no alternatives or payloads", () => {
     const authorityDecision = resolveAuthority({
       scope: "component",
@@ -429,8 +579,15 @@ describe("visual-direction Atlas handoff", () => {
     const handoff = buildAtlasHandoff({
       authorityDecision,
       workflowState: "locked",
+      selectedContract: {
+        contractHandle: "visual:vd-exact:0123456789abcdef",
+        contractHash:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        expiresAt: futureVisualExpiry(),
+        selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
+      },
       cleanup: { state: "not-applicable" },
-      sourceReceiptIds: ["receipt-0123456789abcdef"],
+      sourceReceiptIds: [V3_SOURCE_RECEIPT],
       atlasHandles: ["design:figma:ExactFile:42:7"],
       previewPayload: "data:image/png;base64,SHOULD_NOT_CROSS",
       temporaryPath: "C:\\Temp\\visual-direction\\preview.png",
@@ -438,8 +595,8 @@ describe("visual-direction Atlas handoff", () => {
 
     expect(handoff).toMatchObject({
       surface: {
-        primary: "codex-handoff",
-        runner: "secondary-experimental",
+        owner: "native-codex",
+        atlasProfile: "core-six-tool",
         inspector: "progressive-disclosure",
       },
       status: "locked",
@@ -451,8 +608,14 @@ describe("visual-direction Atlas handoff", () => {
         exactFigmaIdentity: authorityDecision.exactFigmaIdentity,
       },
       provenance: {
-        sourceReceiptIds: ["receipt-0123456789abcdef"],
+        sourceReceiptIds: [V3_SOURCE_RECEIPT],
         receiptsExpanded: false,
+      },
+      coreProjection: {
+        taskState: {
+          action: "attach-evidence",
+          receipt_ids: [V3_SOURCE_RECEIPT],
+        },
       },
     });
     expect(handoff).not.toHaveProperty("directionCards");
@@ -505,6 +668,7 @@ describe("visual-direction Atlas handoff", () => {
   });
 
   it("projects one visual handle into the existing capsule without receipt bodies", () => {
+    const expiresAt = futureVisualExpiry();
     const authorityDecision = resolveAuthority({
       scope: "greenfield",
       hasExistingProject: false,
@@ -517,7 +681,9 @@ describe("visual-direction Atlas handoff", () => {
         contractHandle: "visual:vd-task-42:0123456789abcdef",
         contractHash:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        expiresAt: "2026-07-30T12:00:00.000Z",
+        expiresAt,
+        selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
+        selectedDirectionId: "pricing-quiet-hierarchy",
         contract: { should: "remain behind the handle" },
       },
       stateMatrix: {
@@ -531,17 +697,222 @@ describe("visual-direction Atlas handoff", () => {
       sourceReceipts: [{ body: "must not be expanded" }],
     });
 
-    expect(handoff.capsuleProjection).toEqual({
-      sourceReceiptIds: ["receipt-fedcba9876543210"],
-      handles: [
+    expect(handoff.coreProjection).toMatchObject({
+      taskState: {
+        action: "attach-evidence",
+        receipt_ids: ["receipt-fedcba9876543210"],
+        visual_contract: {
+          handle: "visual:vd-task-42:0123456789abcdef",
+          hash:
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          selection_receipt: SYNTHETIC_SELECTION_RECEIPT,
+          authority: "selected-direction",
+          selected_direction_id: "pricing-quiet-hierarchy",
+          receipt_ids: ["receipt-fedcba9876543210"],
+          expires_at: expiresAt,
+        },
+      },
+      resumeHandles: [
         "visual:vd-task-42:0123456789abcdef",
         "code:pricing-shell",
         "memory:accessibility-rule",
       ],
-      nextSafeAction: "implement-one-selected-direction",
+      checkpoint: {
+        action: "checkpoint",
+        next_action: "implement-one-selected-direction",
+      },
     });
     expect(JSON.stringify(handoff)).not.toMatch(
       /remain behind|must not be expanded|sourceReceipts/i,
+    );
+  });
+
+  it("projects structured visual review and cleanup into the core task-state bridge", () => {
+    const expiresAt = futureVisualExpiry();
+    const authorityDecision = resolveAuthority({
+      scope: "component",
+      hasExistingProject: true,
+      visualDecision: "selected-direction",
+    });
+    const handoff = buildAtlasHandoff({
+      authorityDecision,
+      workflowState: "review",
+      selectedContract: {
+        contractHandle: "visual:vd-review:1234567890abcdef",
+        contractHash:
+          "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        expiresAt,
+        selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
+        selectedDirectionId: "quiet-dialog",
+      },
+      stateMatrix: {
+        surface: "Confirmation dialog",
+        viewports: ["desktop", "narrow"],
+        requiredStates: ["default", "focus-visible"],
+      },
+      visualReview: {
+        result: "pass",
+        deviationCount: 0,
+        captures: [
+          {
+            handle: "artifact-aaaaaaaaaaaa-00000001",
+            hash: "a".repeat(64),
+            receipt: syntheticCaptureReceipt("a".repeat(64)),
+            viewport: "desktop",
+            state: "default",
+          },
+          {
+            handle: "artifact-bbbbbbbbbbbb-00000002",
+            hash: "b".repeat(64),
+            receipt: syntheticCaptureReceipt("b".repeat(64)),
+            viewport: "narrow",
+            state: "focus-visible",
+          },
+        ],
+        preliminaryReviewHandle: SYNTHETIC_PRELIMINARY_REVIEW,
+      },
+      cleanup: {
+        state: "clean",
+        receipt:
+          "cleanup:v1:0123456789abcdef:vd-review:close:m1234567:abcdef0123456789",
+      },
+      sourceReceiptIds: [],
+      atlasHandles: [],
+    });
+
+    expect(handoff.coreProjection.taskState).toMatchObject({
+      action: "attach-review",
+      visual_review: {
+        contract_handle: "visual:vd-review:1234567890abcdef",
+        contract_hash:
+          "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        state_matrix: {
+          surface: "Confirmation dialog",
+          viewports: ["desktop", "narrow"],
+          required_states: ["default", "focus-visible"],
+        },
+        captures: [
+          {
+            handle: "artifact-aaaaaaaaaaaa-00000001",
+            hash: "a".repeat(64),
+            receipt: syntheticCaptureReceipt("a".repeat(64)),
+            viewport: "desktop",
+            state: "default",
+          },
+          {
+            handle: "artifact-bbbbbbbbbbbb-00000002",
+            hash: "b".repeat(64),
+            receipt: syntheticCaptureReceipt("b".repeat(64)),
+            viewport: "narrow",
+            state: "focus-visible",
+          },
+        ],
+        result: "pass",
+        deviation_count: 0,
+        cleanup: {
+          state: "clean",
+          receipt:
+            "cleanup:v1:0123456789abcdef:vd-review:close:m1234567:abcdef0123456789",
+        },
+        preliminary_review_handle: SYNTHETIC_PRELIMINARY_REVIEW,
+      },
+    });
+  });
+
+  it("rejects incomplete or duplicated passing capture coverage", () => {
+    const authorityDecision = resolveAuthority({
+      scope: "component",
+      hasExistingProject: true,
+      visualDecision: "selected-direction",
+    });
+    const base = {
+      authorityDecision,
+      workflowState: "review",
+      selectedContract: {
+        contractHandle: "visual:vd-review:1234567890abcdef",
+        contractHash: "1234567890abcdef".repeat(4),
+        expiresAt: futureVisualExpiry(),
+        selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
+        selectedDirectionId: "quiet-dialog",
+      },
+      stateMatrix: {
+        surface: "Dialog",
+        viewports: ["desktop", "narrow"],
+        requiredStates: ["default", "focus-visible"],
+      },
+      cleanup: { state: "not-applicable" },
+    };
+    const desktop = {
+      handle: "artifact-aaaaaaaaaaaa-00000001",
+      hash: "a".repeat(64),
+      receipt: syntheticCaptureReceipt("a".repeat(64)),
+      viewport: "desktop",
+      state: "default",
+    };
+    expect(() =>
+      buildAtlasHandoff({
+        ...base,
+        visualReview: { result: "pass", deviationCount: 0, captures: [desktop] },
+      }),
+    ).toThrow(/cover every viewport/i);
+    expect(() =>
+      buildAtlasHandoff({
+        ...base,
+        visualReview: {
+          result: "blocked",
+          deviationCount: 1,
+          captures: [desktop, { ...desktop, handle: "artifact-aaaaaaaaaaaa-00000002" }],
+        },
+      }),
+    ).toThrow(/pairs must be unique/i);
+  });
+
+  it("keeps the largest declared state coverage inside the bounded evidence handoff", () => {
+    const authorityDecision = resolveAuthority({
+      scope: "component",
+      hasExistingProject: true,
+      visualDecision: "selected-direction",
+    });
+    const viewports = Array.from({ length: 6 }, (_, index) => `viewport-${index}`);
+    const requiredStates = Array.from({ length: 14 }, (_, index) => `state-${index}`);
+    const captures = requiredStates.map((state, index) => {
+      const fill = (index % 15).toString(16);
+      const hash = fill.repeat(64);
+      return {
+        handle: `artifact-${hash.slice(0, 12)}-${(index + 1)
+          .toString(16)
+          .padStart(8, "0")}`,
+        hash,
+        receipt: syntheticCaptureReceipt(hash),
+        viewport: viewports[index % viewports.length]!,
+        state,
+      };
+    });
+    const handoff = buildAtlasHandoff({
+      authorityDecision,
+      workflowState: "review",
+      selectedContract: {
+        contractHandle: "visual:vd-max-review:1234567890abcdef",
+        contractHash: "1234567890abcdef".repeat(4),
+        expiresAt: futureVisualExpiry(),
+        selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
+        selectedDirectionId: "max-review",
+      },
+      stateMatrix: { surface: "Dense state surface", viewports, requiredStates },
+      visualReview: {
+        result: "pass",
+        deviationCount: 0,
+        captures,
+        preliminaryReviewHandle: SYNTHETIC_PRELIMINARY_REVIEW,
+      },
+      cleanup: {
+        state: "clean",
+        receipt:
+          "cleanup:v1:0123456789abcdef:vd-max-review:close:m1234567:abcdef0123456789",
+      },
+    });
+    expect(Buffer.byteLength(JSON.stringify(handoff), "utf8")).toBeLessThanOrEqual(
+      8_192,
     );
   });
 
@@ -556,8 +927,9 @@ describe("visual-direction Atlas handoff", () => {
       workflowState: "locked",
       selectedContract: {
         contractHandle: "visual:vd-cleanup:abcdef0123456789",
-        contractHash: "abcdef0123456789abcdef0123456789",
-        expiresAt: "2026-07-30T12:00:00.000Z",
+        contractHash: "abcdef0123456789".repeat(4),
+        expiresAt: futureVisualExpiry(),
+        selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
       },
       cleanup: {
         state: "cleanup-pending",
@@ -580,6 +952,7 @@ describe("visual-direction Atlas handoff", () => {
   });
 
   it("rejects cards after selection and full SourceReceipt-shaped inputs", () => {
+    const expiresAt = futureVisualExpiry();
     const authorityDecision = resolveAuthority({
       scope: "section",
       hasExistingProject: true,
@@ -594,8 +967,9 @@ describe("visual-direction Atlas handoff", () => {
         ],
         selectedContract: {
           contractHandle: "visual:vd-task:0123456789abcdef",
-          contractHash: "0123456789abcdef",
-          expiresAt: "2026-07-30T12:00:00.000Z",
+          contractHash: "0123456789abcdef".repeat(4),
+          expiresAt,
+          selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
         },
         cleanup: { state: "selected-retained" },
       }),
@@ -607,8 +981,10 @@ describe("visual-direction Atlas handoff", () => {
         workflowState: "locked",
         selectedContract: {
           contractHandle: "visual:vd-task:0123456789abcdef",
-          contractHash: "0123456789abcdef",
-          expiresAt: "2026-07-30T12:00:00.000Z",
+          contractHash: "0123456789abcdef".repeat(4),
+          expiresAt,
+          selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
+          selectedDirectionId: "direction-a",
         },
         cleanup: { state: "selected-retained" },
         sourceReceiptIds: [{ id: "receipt-0123456789abcdef", body: "raw" }],
@@ -684,9 +1060,9 @@ describe("visual-direction skill contract", () => {
     expect(authority).toMatch(/Direction cards[\s\S]*DesignContract[\s\S]*State matrix/i);
     expect(temporary).toMatch(/cleanup-pending[\s\S]*TTL sweep/i);
     expect(atlasHandoff).toMatch(
-      /Atlas capsule projection[\s\S]*Codex owns[\s\S]*Atlas stores bounded evidence/i,
+      /Atlas core handoff[\s\S]*Native Codex owns[\s\S]*Atlas stores bounded receipts/i,
     );
-    expect(atlasHandoff).toMatch(/Exclude prompt text[\s\S]*preview payloads/i);
+    expect(atlasHandoff).toMatch(/Exclude prompts?[\s\S]*preview payloads/i);
     expect(frontendTask).toMatch(/`\$visual-direction`/);
     expect(brief).toMatch(/visual_direction:/);
 

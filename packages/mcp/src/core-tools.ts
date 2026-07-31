@@ -1,149 +1,93 @@
 import { randomUUID } from "node:crypto";
 import {
+  assessTaskIntake,
+  assessScopedTaskRisk,
   assessTaskRisk,
   buildChangeSurface,
-  buildComponentContext,
-  classifyTaskSource,
-  defaultTaskSourceAuthorityRole,
-  defaultTaskSourceRoutePolicy,
-  detectTaskSources,
-  ensureTaskSourceDecisions,
-  isMissingTaskSourceReference,
-  normalizeTaskSourceDecisions,
-  type DecisionKind,
-  type TaskRiskAssessment,
-  type TaskSourceDecision,
+  normalizeTaskSourceRelations,
+  SOURCE_RECEIPT_ID_PATTERN,
 } from "@component-atlas/core";
 import {
   checkBeforeChange,
-  expandSourceReceipt,
-  fitBudgetedResponse,
-  getProjectMemoryItem,
-  inspectFigmaDesignNode,
-  listFigmaDesignIndexes,
-  loadProjectGraph,
-  loadTaskExecutionManifest,
+  computeTaskObjectiveHash,
+  lockTaskChangeSurface,
+  loadPersistedSourceReceipt,
+  loadTaskFinalReceipt,
+  loadVisualEvidenceContract,
   loadTaskResumeCapsule,
-  loadTaskResumeTransport,
-  loadTaskRetrievalResult,
+  loadTaskSourceLedger,
+  normalizeLockedChangeIntent,
+  normalizeLockedEvidenceHandles,
   prepareTaskContext,
-  proposeMemoryUpdate,
-  recordDecision,
-  recordProjectOutcome,
+  persistTaskObjective,
+  resolveTaskObjective,
   scanProject,
+  taskObjectiveReference,
   taskContextResumeHandles,
   validateDiff,
   writeTaskCheckpoint,
 } from "@component-atlas/runtime";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { registerCoreExpandContext } from "./core-expand-context.js";
+import {
+  assertSelectableHandles,
+  assertTaskBoundHandle,
+  taskBoundHandle,
+} from "./core-handle-ownership.js";
+import {
+  compact,
+  mergedObjective,
+  requireAuthoritativeObjective,
+  requireCapsule,
+  sourceLedgerFingerprint,
+  stableHash,
+  surfaceProjection,
+  taskRiskRank,
+} from "./core-tool-helpers.js";
+import { registerCoreLifecycleTools } from "./core-lifecycle-tools.js";
+import { assertReuseDecisionInvariants } from "./core-reuse-decision.js";
+import {
+  classifyPreparedTaskGovernance,
+  escalateLockedTaskGovernance,
+  reconcilePreparedTaskGovernance,
+} from "./core-task-governance.js";
+import {
+  bindSourceEvidence,
+  activeCurrentSourceReceiptIds,
+  capsuleDecisions,
+  confirmedOperationsFromReceipts,
+  normalizedSourceRelations,
+  normalizedSources,
+  requiredSourcesWithoutCurrentReceipts,
+  sourceInput,
+  sourceRelationInput,
+} from "./core-source-evidence.js";
 import { text } from "./shared.js";
 
 const taskId = z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u);
-const sourceKind = z.enum([
-  "jira",
-  "confluence",
-  "figma",
-  "github",
-  "openapi",
-  "other",
-]);
-const sourceInput = z.object({
-  reference: z.string().min(1).max(1_000),
-  kind: sourceKind.optional(),
-  state: z.enum(["confirmed", "omitted", "unavailable"]).optional(),
-  required: z.boolean().optional(),
-});
-const confirmedOperation = z.object({
-  method: z.string().min(1).max(16),
-  path: z.string().min(1).max(500),
-  operation_id: z.string().max(200).optional(),
-});
 
-const rank: Record<TaskRiskAssessment["level"], number> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-};
-
-function mergedObjective(prior: string | undefined, update: string): string {
-  const next = update.trim();
-  if (!prior || prior.trim() === next || prior.includes(`Update: ${next}`)) {
-    return prior?.trim() || next;
-  }
-  return `${prior.trim()}\nUpdate: ${next}`.slice(0, 6_000);
-}
-
-function capsuleDecisions(
-  capsule: Awaited<ReturnType<typeof loadTaskResumeCapsule>>,
-): TaskSourceDecision[] {
-  if (!capsule) return [];
-  return normalizeTaskSourceDecisions(
-    capsule.decisions
-      .filter((decision) => !isMissingTaskSourceReference(decision.reference))
-      .map((decision) => ({
-        ...decision,
-        origin: "manual",
-        relationship: "primary",
-        authorityRole:
-          decision.authorityRole ??
-          defaultTaskSourceAuthorityRole(decision.kind),
-        routePolicy:
-          decision.routePolicy ??
-          defaultTaskSourceRoutePolicy(decision.kind, decision.reference),
-      })),
-  );
-}
-
-function normalizedSources(
-  objective: string,
-  prior: TaskSourceDecision[],
-  supplied: Array<z.infer<typeof sourceInput>>,
-): TaskSourceDecision[] {
-  const explicit = supplied.map((source) => {
-    const kind = source.kind ?? classifyTaskSource(source.reference);
-    return {
-      kind,
-      reference: source.reference,
-      origin: "explicit" as const,
-      state: source.state ?? ("confirmed" as const),
-      required: source.required ?? false,
-      relationship: "primary" as const,
-      authorityRole: defaultTaskSourceAuthorityRole(kind),
-      routePolicy: defaultTaskSourceRoutePolicy(kind, source.reference),
-    };
-  });
-  const detected = detectTaskSources(objective).map((source) => ({
-    ...source,
-    state: source.origin === "explicit" ? ("confirmed" as const) : source.state,
-  }));
-  const merged = new Map(
-    [...prior, ...detected, ...normalizeTaskSourceDecisions(explicit)].map(
-      (source) => [source.id, source],
+function completedTaskPrepareResult(id: string, budgetChars: number) {
+  return text(
+    compact(
+      {
+        taskId: id,
+        status: "completed",
+        terminal: true,
+        repositoryScanned: false,
+        requiresNewTaskId: true,
+        nextAction:
+          "Use atlas_task_state action=resume to inspect this immutable closeout; start follow-up work with a new task_id.",
+      },
+      budgetChars,
     ),
   );
-  return ensureTaskSourceDecisions(objective, [...merged.values()]).filter(
-    (source) => !isMissingTaskSourceReference(source.reference),
+}
+
+function explicitlyChangesApiContract(objective: string): boolean {
+  return /(?:\b(?:change|modify|migrate|replace|update)\b[^.\n]{0,48}\b(?:api contract|openapi schema)\b|\b(?:api contract|openapi schema)\b[^.\n]{0,48}\b(?:change|modify|migrate|replace|update)\b|\b(?:cambiar|modificar|migrar|reemplazar|actualizar)\b[^.\n]{0,48}\b(?:contrato de api|esquema openapi)\b)/iu.test(
+    objective,
   );
-}
-
-function compact<T extends Record<string, unknown>>(
-  value: T,
-  budgetChars: number,
-  expandableIds: string[] = [],
-) {
-  return fitBudgetedResponse(value, {
-    budgetChars,
-    totalMatches: expandableIds.length,
-    expandableIds,
-    preserveKeys: ["taskId", "risk", "status", "gate", "findings"],
-  });
-}
-
-async function requireCapsule(rootPath: string, id: string) {
-  const capsule = await loadTaskResumeCapsule(rootPath, id);
-  if (!capsule) throw new Error(`Task ${id} has no Project Atlas capsule.`);
-  return capsule;
 }
 
 export function registerCoreTools(server: McpServer): void {
@@ -151,21 +95,27 @@ export function registerCoreTools(server: McpServer): void {
     "atlas_prepare_task",
     {
       description:
-        "Prepare one bounded frontend task: refresh the local graph, resolve only declared sources, rank reuse and return resumable handles.",
+        "Preflight consent first, then prepare one bounded frontend task with confirmed receipts, repository reuse context and resumable handles.",
       inputSchema: {
         root_path: z.string(),
         objective: z.string().min(1).max(6_000),
         task_id: taskId.optional(),
         objective_confirmed: z.boolean().optional(),
         sources: z.array(sourceInput).max(12).optional(),
+        source_relations: z.array(sourceRelationInput).max(12).optional(),
+        receipt_ids: z
+          .array(z.string().regex(SOURCE_RECEIPT_ID_PATTERN))
+          .max(20)
+          .optional(),
         selected_handles: z.array(z.string().max(260)).max(8).optional(),
+        invalidation_reason: z.string().min(1).max(500).optional(),
         budget_chars: z.number().int().min(1_600).max(3_600).optional(),
       },
       annotations: {
         title: "Prepare frontend task",
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: true,
       },
     },
@@ -175,40 +125,328 @@ export function registerCoreTools(server: McpServer): void {
       task_id,
       objective_confirmed,
       sources,
+      source_relations,
+      receipt_ids,
       selected_handles,
+      invalidation_reason,
       budget_chars,
     }) => {
       const id = task_id ?? `task-${randomUUID()}`;
+      const budget = budget_chars ?? 3_600;
+      const finalReceipt = task_id
+        ? await loadTaskFinalReceipt(root_path, task_id)
+        : undefined;
+      if (finalReceipt) return completedTaskPrepareResult(id, budget);
       const prior = task_id
         ? await loadTaskResumeCapsule(root_path, task_id)
         : undefined;
+      if (
+        prior?.status === "completed" ||
+        prior?.lifecycle.phase === "completed"
+      ) {
+        return completedTaskPrepareResult(id, budget);
+      }
+      // Loading a capsule also prunes expired completed state. Recheck the
+      // immutable receipt so prepare cannot recreate a just-pruned task.
+      if (task_id && !prior && (await loadTaskFinalReceipt(root_path, task_id))) {
+        return completedTaskPrepareResult(id, budget);
+      }
+      const priorLedger = task_id
+        ? await loadTaskSourceLedger(root_path, task_id)
+        : undefined;
+      const priorObjective = task_id
+        ? await resolveTaskObjective(root_path, task_id)
+        : undefined;
       const effectiveObjective = mergedObjective(
-        prior?.objective.text,
+        priorObjective?.authority === "legacy-projection"
+          ? undefined
+          : priorObjective?.text,
         objective,
       );
-      const priorRisk = assessTaskRisk(prior?.objective.text ?? objective);
+      const priorRisk = assessTaskRisk(priorObjective?.text ?? objective);
       const risk = assessTaskRisk(effectiveObjective);
+      const objectiveUnchanged =
+        priorObjective?.text.trim() === effectiveObjective.trim();
       const approved =
         Boolean(objective_confirmed) ||
-        (Boolean(prior?.objective.approved) && rank[risk.level] <= rank[priorRisk.level]);
+        (priorObjective?.authority === "authoritative" &&
+          Boolean(priorObjective.approved) &&
+          objectiveUnchanged &&
+          taskRiskRank[risk.level] <= taskRiskRank[priorRisk.level]);
+      if (
+        priorObjective?.authority === "legacy-projection" &&
+        objective_confirmed !== true
+      ) {
+        return text(
+          compact(
+            {
+              taskId: id,
+              status: "needs-confirmation",
+              repositoryScanned: false,
+              questions: [
+                "Confirm the complete objective text to promote this legacy truncated task projection.",
+              ],
+              nextAction:
+                "Repeat prepare with the complete objective and objective_confirmed=true; Atlas will bind it by SHA-256 before any scan or relock.",
+            },
+            budget_chars ?? 3_600,
+          ),
+        );
+      }
       const decisions = normalizedSources(
         effectiveObjective,
-        capsuleDecisions(prior),
+        priorLedger?.decisions ?? capsuleDecisions(prior),
         sources ?? [],
       );
-      const budget = budget_chars ?? 3_600;
-      await scanProject(root_path, { writeArtifacts: false });
+      const governance = reconcilePreparedTaskGovernance(
+        prior?.governance,
+        classifyPreparedTaskGovernance({
+          objective: effectiveObjective,
+          risk,
+          confirmedAuthorityRoles: decisions
+            .filter((source) => source.state === "confirmed")
+            .map(
+              (source) =>
+                source.authorityRole ?? "implementation-reference",
+            ),
+        }),
+      );
+      const relations = source_relations
+        ? normalizedSourceRelations(source_relations, decisions)
+        : normalizeTaskSourceRelations(
+            (priorLedger?.relations ?? prior?.sourceRelations ?? []).filter(
+              (relation) => {
+                const from = decisions.find(
+                  (decision) => decision.id === relation.fromSourceId,
+                );
+                const to = decisions.find(
+                  (decision) => decision.id === relation.toSourceId,
+                );
+                return from?.state === "confirmed" && to?.state === "confirmed";
+              },
+            ),
+            decisions,
+          );
+      const priorReceiptIds =
+        priorLedger?.receiptIds ?? prior?.sourceReceiptIds ?? [];
+      const proposedActiveReceiptIds = await activeCurrentSourceReceiptIds(
+        root_path,
+        decisions,
+        receipt_ids ?? priorReceiptIds,
+      );
+      for (const handle of selected_handles ?? []) {
+        if (taskBoundHandle(handle)) {
+          await assertTaskBoundHandle(
+            root_path,
+            id,
+            handle,
+            proposedActiveReceiptIds,
+          );
+        }
+      }
+      const proposedLedgerHash = sourceLedgerFingerprint(
+        decisions,
+        relations,
+        proposedActiveReceiptIds,
+      );
+      const lockedEvidenceHandles =
+        prior?.changeSurface?.evidence.handles ?? [];
+      const proposedEvidenceHandles =
+        selected_handles ??
+        prior?.changeSurface?.evidence.handles ??
+        prior?.handles ??
+        [];
+      const lockedEvidenceChanged = Boolean(
+        prior?.changeSurface &&
+          (Boolean(invalidation_reason) ||
+            normalizeLockedChangeIntent(effectiveObjective) !==
+              prior.changeSurface.intent ||
+            prior.changeSurface.objective?.hash !==
+              computeTaskObjectiveHash(effectiveObjective) ||
+            proposedLedgerHash !== prior.changeSurface.evidence.sourceLedger.hash ||
+            sources?.some((source) => Boolean(source.evidence)) ||
+            stableHash(normalizeLockedEvidenceHandles(proposedEvidenceHandles)) !==
+              stableHash(normalizeLockedEvidenceHandles(lockedEvidenceHandles))),
+      );
+      if (prior?.changeSurface && !lockedEvidenceChanged) {
+        return text(
+          compact(
+            {
+              taskId: id,
+              status: "already-scoped",
+              repositoryScanned: false,
+              lock: {
+                id: prior.changeSurface.lockId,
+                revision: prior.changeSurface.revision,
+              },
+              governance,
+              nextAction: prior.nextSafeAction,
+            },
+            budget,
+          ),
+        );
+      }
+      if (lockedEvidenceChanged && !invalidation_reason) {
+        return text(
+          compact(
+            {
+              taskId: id,
+              status: "needs-confirmation",
+              repositoryScanned: false,
+              questions: [
+                "Name the objective, source-ledger, receipt, or visual-contract change that invalidates the current lock.",
+              ],
+              governance,
+              nextAction:
+                "Repeat prepare with invalidation_reason, then relock with the same reason before editing.",
+            },
+            budget,
+          ),
+        );
+      }
+      const checkpointObjectiveReference =
+        priorObjective?.authority === "authoritative" &&
+        objectiveUnchanged &&
+        priorObjective.reference
+          ? priorObjective.reference
+          : priorObjective?.authority === "legacy-projection"
+            ? taskObjectiveReference(
+                await persistTaskObjective(root_path, {
+                  taskId: id,
+                  objective: effectiveObjective,
+                }),
+              )
+            : undefined;
+      const intake = {
+        schemaVersion: 1 as const,
+        scope: "task" as const,
+        objective: effectiveObjective,
+        objectiveConfirmed: approved,
+        risk,
+        sources: decisions,
+        ...(relations.length > 0 ? { relations } : {}),
+      };
+      const assessment = assessTaskIntake(intake);
+      if (assessment.status !== "ready") {
+        const blocked = assessment.status === "blocked";
+        await writeTaskCheckpoint(root_path, {
+          taskId: id,
+          status: blocked ? "blocked" : "active",
+          milestone: blocked ? "blocked" : "decision-confirmed",
+          objective: effectiveObjective,
+          objectiveApproved: approved,
+          ...(checkpointObjectiveReference
+            ? { objectiveReference: checkpointObjectiveReference }
+            : {}),
+          decisions,
+          sourceRelations: relations,
+          sourceReceiptIds: priorReceiptIds,
+          handles: prior?.handles ?? [],
+          governance,
+          covered: ["objective and source preflight"],
+          remaining: assessment.reasons,
+          budgetChars: budget,
+          nextSafeAction:
+            "Confirm, omit, replace or mark only the named pending source/objective decisions, then prepare again.",
+          ...(lockedEvidenceChanged
+            ? { changeInvalidation: { reason: invalidation_reason! } }
+            : {}),
+        });
+        return text(
+          compact(
+            {
+              taskId: id,
+              status: assessment.status,
+              risk,
+              governance,
+              sources: decisions,
+              relations,
+              questions: assessment.reasons,
+              repositoryScanned: false,
+              nextAction:
+                "Resolve the listed consent decisions and call atlas_prepare_task again with the same task_id.",
+            },
+            budget,
+            [],
+          ),
+        );
+      }
+      const boundReceiptIds = await bindSourceEvidence(
+        root_path,
+        decisions,
+        sources ?? [],
+        receipt_ids ??
+          priorReceiptIds,
+      );
+      const unresolvedRequiredSources =
+        await requiredSourcesWithoutCurrentReceipts(
+          root_path,
+          decisions,
+          boundReceiptIds,
+        );
+      if (unresolvedRequiredSources.length > 0) {
+        const reasons = unresolvedRequiredSources.map(
+          (source) =>
+            `Required ${source.kind} source has no exact current receipt: ${source.reference}`,
+        );
+        await writeTaskCheckpoint(root_path, {
+          taskId: id,
+          status: "blocked",
+          milestone: "blocked",
+          objective: effectiveObjective,
+          objectiveApproved: approved,
+          ...(checkpointObjectiveReference
+            ? { objectiveReference: checkpointObjectiveReference }
+            : {}),
+          decisions,
+          sourceRelations: relations,
+          sourceReceiptIds: boundReceiptIds,
+          handles: prior?.handles ?? [],
+          governance,
+          covered: ["objective and source consent"],
+          remaining: reasons,
+          budgetChars: budget,
+          ...(lockedEvidenceChanged
+            ? { changeInvalidation: { reason: invalidation_reason! } }
+            : {}),
+          nextSafeAction:
+            "Retrieve each required confirmed source and attach exact current evidence before repository scanning.",
+        });
+        return text(
+          compact(
+            {
+              taskId: id,
+              status: "blocked",
+              risk,
+              governance,
+              sources: decisions,
+              missingRequiredEvidence: unresolvedRequiredSources.map(
+                (source) => ({
+                  id: source.id,
+                  kind: source.kind,
+                  reference: source.reference,
+                }),
+              ),
+              repositoryScanned: false,
+              nextAction:
+                "Resolve the required sources through their confirmed adapters, then prepare again with the resulting receipts.",
+            },
+            budget,
+          ),
+        );
+      }
+      const graph = await scanProject(root_path, { writeArtifacts: false });
+      await assertSelectableHandles(
+        root_path,
+        id,
+        selected_handles ?? [],
+        boundReceiptIds,
+        graph,
+      );
       try {
         const context = await prepareTaskContext(
           root_path,
-          {
-            schemaVersion: 1,
-            scope: "task",
-            objective: effectiveObjective,
-            objectiveConfirmed: approved,
-            risk,
-            sources: decisions,
-          },
+          intake,
           {
             budgetChars: Math.max(1_600, budget - 280),
             topK: 3,
@@ -216,7 +454,22 @@ export function registerCoreTools(server: McpServer): void {
             ...(selected_handles ? { selectedHandles: selected_handles } : {}),
           },
         );
-        const handles = taskContextResumeHandles(context);
+        const handles = [
+          ...new Set([
+            ...(prior?.changeSurface?.evidence.handles.filter((handle) =>
+              handle.startsWith("visual:"),
+            ) ?? []),
+            ...(prior?.handles.filter((handle) => handle.startsWith("visual:")) ??
+              []),
+            ...(selected_handles ?? []),
+            ...taskContextResumeHandles(context),
+            ...(prior?.changeSurface?.evidence.handles ?? []),
+            ...(prior?.handles ?? []),
+          ]),
+        ].slice(0, 8);
+        const sourceReceiptIds = [
+          ...new Set([...boundReceiptIds, ...context.sourceReceiptIds]),
+        ];
         await writeTaskCheckpoint(root_path, {
           taskId: id,
           milestone:
@@ -225,23 +478,38 @@ export function registerCoreTools(server: McpServer): void {
               : "batch-completed",
           objective: effectiveObjective,
           objectiveApproved: approved,
+          ...(checkpointObjectiveReference
+            ? { objectiveReference: checkpointObjectiveReference }
+            : {}),
           decisions,
-          sourceReceiptIds: context.sourceReceiptIds,
+          sourceRelations: relations,
+          sourceReceiptIds,
           handles,
+          governance,
           covered: ["repository orientation", "source gate", "bounded context"],
           remaining: ["lock change scope", "implementation", "validation"],
           budgetChars: budget,
           estimatedTokens: context.metrics.estimatedTokens,
+          ...(lockedEvidenceChanged
+            ? { changeInvalidation: { reason: invalidation_reason! } }
+            : {}),
           nextSafeAction:
-            "Expand only a named unresolved handle, then lock the change scope.",
+            lockedEvidenceChanged
+              ? "Explicitly relock with the same invalidation reason before editing."
+              : "Expand only a named unresolved handle, then lock the change scope.",
         });
         return text(
           compact(
             {
               ...context,
+              sourceReceiptIds,
               taskId: id,
               risk,
-              status: "ready",
+              governance,
+              status: lockedEvidenceChanged ? "relock-required" : "ready",
+              ...(lockedEvidenceChanged
+                ? { invalidationReason: invalidation_reason }
+                : {}),
             },
             budget,
             handles,
@@ -254,12 +522,20 @@ export function registerCoreTools(server: McpServer): void {
           milestone: "blocked",
           objective: effectiveObjective,
           objectiveApproved: approved,
+          ...(checkpointObjectiveReference
+            ? { objectiveReference: checkpointObjectiveReference }
+            : {}),
           decisions,
-          sourceReceiptIds: [],
-          handles: selected_handles ?? [],
+          sourceRelations: relations,
+          sourceReceiptIds: boundReceiptIds,
+          handles: selected_handles ?? prior?.handles ?? [],
+          governance,
           covered: ["repository orientation", "source gate"],
           remaining: [error instanceof Error ? error.message : String(error)],
           budgetChars: budget,
+          ...(lockedEvidenceChanged
+            ? { changeInvalidation: { reason: invalidation_reason! } }
+            : {}),
           nextSafeAction:
             "Resolve only the required source or objective decision named by the blocker.",
         });
@@ -268,122 +544,53 @@ export function registerCoreTools(server: McpServer): void {
     },
   );
 
-  server.registerTool(
-    "atlas_expand_context",
-    {
-      description:
-        "Expand exactly one code, design, memory, receipt, retrieval or manifest handle under a hard budget.",
-      inputSchema: {
-        root_path: z.string(),
-        handle: z.string().min(1).max(320),
-        response_format: z.enum(["concise", "detailed"]).optional(),
-      },
-      annotations: {
-        title: "Expand Atlas context",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async ({ root_path, handle, response_format }) => {
-      const budget = response_format === "detailed" ? 3_000 : 1_600;
-      if (/^receipt-[a-f0-9]{16}$/u.test(handle)) {
-        return text(await expandSourceReceipt(root_path, handle, budget));
-      }
-      if (handle.startsWith("code:")) {
-        const graph = await loadProjectGraph(root_path);
-        return text(
-          compact(
-            buildComponentContext(graph, handle.slice(5)) as unknown as Record<
-              string,
-              unknown
-            >,
-            budget,
-          ),
-        );
-      }
-      if (handle.startsWith("memory:")) {
-        return text(
-          await getProjectMemoryItem(root_path, handle.slice(7), {
-            budgetChars: budget,
-          }),
-        );
-      }
-      if (handle.startsWith("design:")) {
-        const selector = handle.slice(7);
-        const separator = selector.indexOf("::");
-        const requestedFile = separator > 0 ? selector.slice(0, separator) : undefined;
-        const node = separator > 0 ? selector.slice(separator + 2) : selector;
-        const indexes = await listFigmaDesignIndexes(root_path);
-        const matches = [];
-        for (const index of indexes.filter(
-          (candidate) => !requestedFile || candidate.file.key === requestedFile,
-        )) {
-          try {
-            matches.push(
-              await inspectFigmaDesignNode(root_path, index.file.key, node),
-            );
-          } catch {
-            // Continue until the stable node identity is found in one index.
-          }
-        }
-        if (matches.length !== 1) {
-          throw new Error(
-            matches.length === 0
-              ? `Design handle ${handle} was not found.`
-              : `Design handle ${handle} is ambiguous; include fileKey::nodeId.`,
-          );
-        }
-        return text(
-          compact(
-            matches[0] as unknown as Record<string, unknown>,
-            budget,
-          ),
-        );
-      }
-      if (handle.startsWith("retrieval:")) {
-        const value = await loadTaskRetrievalResult(root_path, handle);
-        return text(
-          compact(
-            { result: value },
-            budget,
-          ),
-        );
-      }
-      if (handle.startsWith("manifest:")) {
-        return text(
-          compact(
-            {
-              manifest: await loadTaskExecutionManifest(root_path, handle),
-            },
-            budget,
-          ),
-        );
-      }
-      throw new Error(
-        "Use a code:, design:, memory:, retrieval:, manifest: or receipt-* handle.",
-      );
-    },
-  );
+  registerCoreExpandContext(server);
 
   server.registerTool(
     "atlas_lock_change_scope",
     {
       description:
-        "Lock one primary component, up to two references and explicit exclusions; return bounded files, API, impact and pre-change findings.",
+        "Persist a versioned reuse decision, primary surface, allowed files, exclusions, evidence fingerprints and Git baseline before editing.",
       inputSchema: {
         root_path: z.string(),
         task_id: taskId,
         primary_component: z.string().max(260).optional(),
+        primary_surface: z
+          .object({
+            kind: z.enum([
+              "route",
+              "service",
+              "state",
+              "api",
+              "configuration",
+              "files",
+            ]),
+            id: z.string().min(1).max(260),
+            path: z.string().min(1).max(500).optional(),
+          })
+          .optional(),
         reference_components: z.array(z.string().max(260)).max(2).optional(),
-        exclusions: z.array(z.string().max(260)).max(8).optional(),
+        allowed_files: z.array(z.string().min(1).max(500)).max(32).optional(),
+        exclusions: z.array(z.string().max(500)).max(16).optional(),
+        decision: z.enum([
+          "reuse",
+          "extend",
+          "compose",
+          "extract-and-reuse",
+          "create",
+          "not-applicable",
+        ]),
+        rationale: z.string().min(1).max(1_500),
+        selected_component_ids: z.array(z.string().max(260)).max(12).optional(),
+        rejected_component_ids: z.array(z.string().max(260)).max(12).optional(),
+        risk_confirmed: z.boolean().optional(),
+        invalidation_reason: z.string().min(1).max(500).optional(),
       },
       annotations: {
         title: "Lock frontend change scope",
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: false,
       },
     },
@@ -391,44 +598,369 @@ export function registerCoreTools(server: McpServer): void {
       root_path,
       task_id,
       primary_component,
+      primary_surface,
       reference_components,
+      allowed_files,
       exclusions,
+      decision,
+      rationale,
+      selected_component_ids,
+      rejected_component_ids,
+      risk_confirmed,
+      invalidation_reason,
     }) => {
       const capsule = await requireCapsule(root_path, task_id);
-      const graph = await loadProjectGraph(root_path);
-      const surface = buildChangeSurface(graph, capsule.objective.text, {
+      const objective = await requireAuthoritativeObjective(root_path, task_id);
+      if (!capsule.changeSurface && invalidation_reason) {
+        throw new Error(
+          "The first ChangeSurface lock cannot declare an invalidation_reason.",
+        );
+      }
+      if (
+        capsule.changeSurface &&
+        !capsule.changeInvalidation?.relockRequired &&
+        invalidation_reason
+      ) {
+        throw new Error(
+          "Relocking is allowed only after atlas_prepare_task persists a matching relock-required invalidation.",
+        );
+      }
+      if (
+        capsule.changeInvalidation?.relockRequired &&
+        invalidation_reason !== capsule.changeInvalidation.reason
+      ) {
+        throw new Error(
+          "Relocking requires the exact persisted invalidation_reason from atlas_prepare_task.",
+        );
+      }
+      const ledger = await loadTaskSourceLedger(root_path, task_id);
+      const ledgerDecisions = ledger?.decisions ?? capsuleDecisions(capsule);
+      const decisionById = new Map(
+        ledgerDecisions.map((source) => [source.id, source]),
+      );
+      const ledgerRelations = (
+        ledger?.relations ?? capsule.sourceRelations ?? []
+      ).filter(
+        (relation) =>
+          decisionById.get(relation.fromSourceId)?.state === "confirmed" &&
+          decisionById.get(relation.toSourceId)?.state === "confirmed",
+      );
+      const ledgerReceiptIds = await activeCurrentSourceReceiptIds(
+        root_path,
+        ledgerDecisions,
+        ledger?.receiptIds ?? capsule.sourceReceiptIds,
+      );
+      const requiresVisualContract = ledgerDecisions.some(
+        (source) =>
+          source.state === "confirmed" &&
+          (source.kind === "figma" || source.authorityRole === "visual"),
+      );
+      const priorLockedHandles = capsule.changeSurface?.evidence.handles ?? [];
+      const currentVisualHandles = capsule.handles.filter((handle) =>
+        handle.startsWith("visual:"),
+      );
+      const visualHandles =
+        currentVisualHandles.length > 0
+          ? currentVisualHandles
+          : priorLockedHandles.filter((handle) => handle.startsWith("visual:"));
+      if (requiresVisualContract && visualHandles.length === 0) {
+        throw new Error(
+          "Confirmed Figma or visual authority requires an attached visual: contract before locking ChangeSurface.",
+        );
+      }
+      for (const handle of visualHandles) {
+        const contract = await loadVisualEvidenceContract(root_path, handle);
+        if (
+          contract.taskId !== task_id ||
+          Date.parse(contract.expiresAt) <= Date.now()
+        ) {
+          throw new Error(
+            "ChangeSurface cannot freeze a stale or cross-task visual contract.",
+          );
+        }
+      }
+      if (Boolean(primary_component) === Boolean(primary_surface)) {
+        throw new Error(
+          "Lock exactly one primary_component or primary_surface.",
+        );
+      }
+      if (decision === "create" && !(allowed_files?.length)) {
+        throw new Error(
+          "A create decision requires exact future allowed_files before editing.",
+        );
+      }
+      // Scope, Git baseline, and graph/theme fingerprints must describe the
+      // same pre-edit repository state. Refresh here even if prepare already
+      // populated the index; another process may have changed the checkout.
+      const graph = await scanProject(root_path, { writeArtifacts: false });
+      const surface = buildChangeSurface(graph, objective.text, {
         ...(primary_component ? { primaryComponent: primary_component } : {}),
+        ...(primary_surface
+          ? {
+              primarySurface: {
+                kind: primary_surface.kind,
+                id: primary_surface.id,
+              },
+            }
+          : {}),
         ...(reference_components
           ? { secondaryComponents: reference_components }
           : {}),
+        ...(allowed_files ? { allowedFiles: allowed_files } : {}),
         ...(exclusions ? { outOfScope: exclusions } : {}),
       });
-      const files = surface.files.map((file) => file.path);
+      const reuseDecision = assertReuseDecisionInvariants({
+        decision,
+        existingComponentIds: graph.components.map((component) => component.id),
+        ...(surface.primary ? { primaryComponentId: surface.primary.id } : {}),
+        hasPrimarySurface: Boolean(surface.primarySurface),
+        ...(selected_component_ids
+          ? { selectedComponentIds: selected_component_ids }
+          : {}),
+        ...(rejected_component_ids
+          ? { rejectedComponentIds: rejected_component_ids }
+          : {}),
+        rationale,
+      });
+      const files = [
+        ...new Set(
+          [
+            ...surface.files
+              .filter((file) =>
+                ["implementation", "test"].includes(file.role),
+              )
+              .map((file) => file.path),
+            ...surface.authorizedFiles,
+            ...(primary_surface?.path
+              ? [
+                  primary_surface.path
+                    .trim()
+                    .replaceAll("\\", "/")
+                    .replace(/^\.\//u, ""),
+                ]
+              : []),
+          ].filter(Boolean),
+        ),
+      ];
+      if (files.length === 0) {
+        throw new Error(
+          "A locked change surface requires at least one implementation, test or explicitly allowed file.",
+        );
+      }
       const preflight = await checkBeforeChange(
         root_path,
-        capsule.objective.text,
+        objective.text,
         { files, budgetChars: 1_600 },
       );
       const handles = [
-        ...capsule.handles,
+        ...new Set([
+          ...visualHandles,
+          ...priorLockedHandles.filter(
+            (handle) =>
+              !handle.startsWith("visual:") || visualHandles.includes(handle),
+          ),
+          ...capsule.handles,
+        ]),
         ...(surface.primary ? [`code:${surface.primary.id}`] : []),
         ...surface.references.map((item) => `code:${item.component.id}`),
       ].filter((item, index, list) => list.indexOf(item) === index).slice(0, 8);
+      const sourceLedgerHash = sourceLedgerFingerprint(
+        ledgerDecisions,
+        ledgerRelations,
+        ledgerReceiptIds,
+      );
+      const confirmedOperations = await confirmedOperationsFromReceipts(
+        root_path,
+        ledgerReceiptIds,
+        ledgerDecisions,
+      );
+      const openApiAuthority = (
+        await Promise.all(
+          ledgerReceiptIds.map((receiptId) =>
+            loadPersistedSourceReceipt(root_path, receiptId),
+          ),
+        )
+      ).some((receipt) => receipt.provider === "openapi");
+      const risk = assessScopedTaskRisk(objective.text, {
+        selection: surface.selection,
+        ...(surface.impact ? { impact: surface.impact } : {}),
+        publicApiChanged: decision === "extend",
+        implementationFiles: files.length,
+        confirmedAuthorityRoles: ledgerDecisions
+          .filter((source) => source.state === "confirmed")
+          .map(
+            (source) => source.authorityRole ?? "implementation-reference",
+          ),
+      });
+      const governance = escalateLockedTaskGovernance(
+        reconcilePreparedTaskGovernance(
+          capsule.governance,
+          classifyPreparedTaskGovernance({
+            objective: objective.text,
+            risk: assessTaskRisk(objective.text),
+            confirmedAuthorityRoles: ledgerDecisions
+              .filter((source) => source.state === "confirmed")
+              .map(
+                (source) =>
+                  source.authorityRole ?? "implementation-reference",
+              ),
+          }),
+        ),
+        {
+          fileCount: files.length,
+          publicApiChanged: decision === "extend",
+          sharedSurface:
+            surface.impact?.level === "shared" ||
+            surface.impact?.level === "high",
+          apiContractChanged:
+            primary_surface?.kind === "api" ||
+            (openApiAuthority && explicitlyChangesApiContract(objective.text)),
+          ...(surface.impact ? { impact: surface.impact } : {}),
+          scopedRisk: risk,
+        },
+      );
+      if (
+        risk.requiresObjectiveConfirmation &&
+        !objective.approved &&
+        risk_confirmed !== true
+      ) {
+        await writeTaskCheckpoint(root_path, {
+          taskId: task_id,
+          milestone: "decision-confirmed",
+          objective: objective.text,
+          objectiveApproved: false,
+          objectiveReference: objective.reference,
+          decisions: ledgerDecisions,
+          sourceRelations: ledgerRelations,
+          sourceReceiptIds: ledgerReceiptIds,
+          handles,
+          governance,
+          covered: ["sources", "bounded context", "reuse decision"],
+          remaining: ["confirm escalated governance", "lock change scope"],
+          budgetChars: capsule.budget.contextChars,
+          estimatedTokens: capsule.budget.estimatedTokens,
+          nextSafeAction:
+            "Confirm the escalated risk and governed surface before locking implementation scope.",
+        });
+        return text(
+          compact(
+            {
+              taskId: task_id,
+              status: "needs-confirmation",
+              risk,
+              governance,
+              surface: surfaceProjection(surface),
+              gate: preflight.gate,
+              findings: preflight.findings,
+              questions: [
+                "Confirm the escalated risk and locked surface before implementation.",
+              ],
+            },
+            3_000,
+            handles,
+          ),
+        );
+      }
+      if (preflight.gate.status === "blocked") {
+        await writeTaskCheckpoint(root_path, {
+          taskId: task_id,
+          status: "blocked",
+          milestone: "blocked",
+          objective: objective.text,
+          objectiveApproved: objective.approved || risk_confirmed === true,
+          objectiveReference: objective.reference,
+          decisions: ledgerDecisions,
+          sourceRelations: ledgerRelations,
+          sourceReceiptIds: ledgerReceiptIds,
+          handles,
+          governance,
+          covered: ["sources", "bounded context", "reuse decision"],
+          remaining: preflight.gate.questions.map((question) => question.question),
+          budgetChars: capsule.budget.contextChars,
+          estimatedTokens: capsule.budget.estimatedTokens,
+          nextSafeAction:
+            "Resolve the decision-required finding before locking implementation scope.",
+        });
+        return text(
+          compact(
+            {
+              taskId: task_id,
+              status: "blocked",
+              risk,
+              governance,
+              surface: surfaceProjection(surface),
+              gate: preflight.gate,
+              findings: preflight.findings,
+            },
+            3_000,
+            handles,
+          ),
+        );
+      }
+      const locked = await lockTaskChangeSurface(root_path, {
+        taskId: task_id,
+        objective: objective.reference,
+        intent: objective.text,
+        primary: surface.primary
+          ? {
+              kind: "component",
+              id: surface.primary.id,
+              path: surface.primary.path,
+            }
+          : {
+              kind: "non-component",
+              surfaceKind: primary_surface!.kind,
+              id: primary_surface!.id,
+              ...(primary_surface!.path ? { path: primary_surface!.path } : {}),
+            },
+        references: surface.references.map((reference) => ({
+          kind: "component",
+          id: reference.component.id,
+          path: reference.component.path,
+        })),
+        allowedFiles: files,
+        referenceFiles: surface.files
+          .filter((file) =>
+            ["dependency-reference", "consumer-reference"].includes(file.role),
+          )
+          .map((file) => file.path),
+        exclusions: exclusions ?? [],
+        reuseDecision: {
+          decision,
+          rationale,
+          selectedComponentIds: reuseDecision.selectedComponentIds,
+          rejectedComponentIds: reuseDecision.rejectedComponentIds,
+        },
+        graph,
+        sourceLedger: {
+          hash: sourceLedgerHash,
+          receiptIds: ledgerReceiptIds,
+          decisionCount: ledgerDecisions.length,
+          relationCount: ledgerRelations.length,
+          receiptCount: ledgerReceiptIds.length,
+          openApiAuthority,
+          confirmedOperations,
+        },
+        handles,
+        ...(invalidation_reason ? { invalidationReason: invalidation_reason } : {}),
+      });
       await writeTaskCheckpoint(root_path, {
         taskId: task_id,
         milestone: "batch-completed",
-        objective: capsule.objective.text,
-        objectiveApproved: capsule.objective.approved,
-        decisions: capsuleDecisions(capsule),
-        ...(capsule.sourceRelations
-          ? { sourceRelations: capsule.sourceRelations }
-          : {}),
-        sourceReceiptIds: capsule.sourceReceiptIds,
+        objective: objective.text,
+        objectiveApproved: objective.approved || risk_confirmed === true,
+        objectiveReference: objective.reference,
+        decisions: ledgerDecisions,
+        sourceRelations: ledgerRelations,
+        sourceReceiptIds: ledgerReceiptIds,
         handles,
+        governance,
         covered: ["sources", "bounded context", "locked change scope"],
         remaining: ["implementation", "validation"],
         budgetChars: capsule.budget.contextChars,
         estimatedTokens: capsule.budget.estimatedTokens,
+        changeSurface: locked,
+        lifecyclePhase: "scoped",
         nextSafeAction: "Implement only the locked surface, then validate the diff.",
       });
       return text(
@@ -436,8 +968,19 @@ export function registerCoreTools(server: McpServer): void {
           {
             taskId: task_id,
             status: "locked",
-            risk: assessTaskRisk(capsule.objective.text),
-            surface,
+            risk,
+            governance,
+            surface: surfaceProjection(surface),
+            lock: {
+              id: locked.lockId,
+              revision: locked.revision,
+              lifecycle: "scoped",
+              allowedFiles: locked.allowedFiles,
+              exclusions: locked.exclusions,
+              gitBaseline: locked.gitBaseline.handle,
+              sourceLedgerHash: locked.evidence.sourceLedger.hash,
+              evidenceHandles: locked.evidence.handles,
+            },
             gate: preflight.gate,
             findings: preflight.findings,
           },
@@ -456,36 +999,41 @@ export function registerCoreTools(server: McpServer): void {
       inputSchema: {
         root_path: z.string(),
         task_id: taskId,
-        confirmed_operations: z.array(confirmedOperation).max(100).optional(),
       },
       annotations: {
         title: "Validate frontend change",
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: false,
       },
     },
-    async ({ root_path, task_id, confirmed_operations }) => {
+    async ({ root_path, task_id }) => {
       const capsule = await requireCapsule(root_path, task_id);
+      const objective = await requireAuthoritativeObjective(root_path, task_id);
+      if (capsule.changeInvalidation?.relockRequired) {
+        throw new Error(
+          "atlas_validate_change is blocked until the invalidated ChangeSurface is explicitly relocked.",
+        );
+      }
+      if (!capsule.changeSurface || !["scoped", "validated"].includes(capsule.lifecycle.phase)) {
+        throw new Error(
+          "atlas_validate_change requires a persisted scoped ChangeSurface.",
+        );
+      }
+      await scanProject(root_path, { writeArtifacts: false });
+      const sourceAuthority = capsule.changeSurface.evidence.sourceLedger;
       const validation = await validateDiff(root_path, {
-        ...(confirmed_operations
-          ? {
-              confirmedOperations: confirmed_operations.map((operation) => ({
-                method: operation.method.toUpperCase(),
-                path: operation.path,
-                ...(operation.operation_id
-                  ? { operationId: operation.operation_id }
-                  : {}),
-              })),
-            }
-          : {}),
+        changeSurface: capsule.changeSurface,
+        confirmedOperations: sourceAuthority.confirmedOperations,
+        requireConfirmedOperations: sourceAuthority.openApiAuthority,
       });
       await writeTaskCheckpoint(root_path, {
         taskId: task_id,
-        milestone: "change-validated",
-        objective: capsule.objective.text,
-        objectiveApproved: capsule.objective.approved,
+        milestone: validation.blocking ? "batch-completed" : "change-validated",
+        objective: objective.text,
+        objectiveApproved: objective.approved,
+        objectiveReference: objective.reference,
         decisions: capsuleDecisions(capsule),
         ...(capsule.sourceRelations
           ? { sourceRelations: capsule.sourceRelations }
@@ -493,234 +1041,92 @@ export function registerCoreTools(server: McpServer): void {
         sourceReceiptIds: capsule.sourceReceiptIds,
         handles: capsule.handles,
         covered: [...capsule.scope.covered, "diff validation"].slice(-8),
-        remaining: ["record outcome"],
+        remaining: validation.blocking
+          ? validation.findings
+              .filter((finding) => finding.severity === "error")
+              .map((finding) => finding.message)
+              .slice(0, 8)
+          : ["technical completion"],
         budgetChars: capsule.budget.contextChars,
         estimatedTokens: capsule.budget.estimatedTokens,
+        validation: validation.blocking
+          ? null
+          : {
+              lockId: capsule.changeSurface.lockId,
+              deltaHash: validation.deltaHash,
+              validatedAt: new Date().toISOString(),
+            },
+        ...(validation.blocking
+          ? {}
+          : { lifecyclePhase: "validated" as const }),
         nextSafeAction:
-          validation.findings.length > 0
-            ? "Review the advisory findings, fix real regressions, then validate again."
-            : "Record the verified task outcome.",
+          validation.blocking
+            ? "Fix the blocking scope or contract findings, then validate again."
+            : validation.findings.length > 0
+              ? "Review advisory findings, fix real regressions, then complete the technical task."
+              : "Complete the technical task without writing memory.",
       });
-      return text({
-        taskId: task_id,
-        status: validation.findings.length > 0 ? "warn" : "pass",
-        ...validation,
-      });
-    },
-  );
-
-  server.registerTool(
-    "atlas_task_state",
-    {
-      description:
-        "Resume one compact task capsule or save a semantic checkpoint/blocker without repeating the objective and source ledger.",
-      inputSchema: {
-        root_path: z.string(),
-        task_id: taskId,
-        action: z.enum(["resume", "checkpoint", "block"]),
-        milestone: z
-          .enum(["source-resolved", "batch-completed", "change-validated"])
-          .optional(),
-        covered: z.array(z.string().max(240)).max(8).optional(),
-        remaining: z.array(z.string().max(240)).max(8).optional(),
-        next_action: z.string().min(1).max(500).optional(),
-      },
-      annotations: {
-        title: "Read or save task state",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async ({
-      root_path,
-      task_id,
-      action,
-      milestone,
-      covered,
-      remaining,
-      next_action,
-    }) => {
-      if (action === "resume") {
-        return text(
-          (await loadTaskResumeTransport(root_path, task_id)) ?? {
-            status: "not-found",
-            taskId: task_id,
-          },
-        );
-      }
-      const capsule = await requireCapsule(root_path, task_id);
-      const blocked = action === "block";
-      const saved = await writeTaskCheckpoint(root_path, {
-        taskId: task_id,
-        status: blocked ? "blocked" : "active",
-        milestone: blocked ? "blocked" : (milestone ?? "batch-completed"),
-        objective: capsule.objective.text,
-        objectiveApproved: capsule.objective.approved,
-        decisions: capsuleDecisions(capsule),
-        ...(capsule.sourceRelations
-          ? { sourceRelations: capsule.sourceRelations }
-          : {}),
-        sourceReceiptIds: capsule.sourceReceiptIds,
-        handles: capsule.handles,
-        covered: covered ?? capsule.scope.covered,
-        remaining: remaining ?? capsule.scope.remaining,
-        budgetChars: capsule.budget.contextChars,
-        estimatedTokens: capsule.budget.estimatedTokens,
-        nextSafeAction:
-          next_action ??
-          (blocked
-            ? "Resolve the named blocker before implementation."
-            : capsule.nextSafeAction),
-      });
-      return text({
-        taskId: saved.taskId,
-        status: saved.status,
-        updatedAt: saved.updatedAt,
-        nextSafeAction: saved.nextSafeAction,
-      });
-    },
-  );
-
-  server.registerTool(
-    "atlas_record_outcome",
-    {
-      description:
-        "Close one task with verification and an idempotent reuse decision; optionally create one review-only durable-memory proposal.",
-      inputSchema: {
-        root_path: z.string(),
-        task_id: taskId,
-        result: z.enum(["success", "failure", "partial"]),
-        summary: z.string().min(1).max(2_000),
-        verification: z.array(z.string().max(500)).max(12),
-        decision: z.enum([
-          "reuse",
-          "extend",
-          "compose",
-          "extract-and-reuse",
-          "create",
-        ]),
-        rationale: z.string().min(1).max(1_500),
-        selected_component_ids: z.array(z.string().max(260)).max(8).optional(),
-        rejected_component_ids: z.array(z.string().max(260)).max(8).optional(),
-        files: z.array(z.string().max(500)).max(100).optional(),
-        memory_candidate: z
-          .object({
-            type: z
-              .enum([
-                "decision",
-                "constraint",
-                "convention",
-                "integration",
-                "known-issue",
-                "note",
-              ])
-              .optional(),
-            title: z.string().min(1).max(160),
-            summary: z.string().min(1).max(1_000),
-            confidence: z.number().min(0).max(1).optional(),
-          })
-          .optional(),
-      },
-      annotations: {
-        title: "Record frontend task outcome",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async ({
-      root_path,
-      task_id,
-      result,
-      summary,
-      verification,
-      decision,
-      rationale,
-      selected_component_ids,
-      rejected_component_ids,
-      files,
-      memory_candidate,
-    }) => {
-      const capsule = await requireCapsule(root_path, task_id);
-      const componentDecision = await recordDecision({
-        rootPath: root_path,
-        taskId: task_id,
-        intent: capsule.objective.text,
-        decision: decision as DecisionKind,
-        selectedComponentIds: selected_component_ids ?? [],
-        rejectedComponentIds: rejected_component_ids ?? [],
-        rationale,
-      });
-      const outcome = await recordProjectOutcome({
-        rootPath: root_path,
-        taskId: task_id,
-        task: capsule.objective.text,
-        result,
-        summary,
-        evidence: verification,
-        relatedEntityIds: [
-          componentDecision.id,
-          ...(selected_component_ids ?? []),
-        ],
-        ...(files ? { files } : {}),
-        budgetChars: 1_600,
-      });
-      const proposal = memory_candidate
-        ? await proposeMemoryUpdate({
-            rootPath: root_path,
-            rationale: `Durable candidate from task ${task_id}: ${rationale}`,
-            evidence: verification,
-            items: [
-              {
-                type: memory_candidate.type ?? "note",
-                title: memory_candidate.title,
-                summary: memory_candidate.summary,
-                confidence: memory_candidate.confidence ?? 0.8,
-                authority: result === "success" ? "verified" : "observed",
-                scope: "local",
-                relations: [
-                  { kind: "related_to", targetId: componentDecision.id },
-                ],
-              },
-            ],
-            budgetChars: 1_600,
-          })
-        : undefined;
-      await writeTaskCheckpoint(root_path, {
-        taskId: task_id,
-        status: "completed",
-        milestone: "completed",
-        objective: capsule.objective.text,
-        objectiveApproved: capsule.objective.approved,
-        decisions: capsuleDecisions(capsule),
-        ...(capsule.sourceRelations
-          ? { sourceRelations: capsule.sourceRelations }
-          : {}),
-        sourceReceiptIds: capsule.sourceReceiptIds,
-        handles: capsule.handles,
-        covered: [...capsule.scope.covered, "outcome recorded"].slice(-8),
-        remaining: [],
-        budgetChars: capsule.budget.contextChars,
-        estimatedTokens: capsule.budget.estimatedTokens,
-        nextSafeAction: "Task complete; review any memory proposal in the GUI.",
-      });
+      const errors = validation.findings.filter(
+        (finding) => finding.severity === "error",
+      );
+      const warnings = validation.findings.filter(
+        (finding) => finding.severity === "warning",
+      );
+      const summarizedFindings = [...errors.slice(0, 12), ...warnings.slice(0, 4)]
+        .map((finding) => ({
+          code: finding.code,
+          severity: finding.severity,
+          ...(finding.file ? { file: finding.file.slice(0, 180) } : {}),
+          ...(finding.line ? { line: finding.line } : {}),
+          message: finding.message.slice(0, 280),
+        }));
       return text(
         compact(
           {
             taskId: task_id,
-            status: "completed",
-            result,
-            decision: componentDecision,
-            outcome,
-            ...(proposal ? { memoryProposal: proposal } : {}),
+            status: validation.blocking
+              ? "blocked"
+              : validation.findings.length > 0
+                ? "warn"
+                : "pass",
+            schemaVersion: validation.schemaVersion,
+            deltaHash: validation.deltaHash,
+            ...(validation.fingerprintHash
+              ? { fingerprintHash: validation.fingerprintHash }
+              : {}),
+            blocking: validation.blocking,
+            files: validation.files,
+            additions: validation.additions,
+            deletions: validation.deletions,
+            renames: validation.renames,
+            truncated: validation.truncated,
+            findingCounts: {
+              errors: errors.length,
+              warnings: warnings.length,
+              omittedErrors: Math.max(0, errors.length - 12),
+              omittedWarnings: Math.max(0, warnings.length - 4),
+            },
+            findings: summarizedFindings,
+            changedFiles: validation.changedFiles.slice(0, 12).map((entry) => ({
+              path: entry.path,
+              status: entry.status,
+              staged: entry.staged,
+              unstaged: entry.unstaged,
+              untracked: entry.untracked,
+            })),
+            changedFilesOmitted: Math.max(
+              0,
+              validation.changedFiles.length - 12,
+            ),
+            nextAction: validation.blocking
+              ? "Fix every blocking finding; omittedErrors reports any additional errors requiring another validation pass."
+              : "Review warnings, then complete against this unchanged delta.",
           },
           3_000,
-          [componentDecision.id],
         ),
       );
     },
   );
+
+  registerCoreLifecycleTools(server);
 }

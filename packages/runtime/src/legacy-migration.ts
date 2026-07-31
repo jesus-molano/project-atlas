@@ -33,6 +33,7 @@ import {
   projectStorageDirectory,
 } from "@component-atlas/store";
 import { resolveProjectIdentity } from "./identity.js";
+import { taskStateFileName } from "./task-state-paths.js";
 import {
   MIGRATION_SCHEMA_VERSION,
   LEGACY_DIRECTORY,
@@ -410,6 +411,51 @@ async function atomicCreateFromSource(
   }
 }
 
+async function bindMigratedTaskCapsules(
+  files: PlannedFile[],
+  storagePath: string,
+  identity: Awaited<ReturnType<typeof resolveProjectIdentity>>,
+): Promise<void> {
+  for (const file of files.filter(
+    (candidate) =>
+      candidate.category === "task-state" &&
+      /^task-state\/capsules\/[^/]+\.json$/u.test(
+        slash(candidate.sourceRelativePath),
+      ) &&
+      candidate.content,
+  )) {
+    const parsed = JSON.parse(file.content!) as {
+      taskId?: unknown;
+      workspace?: { rootPath?: unknown };
+    } & Record<string, unknown>;
+    if (typeof parsed.taskId !== "string" || !parsed.workspace) continue;
+    const target = path.join(
+      storagePath,
+      "task-state",
+      "capsules",
+      taskStateFileName(identity.worktreePath, parsed.taskId, "json"),
+    );
+    if (await exists(target)) continue;
+    const normalized = {
+      ...parsed,
+      workspace: {
+        ...parsed.workspace,
+        rootPath: identity.worktreePath,
+      },
+    };
+    await mkdir(path.dirname(target), { recursive: true });
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(normalized, null, 2)}\n`, {
+        flag: "wx",
+      });
+      await link(temporary, target);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+}
+
 function normalizedLegacyGraph(
   graph: ComponentGraph,
   identity: Awaited<ReturnType<typeof resolveProjectIdentity>>,
@@ -781,6 +827,11 @@ export async function migrateLegacyProjectStorage(
         (importedFilesByCategory.get(file.category) ?? 0) + 1,
       );
     }
+    await bindMigratedTaskCapsules(
+      planned.files,
+      storagePath,
+      identity,
+    );
     importedDatabaseRecords = await importDatabase(databasePlan, identity);
     const importedSemanticRecords = await importMarkdownSemantics(
       planned.files,

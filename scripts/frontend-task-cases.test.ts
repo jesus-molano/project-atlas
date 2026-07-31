@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 interface FrontendTaskCase {
@@ -9,6 +11,40 @@ interface FrontendTaskCase {
 }
 
 describe("frontend-task capability routing fixtures", () => {
+  it("keeps every active workflow document on the six-tool core contract", async () => {
+    const skillsRoot = fileURLToPath(new URL("../skills", import.meta.url));
+    const activeRoots = ["frontend-task", "reuse-first", "visual-direction"];
+    const markdownFiles: string[] = [];
+    const collectMarkdown = async (directory: string): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const fullPath = path.join(directory, entry.name);
+        if (entry.isDirectory()) await collectMarkdown(fullPath);
+        else if (entry.isFile() && entry.name.endsWith(".md")) {
+          markdownFiles.push(fullPath);
+        }
+      }
+    };
+    await Promise.all(
+      activeRoots.map((root) => collectMarkdown(path.join(skillsRoot, root))),
+    );
+    const contents = await Promise.all(
+      markdownFiles.map((file) => readFile(file, "utf8")),
+    );
+    const namedTools = [
+      ...new Set(
+        contents.flatMap((content) => content.match(/\batlas_[a-z0-9_]+\b/gu) ?? []),
+      ),
+    ].sort();
+    expect(namedTools).toEqual([
+      "atlas_expand_context",
+      "atlas_lock_change_scope",
+      "atlas_memory",
+      "atlas_prepare_task",
+      "atlas_task_state",
+      "atlas_validate_change",
+    ]);
+  });
+
   it("covers adaptive source and question modes without corporate data", async () => {
     const fixture = JSON.parse(
       await readFile(
@@ -244,21 +280,26 @@ describe("frontend-task capability routing fixtures", () => {
     expect(skill.length).toBeLessThanOrEqual(8_000);
     expect(skill).toMatch(/call `atlas_prepare_task` once/i);
     expect(skill).toMatch(/Classify only sources that are supplied or materially required/i);
-    expect(skill).toMatch(/Missing optional evidence is a warning, not a blocker/i);
-    expect(skill).toMatch(/transient Swagger\/OpenAPI failure, retry once/i);
+    expect(skill).toMatch(/bare\s+reference stays `pending`/i);
+    expect(skill).toMatch(/Missing\s+optional evidence is a warning, not a blocker/i);
+    expect(skill).toMatch(/transient OpenAPI 502\/503\/504, retry once/i);
     expect(skill).toMatch(/call `atlas_lock_change_scope`/i);
     expect(skill).toMatch(/Plan mode and filesystem permissions belong to native Codex/i);
     expect(skill).toMatch(/same native task/i);
-    expect(skill).toMatch(/Checkpoint with `atlas_task_state` only at a semantic boundary/i);
+    expect(skill).toMatch(/Use `atlas_task_state` only to resume/i);
     expect(skill).toMatch(/call `atlas_validate_change`/i);
     expect(skill).toMatch(/main native Codex task is coordinator and sole writer/i);
     expect(skill).toMatch(/small\/low: no agent reviewer/i);
     expect(skill).toMatch(/medium: one read-only correctness\/architecture reviewer/i);
     expect(skill).toMatch(/high: up to three narrow read-only reviewers/i);
     expect(skill).toMatch(/Stop after two review passes/i);
-    expect(skill).toMatch(/Atlas must not create, route, resume, cancel, or grant permissions/i);
+    expect(skill).toMatch(
+      /Atlas supplies bounded evidence; it must not create,\s*route, resume, cancel, or grant permissions/i,
+    );
     expect(skill).toMatch(/tight file\/line evidence/i);
-    expect(skill).toMatch(/call `atlas_record_outcome` once/i);
+    expect(skill).toMatch(/Call `atlas_task_state` with action `complete`/i);
+    expect(skill).toMatch(/Use `atlas_memory` action `review-proposal`/i);
+    expect(skill).not.toMatch(/atlas_record_outcome/i);
     expect(skill).toMatch(/invoke `\$visual-direction` explicitly/i);
     expect(skill).not.toMatch(/confirm Jira, Confluence, Figma, and Swagger\/OpenAPI/i);
   });

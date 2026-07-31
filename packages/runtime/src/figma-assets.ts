@@ -12,6 +12,7 @@ import { request } from "node:http";
 import path from "node:path";
 import {
   assertSourceReceiptMatchesDecision,
+  SOURCE_RECEIPT_ID_PATTERN,
   type SourceReceipt,
 } from "@component-atlas/core";
 import { projectAtlasTempRoot } from "@component-atlas/store";
@@ -22,7 +23,7 @@ import {
 
 const ASSET_SCHEMA_VERSION = 1 as const;
 const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
-const RECEIPT_ID = /^receipt-[a-f0-9]{16}$/u;
+const RECEIPT_ID = SOURCE_RECEIPT_ID_PATTERN;
 const HANDLE =
   /^figma-asset:([A-Za-z0-9_.:-]{1,160}):([a-f0-9]{24})$/u;
 const MAX_SVG_BYTES = 512_000;

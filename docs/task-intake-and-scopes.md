@@ -1,19 +1,47 @@
 # Task intake and persistence scopes
 
 Task authorization belongs to native Codex; reusable evidence belongs to
-Atlas. `$frontend-task` is explicit and starts with repository inspection.
+Atlas. `$frontend-task` is explicit-only and starts with a cheap source and
+checkout preflight before any deep scan or retrieval.
 
 ## Intake
 
-1. Preserve the original objective as task identity.
-2. Detect supplied links and add only materially required sources.
-3. Calculate risk from objective, authority and affected surface. Later input
-   may increase, never reduce, risk in the same task.
-4. Confirm or omit material sources. Optional omissions/failures are warnings.
-5. Retrieve bounded evidence and return handles rather than full source bodies.
-6. Lock one primary component, relevant files/APIs and explicit exclusions.
-7. Native Codex presents the plan and later receives workspace-write after
-   human approval.
+1. Preserve the original objective as task identity and record repository,
+   checkout, branch, HEAD, dirty baseline, requested scope, and delivery
+   authority.
+2. Classify only supplied or materially required sources as `confirmed`,
+   `pending`, `omitted`, or `unavailable`. A bare external link remains
+   `pending`, even beside "use this", until confirmation unambiguously binds
+   its exact identity, provider, intended authority, and task scope.
+3. If a material source is pending, ask one grouped, evidence-led question.
+   Do not perform a repository scan or call `atlas_prepare_task` while the
+   preflight still needs confirmation.
+4. Separate task size (`small`, `medium`, `large`) from risk. Risk derives from
+   the original objective, source authority and affected surface; later
+   evidence may increase, but not lower, it within the same task.
+5. Call `atlas_prepare_task` once for the confirmed evidence version. It returns
+   bounded candidates, findings, receipt IDs, relations, and expandable
+   handles, not full source bodies.
+6. Expand only named evidence needed for the decision. Decide `reuse`, `extend`,
+   `compose`, `extract-and-reuse`, `create`, or `not-applicable` before locking.
+7. Call `atlas_lock_change_scope` with that decision, rationale, exactly one
+   existing `primary_component` or planned non-component `primary_surface`,
+   exact repository-relative allowed files, and explicit exclusions before the
+   first edit. API/consumer impact is derived from the graph and authoritative
+   receipts; it is not a caller-supplied assertion.
+8. Implement and review in native Codex. Use focused checks for small changes,
+   a reviewed plan and broader applicable checks for medium changes, and staged
+   implementation plus domain-specific independent review for large/high-risk
+   changes.
+9. Run repository validation and `atlas_validate_change`, then close the
+   technical task with `atlas_task_state` action `complete`.
+10. Treat memory as a separate, opt-in flow. Only a literal request authorizes
+    one named `atlas_memory` action and target.
+
+If task-relevant source receipts, checkout identity, graph state, objective, or
+locked scope changes materially, record the named invalidation and rerun
+`atlas_prepare_task` under the same task ID. Do not rerun it merely because a
+new turn starts or context is compacted.
 
 OpenAPI bodies are not persisted. Receipts store identity, status, provenance,
 hash and bounded extracted operation evidence. Exact URLs remain task-scoped.
@@ -22,14 +50,17 @@ hash and bounded extracted operation evidence. Exact URLs remain task-scoped.
 
 | Scope | Contents | Invalidation/promotion |
 | --- | --- | --- |
-| Logical project | component identities, approved durable memory, confirmed design metadata | explicit supersession/promotion |
+| Logical project | component identities, explicitly approved durable memory, confirmed design metadata | explicit supersession/promotion |
 | Checkout | exact graph, scan state, unmerged validation and local hypotheses | rescan or checkout change |
-| Task | objective, source decisions/receipts, locked surface, semantic checkpoints and outcome | compact close/TTL; no transcript |
+| Task | objective, source decisions/receipts, reuse decision, locked surface, semantic checkpoints and technical outcome | compact close/TTL; no transcript and no implicit memory |
 
-The task capsule is bounded and resumes by task ID. It stores approved objective,
-decision/receipt/handle IDs, covered and remaining scope, checkout identity,
-budget and next safe action. Checkpoints are semantic, not per tool call.
+The task capsule is bounded and resumes by task ID through `atlas_task_state`
+action `resume`. It stores an integrity-checked reference to the full immutable
+objective, its compact projection, governance classification, decision/receipt/
+handle IDs, covered and remaining scope, checkout identity, budget, blockers,
+and next safe action. Checkpoints are semantic, not per tool call.
 
 Component decisions are idempotent by task ID, decision type and surface.
-Superseded decisions remain in history, but only the active relevant decision is
-injected. Separate logical projects/checkouts never share component decisions.
+Superseded decisions remain in history, but only the active relevant decision
+is injected. Separate logical projects/checkouts never share component
+decisions.

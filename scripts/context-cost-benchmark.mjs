@@ -79,22 +79,30 @@ paths:
   const started = performance.now();
   for (const [index, [taskType, task]] of cases.entries()) {
     const complex = taskType === "complex";
-    const context = await getTaskContext(rootPath, task, {
-      budgetChars: complex ? 3_600 : taskType === "small" ? 2_000 : 3_200,
-      topK: complex ? 5 : 3,
-      ...(complex
-        ? {
-            figmaFile: "CostBenchmark",
-            sourcePolicy: {
-              scope: "task",
-              confirmedKinds: ["figma", "openapi"],
-              omittedKinds: [],
-              unavailableKinds: [],
-            },
-            confirmedOpenApiReferences: ["openapi.yaml"],
-          }
-        : {}),
-    });
+    let context;
+    try {
+      context = await getTaskContext(rootPath, task, {
+        budgetChars: complex ? 3_600 : taskType === "small" ? 2_000 : 3_200,
+        topK: complex ? 5 : 3,
+        ...(complex
+          ? {
+              figmaFile: "CostBenchmark",
+              sourcePolicy: {
+                scope: "task",
+                confirmedKinds: ["figma", "openapi"],
+                omittedKinds: [],
+                unavailableKinds: [],
+              },
+              confirmedOpenApiReferences: ["openapi.yaml"],
+            }
+          : {}),
+      });
+    } catch (error) {
+      throw new Error(
+        `Context-cost case ${index + 1} (${taskType}) failed: ${task}`,
+        { cause: error },
+      );
+    }
     const compactContextChars = JSON.stringify(context).length;
     await recordContextCostAudit({
       rootPath,

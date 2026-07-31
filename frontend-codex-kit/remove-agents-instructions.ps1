@@ -38,9 +38,23 @@ if ($DryRun) {
   return
 }
 
-[System.IO.File]::WriteAllText(
-  $absoluteTarget,
-  $next,
-  [System.Text.UTF8Encoding]::new($false)
-)
+$backupBase = "$absoluteTarget.project-atlas.bak"
+$backupPath = $backupBase
+$backupIndex = 0
+while (Test-Path -LiteralPath $backupPath) {
+  $backupIndex += 1
+  $backupPath = "$backupBase.$backupIndex"
+}
+Copy-Item -LiteralPath $absoluteTarget -Destination $backupPath
+
+try {
+  [System.IO.File]::WriteAllText(
+    $absoluteTarget,
+    $next,
+    [System.Text.UTF8Encoding]::new($false)
+  )
+} catch {
+  throw "AGENTS.md migration failed. The original backup remains at $backupPath. $($_.Exception.Message)"
+}
 Write-Host "[frontend-codex-kit] Removed legacy Atlas routing block from $absoluteTarget"
+Write-Host "[frontend-codex-kit] Backup: $backupPath"

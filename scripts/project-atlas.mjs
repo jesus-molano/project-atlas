@@ -95,9 +95,13 @@ function buildProduct() {
 
 try {
   if (!(await productBuildIsCurrent())) buildProduct();
-  const cliArguments = normalizeProjectAtlasArguments(process.argv.slice(2));
   const { createProgram } = await import(pathToFileURL(cliEntry).href);
-  await createProgram().parseAsync([
+  const program = createProgram();
+  const cliArguments = normalizeProjectAtlasArguments(
+    process.argv.slice(2),
+    program.commands.map((command) => command.name()),
+  );
+  await program.parseAsync([
     process.execPath,
     "project-atlas",
     ...cliArguments,

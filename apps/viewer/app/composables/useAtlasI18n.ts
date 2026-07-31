@@ -160,7 +160,7 @@ export function translateAtlasRuntimeMessage(
     );
   }
   const openApiUnavailable = source.match(
-    /^A required OpenAPI contract could not be resolved \((receipt-[a-f0-9]{16})\)\. (.+)$/u,
+    /^A required OpenAPI contract could not be resolved \((receipt-(?:[a-f0-9]{16}|[a-f0-9]{64}))\)\. (.+)$/u,
   );
   if (openApiUnavailable) {
     const prefix = translateAtlasUi(

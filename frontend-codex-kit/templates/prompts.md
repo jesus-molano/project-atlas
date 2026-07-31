@@ -1,61 +1,79 @@
 # Prompt starters
 
-Repository and conversation only:
+Small repository-only change:
 
 ```text
-$frontend-task Prepara e implementa esta tarea: <resultado esperado>.
-Usa el repositorio actual y no asumas que existen Jira, Confluence o Figma.
+$frontend-task Implementa este cambio localizado: <resultado esperado>.
+Usa el repositorio actual, conserva el patrón existente y valida de forma
+proporcional. No asumas Jira, Confluence o Figma.
 ```
 
-Ticket with optional sources:
+Medium task with confirmed sources:
 
 ```text
-$frontend-task Prepara <ISSUE-KEY>. Usa el ticket y cualquier Confluence o
-Figma enlazado solo si está accesible. Antes de crear UI, consulta Atlas.
+/plan $frontend-task Implementa <ISSUE-KEY>. Confirmo que uses este ticket y
+sus enlaces materiales de Confluence/Figma: <links>. Decide reutilización y
+bloquea el alcance antes de editar.
 ```
 
-Direct Figma node:
+Large feature or migration:
 
 ```text
-$frontend-task Este frame es el objetivo confirmado: <FIGMA-NODE-URL>.
-Cruza su contexto con Atlas y reutiliza componentes existentes.
+/plan $frontend-task Prepara e implementa <objetivo amplio>. Divide el trabajo
+en superficies verificables, identifica fuentes autoritativas, riesgos y
+exclusiones, y usa revisión independiente solo para los dominios aplicables.
+```
+
+Direct confirmed Figma node:
+
+```text
+/plan $frontend-task Este frame es el objetivo visual confirmado:
+<FIGMA-NODE-URL>. Conserva su identidad exacta, crúzalo con Atlas y reutiliza
+componentes existentes.
 ```
 
 General Figma discovery:
 
 ```text
-$frontend-task Mapea este Figma: <FIGMA-FILE-OR-PAGE-URL>.
-Para "<tarea>", propón hasta tres candidatos explicables y espera confirmación
-antes de pedir contexto profundo.
+/plan $frontend-task Usa este archivo/página Figma confirmado para <tarea>:
+<FIGMA-FILE-OR-PAGE-URL>. Propón pocos candidatos explicables y expande solo
+el handle que resuelva la decisión.
 ```
 
-Requirements grill without generic interrogation:
+Requirements without generic interrogation:
 
 ```text
-$frontend-task Prepara esta tarea y elévame solo decisiones que cambien
-comportamiento, accesibilidad, arquitectura o el target de diseño. Cada duda
-debe incluir evidencia y tu recomendación.
+/plan $frontend-task Prepara esta tarea y elévame solo decisiones que cambien
+comportamiento, accesibilidad, arquitectura, datos o autoridad visual. Cada
+duda debe incluir evidencia y tu recomendación.
 ```
 
 Compact Project Atlas context:
 
 ```text
-$frontend-task Prepara esta tarea con un presupuesto pequeño de contexto.
-Consulta memoria, código y diseño solo si aportan evidencia; expande únicamente
-IDs confirmados y ejecuta el gate antes de editar.
+/plan $frontend-task Prepara esta tarea con un presupuesto pequeño de contexto.
+Expande solo handles necesarios, decide reutilización antes del lock y valida
+el delta completo contra ese alcance.
 ```
 
-Explore visual direction without production variants:
+Explore unresolved visual direction:
 
 ```text
-$visual-direction Resuelve la autoridad visual de esta sección, compara solo
-las opciones temporales permitidas y bloquea un DesignContract antes de código.
+/plan $visual-direction Resuelve la autoridad visual de esta sección, compara
+solo las opciones temporales permitidas y devuelve un handoff compatible con
+la tarea Atlas nativa; no cierres la tarea padre.
 ```
 
-Close and propose a learning:
+Technical close without memory:
 
 ```text
-Registra el resultado verificado de esta tarea. Si hemos aprendido una decisión
-o convención durable, propón el delta de memoria con evidencia, pero no lo
-apliques sin mi confirmación.
+Completa el cierre técnico de esta tarea con su resultado y verificaciones. No
+registres, propongas, apliques ni rechaces memoria.
+```
+
+Separate, literal memory request:
+
+```text
+Propón como memoria canónica esta convención concreta: <convención>. Usa la
+evidencia <IDs/resumen>, pero no apliques la propuesta todavía.
 ```

@@ -94,9 +94,13 @@ complete Vitest suite, and Playwright smoke flows. Historical audit documents
 remain dated records and must not be used as current counts.
 `;
 
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n?/gu, "\n");
+}
+
 if (process.argv.includes("--check")) {
   const existing = await readFile(outputPath, "utf8").catch(() => "");
-  if (existing !== content) {
+  if (normalizeLineEndings(existing) !== normalizeLineEndings(content)) {
     throw new Error(
       "docs/generated-quality-summary.md is stale. Run pnpm generate:summary.",
     );

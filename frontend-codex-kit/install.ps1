@@ -1,13 +1,13 @@
 [CmdletBinding()]
 param(
-  [string]$AtlasRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
+  [string]$AtlasRoot = "",
   [ValidateSet("codex", "claude", "both")]
   [string]$Agent = "both",
   [ValidateSet("link", "copy")]
   [string]$InstallMode = "link",
-  [string]$CodexSkillsRoot = (Join-Path $HOME ".agents\skills"),
-  [string]$ClaudeSkillsRoot = (Join-Path $HOME ".claude\skills"),
-  [string]$CodexAgentsPath = (Join-Path $HOME ".codex\AGENTS.md"),
+  [string]$CodexSkillsRoot = (Join-Path $HOME ".agents/skills"),
+  [string]$ClaudeSkillsRoot = (Join-Path $HOME ".claude/skills"),
+  [string]$CodexAgentsPath = (Join-Path $HOME ".codex/AGENTS.md"),
   [switch]$SkipDependencies,
   [switch]$SkipBuild,
   [switch]$SkipMcp,
@@ -18,6 +18,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$nodeRuntimeHelper = Join-Path $PSScriptRoot "node-runtime.ps1"
+if (-not (Test-Path -LiteralPath $nodeRuntimeHelper -PathType Leaf)) {
+  throw "The shared Node runtime helper is missing: $nodeRuntimeHelper"
+}
+. $nodeRuntimeHelper
 
 function Write-Step([string]$Message) {
   Write-Host "[frontend-codex-kit] $Message"
@@ -29,71 +34,6 @@ function Require-Command([string]$Name, [string]$Guidance) {
     throw "$Name is required. $Guidance"
   }
   return $command.Source
-}
-
-function Test-NodeExecutable([string]$Candidate) {
-  if (-not $Candidate -or -not (Test-Path -LiteralPath $Candidate)) {
-    return $false
-  }
-  try {
-    $version = (& $Candidate --version 2>$null | Select-Object -First 1)
-    return [bool]($version -match "^v\d+\.\d+\.\d+")
-  } catch {
-    return $false
-  }
-}
-
-function Resolve-StableNode {
-  $resolved = Require-Command "node" "Install Node.js 24 or newer."
-  $runningOnWindows = ($env:OS -eq "Windows_NT") -or [bool]$IsWindows
-  if (-not $runningOnWindows) {
-    return [System.IO.Path]::GetFullPath($resolved)
-  }
-
-  $fnm = Get-Command "fnm" -ErrorAction SilentlyContinue
-  if ($fnm) {
-    $activeVersion = (& $fnm.Source current 2>$null | Select-Object -First 1)
-    if ($activeVersion) {
-      $activeVersion = $activeVersion.Trim()
-      $fnmRoots = @(
-        $env:FNM_DIR,
-        (Join-Path $env:APPDATA "fnm"),
-        (Join-Path $env:LOCALAPPDATA "fnm")
-      ) | Where-Object { $_ } | Select-Object -Unique
-      foreach ($root in $fnmRoots) {
-        $candidate = Join-Path $root (
-          "node-versions\$activeVersion\installation\node.exe"
-        )
-        if (Test-NodeExecutable $candidate) {
-          return [System.IO.Path]::GetFullPath($candidate)
-        }
-      }
-
-      try {
-        $fnmNodes = & $fnm.Source exec --using $activeVersion where.exe node 2>$null
-        foreach ($candidate in @($fnmNodes)) {
-          if (
-            $candidate -and
-            $candidate -notmatch "[\\/]fnm_multishells[\\/]" -and
-            (Test-NodeExecutable $candidate)
-          ) {
-            return [System.IO.Path]::GetFullPath($candidate)
-          }
-        }
-      } catch {
-        # Fall through to the validated node resolved from PATH.
-      }
-    }
-  }
-
-  $resolved = [System.IO.Path]::GetFullPath($resolved)
-  if ($resolved -match "[\\/]fnm_multishells[\\/]") {
-    throw "Node resolves to an ephemeral fnm multishell path ($resolved). Set FNM_DIR or activate an installed fnm version, then rerun."
-  }
-  if (-not (Test-NodeExecutable $resolved)) {
-    throw "The resolved Node executable is not usable: $resolved"
-  }
-  return $resolved
 }
 
 function Resolve-CodexConfigPath {
@@ -128,9 +68,47 @@ function Resolve-LinkTarget([System.IO.FileSystemInfo]$Item) {
   }
   $candidate = @($Item.Target)[0]
   if (-not [System.IO.Path]::IsPathRooted($candidate)) {
-    $candidate = Join-Path $Item.DirectoryName $candidate
+    $candidate = Join-Path (Split-Path $Item.FullName -Parent) $candidate
   }
   return [System.IO.Path]::GetFullPath($candidate).TrimEnd("\", "/")
+}
+
+function Test-AtlasPathEqual([string]$Left, [string]$Right) {
+  if (-not $Left -or -not $Right) {
+    return $false
+  }
+  if ($env:OS -eq "Windows_NT") {
+    return $Left -ieq $Right
+  }
+  return $Left -ceq $Right
+}
+
+function Get-SkillContentFingerprint([string]$Root) {
+  if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+    return $null
+  }
+  $normalizedRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd("\", "/")
+  $entries = Get-ChildItem -LiteralPath $normalizedRoot -Recurse -File -Force |
+    ForEach-Object {
+      # Path.GetRelativePath and Convert.ToHexString are unavailable in the
+      # Windows PowerShell 5.1/.NET Framework combination still common on
+      # frontend workstations. The recursive entry is guaranteed to live
+      # below normalizedRoot, so a prefix trim is sufficient and portable.
+      $relative = ($_.FullName.Substring($normalizedRoot.Length)).TrimStart(
+        "\", "/"
+      ).Replace("\", "/")
+      $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+      "$relative|$digest"
+    } |
+    Sort-Object
+  $manifest = $entries -join "`n"
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($manifest)
+  $hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-", "")
+  } finally {
+    $hasher.Dispose()
+  }
 }
 
 function Install-Skill([string]$Source, [string]$TargetRoot) {
@@ -141,8 +119,17 @@ function Install-Skill([string]$Source, [string]$TargetRoot) {
   if (Test-Path -LiteralPath $target) {
     $item = Get-Item -LiteralPath $target -Force
     $linkTarget = Resolve-LinkTarget $item
-    if ($linkTarget -and $linkTarget -ieq $normalizedSource) {
+    if ($linkTarget -and (Test-AtlasPathEqual $linkTarget $normalizedSource)) {
       Write-Step "$name is already linked at $target"
+      return
+    }
+    if (
+      $InstallMode -eq "copy" -and
+      -not $linkTarget -and
+      (Get-SkillContentFingerprint $Source) -ceq
+        (Get-SkillContentFingerprint $target)
+    ) {
+      Write-Step "$name is already copied at $target with matching content"
       return
     }
     throw "Refusing to overwrite existing skill at $target. Move or remove it explicitly, then rerun the installer."
@@ -156,7 +143,7 @@ function Install-Skill([string]$Source, [string]$TargetRoot) {
   New-Item -ItemType Directory -Force -Path $TargetRoot | Out-Null
   if ($InstallMode -eq "copy") {
     Copy-Item -LiteralPath $Source -Destination $target -Recurse
-  } elseif ($IsWindows -or $env:OS -eq "Windows_NT") {
+  } elseif ($env:OS -eq "Windows_NT") {
     New-Item -ItemType Junction -Path $target -Target $Source | Out-Null
   } else {
     New-Item -ItemType SymbolicLink -Path $target -Target $Source | Out-Null
@@ -232,21 +219,26 @@ function Ensure-CodexMcpConfig(
   Write-Step "Codex reads this shared config after an app restart or new task."
 }
 
-$AtlasRoot = [System.IO.Path]::GetFullPath($AtlasRoot)
+$AtlasRoot = if ($AtlasRoot) {
+  [System.IO.Path]::GetFullPath($AtlasRoot)
+} else {
+  [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+}
 $packageJson = Join-Path $AtlasRoot "package.json"
-$frontendTask = Join-Path $AtlasRoot "skills\frontend-task"
-$reuseFirst = Join-Path $AtlasRoot "skills\reuse-first"
-$visualDirection = Join-Path $AtlasRoot "skills\visual-direction"
-$mcpEntry = Join-Path $AtlasRoot "packages\mcp\dist\index.js"
-$cliEntry = Join-Path $AtlasRoot "packages\cli\dist\index.js"
-$agentsMigration = Join-Path $AtlasRoot "frontend-codex-kit\remove-agents-instructions.ps1"
-$codexMcpHelper = Join-Path $AtlasRoot "frontend-codex-kit\register-codex-mcp.mjs"
+$frontendTask = Join-Path $AtlasRoot "skills/frontend-task"
+$reuseFirst = Join-Path $AtlasRoot "skills/reuse-first"
+$visualDirection = Join-Path $AtlasRoot "skills/visual-direction"
+$mcpEntry = Join-Path $AtlasRoot "packages/mcp/dist/index.js"
+$cliEntry = Join-Path $AtlasRoot "packages/cli/dist/index.js"
+$agentsMigration = Join-Path $AtlasRoot "frontend-codex-kit/remove-agents-instructions.ps1"
+$codexMcpHelper = Join-Path $AtlasRoot "frontend-codex-kit/register-codex-mcp.mjs"
 
 foreach ($requiredPath in @(
   $packageJson,
   $frontendTask,
   $reuseFirst,
   $visualDirection,
+  $agentsMigration,
   $codexMcpHelper
 )) {
   if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -254,7 +246,7 @@ foreach ($requiredPath in @(
   }
 }
 
-$node = Resolve-StableNode
+$node = Resolve-AtlasStableNode
 $nodeVersion = (& $node --version).TrimStart("v")
 $nodeMajor = [int]($nodeVersion.Split(".")[0])
 if ($nodeMajor -lt 24) {
@@ -263,6 +255,10 @@ if ($nodeMajor -lt 24) {
 $pnpm = $null
 if (-not $SkipDependencies -or -not $SkipBuild) {
   $pnpm = Require-Command "pnpm" "Install pnpm 11 or enable it through Corepack."
+  $pnpmVersion = [string](& $pnpm --version 2>$null | Select-Object -First 1)
+  if ($pnpmVersion.Trim() -notmatch "^11\.") {
+    throw "pnpm 11.x is required; found $($pnpmVersion.Trim())."
+  }
 }
 $git = Require-Command "git" "Install Git before running the kit."
 $codexClient = $null
@@ -335,10 +331,17 @@ if (-not $SkipMcp) {
 
 Write-Step "Installation complete."
 Write-Host ""
+$doctorPath = Join-Path $AtlasRoot "frontend-codex-kit/doctor.ps1"
+$doctorCommand = if ($env:OS -eq "Windows_NT") {
+  "& '$doctorPath'"
+} else {
+  "pwsh -NoProfile -File '$doctorPath'"
+}
 Write-Host "Next:"
-Write-Host "  1. Restart the agent and open a new task/session."
-Write-Host "  2. Open the product repository in your agent."
-Write-Host "  3. Invoke `$frontend-task in Codex or /frontend-task in Claude Code."
-Write-Host "  4. Describe the task; the skill handles Atlas bootstrap and compact retrieval."
-Write-Host "  5. Connect Jira, Confluence, or Figma only when the task needs them."
-Write-Host "  6. Optional local product: from $AtlasRoot run 'pnpm atlas'."
+Write-Host "  1. For Codex, run: $doctorCommand"
+Write-Host "  2. Restart the agent and open a new task/session."
+Write-Host "  3. Open the product repository in your agent."
+Write-Host "  4. Invoke /plan `$frontend-task in Codex or /frontend-task in Claude Code."
+Write-Host "  5. Describe the task; the skill handles source preflight and compact retrieval."
+Write-Host "  6. Connect Jira, Confluence, or Figma only when the task needs them."
+Write-Host "  7. Optional local product: from $AtlasRoot run 'pnpm atlas'."

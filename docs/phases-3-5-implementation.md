@@ -39,14 +39,16 @@ executed.
 Confirmed, current Figma variable receipts can enrich the fingerprint. Only
 compact variable identities, hashes, counts, and receipt IDs are retained.
 
-`validate_diff` is the sole additive MCP operation. The equivalent CLI command
-is:
+The installed core workflow exposes this through `atlas_validate_change`,
+bound to the active ChangeSurface and complete Git delta. The equivalent
+diagnostic CLI command is:
 
 ```text
 atlas validate-diff <project>
 ```
 
-It computes the local Git diff without a shell and emits advisory warnings for
+The historical legacy profile retains `validate_diff` only for migration
+parity. Both paths compute the local Git diff without a shell and emit advisory warnings for
 new visual literals, unfamiliar breakpoints, likely duplicate primitives,
 missing comparable interactive states, and paths incompatible with explicitly
 confirmed OpenAPI operations. Theme findings never block; existing security,
@@ -74,11 +76,13 @@ Truncated or excessive responses are split into smaller child calls. The
 adaptive plan preserves the confirmed target and refuses to repeat the same
 deep call with a longer timeout.
 
-When `inspect_design_node` receives a task ID, Atlas stores a compact
-task-scoped `DesignCoverageLedger`. Every considered node is selected, omitted,
-failed, unavailable, or analyzed with reason, confidence, hash, and receipt
-references. Deep responses, screenshots, binaries, localhost URLs, and assets
-are never persisted in the ledger.
+When `atlas_prepare_task` receives confirmed Figma evidence for a task, Atlas
+stores a compact task-scoped `DesignCoverageLedger` and returns bounded
+`design:` handles; `atlas_expand_context` expands one named handle. Every
+considered node is selected, omitted, failed, unavailable, or analyzed with
+reason, confidence, hash, and receipt references. Deep responses, screenshots,
+binaries, localhost URLs, and assets are never persisted in the ledger. The
+legacy `inspect_design_node` adapter remains migration-only.
 
 The design-link registry gives exact Code Connect mappings priority, keeps
 confirmed mappings project/commit-scoped, and confines inferred mappings to the

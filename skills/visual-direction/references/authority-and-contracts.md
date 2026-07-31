@@ -176,6 +176,7 @@ accessibility:
 artifact_receipt:
   contract_handle: Opaque temporary visual handle
   contract_hash: Direction hash
+  selection_receipt: Receipt emitted from the live selected session
   selected_artifact_handle: Temporary chosen-preview handle or none
   selected_artifact_hash: Content hash or none
   expires_at: ISO timestamp
@@ -223,7 +224,9 @@ contract_hash: Hash of the locked DesignContract
 captures:
   - viewport: desktop | narrow | other
     state: Relevant state
-    artifact_handle: Temporary review-capture handle
+    artifact_handle: artifact-<sha256-prefix>-<uuid>
+    artifact_hash: Full SHA256 returned when the capture was registered
+    receipt: capture-receipt:v1 emitted for these exact live bytes
 checks:
   hierarchy: pass | deviation | blocked
   density: pass | deviation | blocked
@@ -238,8 +241,14 @@ deviations:
 result: pass | fix-and-recapture | blocked
 cleanup:
   state: clean | cleanup-pending
-  receipt: Temporary cleanup receipt handle or none
+  receipt: Content-free task-bound cleanup receipt
+preliminary_review_handle: Required only by the final clean review
 ```
 
-Do not close with `pass` while cleanup is pending or Git contains exploration
-residue.
+First attach an immutable preliminary review with cleanup
+`selected-retained`, while Atlas can verify each capture receipt and its bytes.
+Then clean the session and attach a final review with identical captures,
+matrix, checks, result and deviations, the cleanup receipt, and the preliminary
+handle. Do not close with `pass` unless that chain is valid and Git contains no
+exploration residue. A visual task closed as `partial` or `failure` also needs a
+clean final chain; cancellation cleanup is allowed for those non-passing exits.

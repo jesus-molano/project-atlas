@@ -1,15 +1,9 @@
-import {
-  mkdir,
-  realpath,
-  writeFile,
-} from "node:fs/promises";
 import path from "node:path";
 import type { ComponentGraph } from "@component-atlas/core";
 import {
   MEMORY_SCHEMA_VERSION,
   assertMemoryContentSafe,
   fitBudgetedResponse,
-  memoryItemMarkdown,
   type MemoryFinding,
   type MemoryItem,
   type MemoryItemDraft,
@@ -18,16 +12,19 @@ import {
   type MemoryScope,
   type MemoryWriteTarget,
 } from "@component-atlas/memory";
+import { projectStorageDirectory } from "@component-atlas/store";
 import {
-  projectStorageDirectory,
-} from "@component-atlas/store";
+  commitMemoryFiles,
+  memoryFileName,
+  prepareMemoryItemWrite,
+  supersededMemoryFileRequest,
+  type MemoryFileRequest,
+} from "./memory-file-transaction.js";
 import { loadProjectGraph } from "./scan.js";
 import {
-  slash,
   hash,
   memoryId,
   proposalId,
-  exists,
   memoryStore,
   graphCheckoutId,
   ensureMemoryIndexed,
@@ -110,6 +107,13 @@ const memoryScopes = new Set<MemoryScope>([
   "local",
   "episodic",
 ]);
+const IDEMPOTENCY_KEY = /^[a-f0-9]{64}$/u;
+
+function assertIdempotencyKey(value: string | undefined): void {
+  if (value !== undefined && !IDEMPOTENCY_KEY.test(value)) {
+    throw new Error("Memory mutation idempotency key is invalid.");
+  }
+}
 
 function assertMemoryDrafts(items: MemoryItemDraft[]): void {
   if (!Array.isArray(items) || items.length === 0 || items.length > 20) {
@@ -138,8 +142,40 @@ export interface ProposeMemoryUpdateInput {
   rationale: string;
   evidence?: string[];
   proposedBy?: string;
+  idempotencyKey?: string;
   items: MemoryItemDraft[];
   budgetChars?: number;
+}
+
+function proposalResponse(proposal: MemoryProposal, budgetChars?: number) {
+  return fitBudgetedResponse(
+    {
+      schemaVersion: 1,
+      proposal: {
+        id: proposal.id,
+        status: proposal.status,
+        rationale: proposal.rationale,
+        items: proposal.items.map((item) => ({
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          summary: item.summary,
+          authority: item.authority,
+          confidence: item.confidence,
+        })),
+      },
+      findings: proposal.findings,
+      gate: memoryGate(proposal.findings),
+      nextAction:
+        "Review this exact proposal and its impact before choosing a separately consented apply or reject action.",
+    },
+    {
+      budgetChars,
+      totalMatches: proposal.items.length,
+      expandableIds: [proposal.id],
+      preserveKeys: ["findings", "questions"],
+    },
+  );
 }
 
 export async function proposeMemoryUpdate(input: ProposeMemoryUpdateInput) {
@@ -157,13 +193,38 @@ export async function proposeMemoryUpdate(input: ProposeMemoryUpdateInput) {
   const store = memoryStore(graph);
   try {
     const createdAt = new Date().toISOString();
+    assertIdempotencyKey(input.idempotencyKey);
+    const id = input.idempotencyKey
+      ? proposalId(graph.project.id, "idempotent", input.idempotencyKey)
+      : proposalId(graph.project.id, createdAt, input.rationale);
+    const existing = store.loadMemoryProposal(graph.project.id, id);
+    if (existing) {
+      const requested = {
+        rationale: input.rationale.trim(),
+        evidence: (input.evidence ?? []).slice(0, 10),
+        proposedBy: input.proposedBy,
+        items: input.items,
+      };
+      const persisted = {
+        rationale: existing.rationale,
+        evidence: existing.evidence,
+        proposedBy: existing.proposedBy,
+        items: existing.items,
+      };
+      if (JSON.stringify(requested) !== JSON.stringify(persisted)) {
+        throw new Error(
+          "Memory proposal idempotency key was already used for different content.",
+        );
+      }
+      return proposalResponse(existing, input.budgetChars);
+    }
     const findings = proposalFindings(
       input.items,
       store.listMemoryItems(graph.project.id, graphCheckoutId(graph)),
     );
     const proposal: MemoryProposal = {
       schemaVersion: MEMORY_SCHEMA_VERSION,
-      id: proposalId(graph.project.id, createdAt, input.rationale),
+      id,
       projectId: graph.project.id,
       createdAt,
       status: "pending",
@@ -174,34 +235,7 @@ export async function proposeMemoryUpdate(input: ProposeMemoryUpdateInput) {
       findings,
     };
     store.saveMemoryProposal(proposal);
-    return fitBudgetedResponse(
-      {
-        schemaVersion: 1,
-        proposal: {
-          id: proposal.id,
-          status: proposal.status,
-          rationale: proposal.rationale,
-          items: proposal.items.map((item) => ({
-            id: item.id,
-            type: item.type,
-            title: item.title,
-            summary: item.summary,
-            authority: item.authority,
-            confidence: item.confidence,
-          })),
-        },
-        findings,
-        gate: memoryGate(findings),
-        nextAction:
-          "Review this proposal, resolve any decision-required finding, then call apply_memory_update with confirmed=true.",
-      },
-      {
-        budgetChars: input.budgetChars,
-        totalMatches: proposal.items.length,
-        expandableIds: [proposal.id],
-        preserveKeys: ["findings", "questions"],
-      },
-    );
+    return proposalResponse(proposal, input.budgetChars);
   } finally {
     store.close();
   }
@@ -248,10 +282,6 @@ function itemFromDraft(
   };
 }
 
-function safeFileName(id: string): string {
-  return id.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "").slice(0, 80);
-}
-
 function proposalReview(
   proposal: MemoryProposal,
   graph: ComponentGraph,
@@ -282,11 +312,17 @@ function proposalReview(
       id: item.id,
       type: item.type,
       title: item.title,
+      summary: item.summary,
+      ...(item.body ? { body: item.body } : {}),
+      confidence: item.confidence,
+      authority: item.authority,
+      tags: item.tags,
+      relations: item.relations,
       scope: item.scope,
-      path: `${directory}/${safeFileName(item.id)}.md`,
+      path: `${directory}/${memoryFileName(item.id)}`,
       absolutePath: path.join(
         absoluteDirectory,
-        `${safeFileName(item.id)}.md`,
+        memoryFileName(item.id),
       ),
       supersedes: item.supersedes,
     };
@@ -300,7 +336,23 @@ function proposalReview(
   return {
     schemaVersion: MEMORY_SCHEMA_VERSION,
     proposalId: proposal.id,
+    proposalHash: hash(
+      JSON.stringify({
+        id: proposal.id,
+        projectId: proposal.projectId,
+        createdAt: proposal.createdAt,
+        status: proposal.status,
+        rationale: proposal.rationale,
+        evidence: proposal.evidence,
+        proposedBy: proposal.proposedBy,
+        items: proposal.items,
+        findings: proposal.findings,
+      }),
+    ),
     proposalStatus: proposal.status,
+    rationale: proposal.rationale,
+    evidence: proposal.evidence,
+    ...(proposal.proposedBy ? { proposedBy: proposal.proposedBy } : {}),
     target,
     canApply: proposal.status === "pending" && blockingFindingIds.length === 0,
     requiresCanonicalConfirmation: target === "canonical",
@@ -342,76 +394,35 @@ export async function reviewMemoryProposal(
   }
 }
 
-async function writeMemoryItem(
-  rootPath: string,
-  item: MemoryItem,
+function appliedProposalResponse(
+  proposal: MemoryProposal,
+  graph: ComponentGraph,
   target: MemoryWriteTarget,
-): Promise<MemoryItem> {
-  const directory =
-    target === "canonical"
-      ? path.join(
-          projectStorageDirectory(item.projectId),
-          "memory",
-          "canonical",
-        )
-      : path.join(
-          projectStorageDirectory(item.projectId),
-          "memory",
-          "local",
-        );
-  await mkdir(directory, { recursive: true });
-  const storageRoot = projectStorageDirectory(item.projectId);
-  const [realStorageRoot, realDirectory] = await Promise.all([
-    realpath(storageRoot),
-    realpath(directory),
-  ]);
-  const directoryRelative = path.relative(realStorageRoot, realDirectory);
-  if (
-    directoryRelative.startsWith("..") ||
-    path.isAbsolute(directoryRelative)
-  ) {
-    throw new Error("Refusing to write memory outside Project Atlas storage.");
-  }
-  const filePath = path.join(directory, `${safeFileName(item.id)}.md`);
-  const relativePath = `atlas-storage/${slash(
-    path.relative(storageRoot, filePath),
-  )}`;
-  const next = { ...item, bodyPath: relativePath };
-  await writeFile(filePath, memoryItemMarkdown(next), "utf8");
-  return next;
-}
-
-async function rewriteSupersededSource(
-  rootPath: string,
-  item: MemoryItem,
-): Promise<void> {
-  if (!item.bodyPath) return;
-  if (!item.bodyPath.startsWith("atlas-storage/")) {
-    // Repository-local memory is legacy read-only compatibility data.
-    return;
-  }
-  const storageRoot = projectStorageDirectory(item.projectId);
-  const storageRelative = item.bodyPath.slice("atlas-storage/".length);
-  const absolute = path.resolve(storageRoot, storageRelative);
-  const relative = path.relative(storageRoot, absolute);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(
-      `Refusing to rewrite memory outside Project Atlas storage: ${item.bodyPath}`,
-    );
-  }
-  if (await exists(absolute)) {
-    const [realRoot, realSource] = await Promise.all([
-      realpath(storageRoot),
-      realpath(absolute),
-    ]);
-    const realRelative = path.relative(realRoot, realSource);
-    if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
-      throw new Error(
-        `Refusing to rewrite memory outside project scope: ${item.bodyPath}`,
-      );
-    }
-    await writeFile(realSource, memoryItemMarkdown(item), "utf8");
-  }
+  budgetChars?: number,
+) {
+  const review = proposalReview(proposal, graph, target);
+  const applied = review.impact.items;
+  return fitBudgetedResponse(
+    {
+      schemaVersion: 1,
+      proposalId: proposal.id,
+      status: proposal.status,
+      target,
+      impact: review.impact,
+      applied: applied.map((item) => ({
+        id: item.id,
+        type: item.type,
+        title: item.title,
+        summary: item.summary,
+        path: item.path,
+      })),
+    },
+    {
+      budgetChars,
+      totalMatches: applied.length,
+      expandableIds: applied.map((item) => item.id),
+    },
+  );
 }
 
 export async function applyMemoryUpdate(
@@ -422,6 +433,7 @@ export async function applyMemoryUpdate(
     target?: MemoryWriteTarget;
     canonicalConfirmed?: boolean;
     budgetChars?: number;
+    idempotencyKey?: string;
   },
 ) {
   if (!options.confirmed) {
@@ -429,6 +441,7 @@ export async function applyMemoryUpdate(
       "Durable memory writes require confirmed=true after reviewing the proposal.",
     );
   }
+  assertIdempotencyKey(options.idempotencyKey);
   const graph = await loadProjectGraph(rootPath);
   const store = memoryStore(graph);
   try {
@@ -437,12 +450,25 @@ export async function applyMemoryUpdate(
       proposalIdValue,
     );
     if (!proposal) throw new Error(`Memory proposal "${proposalIdValue}" was not found.`);
+    const target = options.target ?? "local";
     if (proposal.status !== "pending") {
+      if (
+        proposal.status === "applied" &&
+        options.idempotencyKey !== undefined &&
+        proposal.appliedByOperation === options.idempotencyKey &&
+        proposal.appliedTarget === target
+      ) {
+        return appliedProposalResponse(
+          proposal,
+          graph,
+          target,
+          options.budgetChars,
+        );
+      }
       throw new Error(
         `Memory proposal "${proposalIdValue}" is already ${proposal.status}.`,
       );
     }
-    const target = options.target ?? "local";
     const review = proposalReview(proposal, graph, target);
     if (!review.canApply) {
       const titles = proposal.findings
@@ -460,19 +486,38 @@ export async function applyMemoryUpdate(
     }
     assertMemoryContentSafe(proposal);
     const appliedAt = new Date().toISOString();
+    const storageRoot = projectStorageDirectory(graph.project.id);
     const applied: MemoryItem[] = [];
+    const appliedFileRequests: MemoryFileRequest[] = [];
     for (const draft of proposal.items) {
-      let item = itemFromDraft(
-        draft,
-        graph,
-        appliedAt,
-        target === "canonical"
-          ? "canonical"
-          : draft.scope === "episodic"
-            ? "episodic"
-            : "local",
+      const prepared = prepareMemoryItemWrite(
+        itemFromDraft(
+          draft,
+          graph,
+          appliedAt,
+          target === "canonical"
+            ? "canonical"
+            : draft.scope === "episodic"
+              ? "episodic"
+              : "local",
+        ),
+        target,
       );
+      applied.push(prepared.item);
+      appliedFileRequests.push(prepared.request);
+    }
+    const supersededItems: MemoryItem[] = [];
+    const supersededFileRequests: MemoryFileRequest[] = [];
+    const supersededIds = new Set<string>();
+    for (const item of applied) {
       for (const supersededId of item.supersedes) {
+        const supersededKey = supersededId.toLowerCase();
+        if (supersededIds.has(supersededKey)) {
+          throw new Error(
+            `Memory application supersedes ${supersededId} more than once.`,
+          );
+        }
+        supersededIds.add(supersededKey);
         const previous = store.loadMemoryItem(
           graph.project.id,
           supersededId,
@@ -485,41 +530,32 @@ export async function applyMemoryUpdate(
           supersededBy: item.id,
           updatedAt: appliedAt,
         };
-        store.saveMemoryItem(graph.project.id, superseded, "confirmed");
-        await rewriteSupersededSource(graph.project.rootPath, superseded);
+        supersededItems.push(superseded);
+        const fileRequest = supersededMemoryFileRequest(superseded);
+        if (fileRequest) supersededFileRequests.push(fileRequest);
       }
-      item = await writeMemoryItem(graph.project.rootPath, item, target);
-      store.saveMemoryItem(graph.project.id, item, "confirmed");
-      applied.push(item);
     }
     const updated: MemoryProposal = {
       ...proposal,
       status: "applied",
       appliedAt,
       appliedItemIds: applied.map((item) => item.id),
+      appliedTarget: target,
+      ...(options.idempotencyKey
+        ? { appliedByOperation: options.idempotencyKey }
+        : {}),
     };
-    store.saveMemoryProposal(updated);
-    return fitBudgetedResponse(
-      {
-        schemaVersion: 1,
-        proposalId: updated.id,
-        status: updated.status,
-        target,
-        impact: review.impact,
-        applied: applied.map((item) => ({
-          id: item.id,
-          type: item.type,
-          title: item.title,
-          summary: item.summary,
-          path: item.bodyPath,
-        })),
-      },
-      {
-        budgetChars: options.budgetChars,
-        totalMatches: applied.length,
-        expandableIds: applied.map((item) => item.id),
-      },
+    await commitMemoryFiles(
+      storageRoot,
+      [...supersededFileRequests, ...appliedFileRequests],
+      () =>
+        store.saveMemoryApplication(graph.project.id, {
+          supersededItems,
+          appliedItems: applied,
+          proposal: updated,
+        }),
     );
+    return appliedProposalResponse(updated, graph, target, options.budgetChars);
   } finally {
     store.close();
   }
@@ -532,6 +568,7 @@ export async function rejectMemoryUpdate(
     confirmed: boolean;
     reason: string;
     budgetChars?: number;
+    idempotencyKey?: string;
   },
 ) {
   if (!options.confirmed) {
@@ -539,6 +576,7 @@ export async function rejectMemoryUpdate(
       "Rejecting a memory proposal requires confirmed=true after reviewing it.",
     );
   }
+  assertIdempotencyKey(options.idempotencyKey);
   const reason = options.reason.trim();
   if (!reason) {
     throw new Error("Rejecting a memory proposal requires a reason.");
@@ -555,6 +593,28 @@ export async function rejectMemoryUpdate(
       throw new Error(`Memory proposal "${proposalIdValue}" was not found.`);
     }
     if (proposal.status !== "pending") {
+      if (
+        proposal.status === "rejected" &&
+        options.idempotencyKey !== undefined &&
+        proposal.rejectedByOperation === options.idempotencyKey &&
+        proposal.rejectionReason === reason &&
+        proposal.rejectedAt
+      ) {
+        return fitBudgetedResponse(
+          {
+            schemaVersion: 1,
+            proposalId: proposal.id,
+            status: proposal.status,
+            reason,
+            rejectedAt: proposal.rejectedAt,
+          },
+          {
+            budgetChars: options.budgetChars,
+            totalMatches: 1,
+            expandableIds: [proposal.id],
+          },
+        );
+      }
       throw new Error(
         `Memory proposal "${proposalIdValue}" is already ${proposal.status}.`,
       );
@@ -577,6 +637,9 @@ export async function rejectMemoryUpdate(
       ],
       rejectedAt,
       rejectionReason: reason,
+      ...(options.idempotencyKey
+        ? { rejectedByOperation: options.idempotencyKey }
+        : {}),
     };
     store.saveMemoryProposal(updated);
     return fitBudgetedResponse(
@@ -758,6 +821,33 @@ export interface RecordOutcomeInput {
   relatedEntityIds?: string[];
   files?: string[];
   budgetChars?: number;
+  idempotencyKey?: string;
+}
+
+function recordedOutcomeResponse(
+  item: MemoryItem,
+  result: RecordOutcomeInput["result"],
+  budgetChars?: number,
+) {
+  return fitBudgetedResponse(
+    {
+      schemaVersion: 1,
+      outcome: {
+        id: item.id,
+        result,
+        summary: item.summary,
+        path: item.bodyPath,
+        authority: item.authority,
+      },
+      nextAction:
+        "If this task established durable knowledge, review and consent to a separate canonical-memory proposal.",
+    },
+    {
+      budgetChars,
+      totalMatches: 1,
+      expandableIds: [item.id],
+    },
+  );
 }
 
 export async function recordProjectOutcome(input: RecordOutcomeInput) {
@@ -770,11 +860,25 @@ export async function recordProjectOutcome(input: RecordOutcomeInput) {
       "A task outcome requires a task, a summary, and a valid result.",
     );
   }
+  assertIdempotencyKey(input.idempotencyKey);
   assertMemoryContentSafe(input);
   const graph = await loadProjectGraph(input.rootPath);
   const createdAt = new Date().toISOString();
+  const operationContentHash = hash(
+    JSON.stringify({
+      taskId: input.taskId,
+      task: input.task.trim(),
+      result: input.result,
+      summary: input.summary.trim(),
+      evidence: input.evidence ?? [],
+      relatedEntityIds: input.relatedEntityIds ?? [],
+      files: input.files ?? [],
+    }),
+  );
   const id = `outcome:${hash(
-    `${graph.project.id}\0${graphCheckoutId(graph)}\0${input.taskId ?? createdAt}\0${input.task}`,
+    input.idempotencyKey
+      ? `${graph.project.id}\0${graphCheckoutId(graph)}\0operation\0${input.idempotencyKey}`
+      : `${graph.project.id}\0${graphCheckoutId(graph)}\0${input.taskId ?? createdAt}\0${input.task}`,
   ).slice(0, 20)}`;
   let item: MemoryItem = {
     schemaVersion: MEMORY_SCHEMA_VERSION,
@@ -803,6 +907,12 @@ export async function recordProjectOutcome(input: RecordOutcomeInput) {
     provenance: {
       kind: "task-outcome",
       evidence: (input.evidence ?? []).slice(0, 12),
+      ...(input.idempotencyKey
+        ? {
+            operationId: input.idempotencyKey,
+            operationContentHash,
+          }
+        : {}),
     },
     supersedes: [],
     relations: (input.relatedEntityIds ?? []).map((targetId) => ({
@@ -810,30 +920,33 @@ export async function recordProjectOutcome(input: RecordOutcomeInput) {
       targetId,
     })),
   };
-  item = await writeMemoryItem(graph.project.rootPath, item, "local");
+  const prepared = prepareMemoryItemWrite(item, "local");
+  item = prepared.item;
   const store = memoryStore(graph);
   try {
-    store.saveMemoryItem(graph.project.id, item, "outcome");
+    const existing = store.loadMemoryItem(
+      graph.project.id,
+      item.id,
+      graphCheckoutId(graph),
+    );
+    if (existing && input.idempotencyKey) {
+      if (
+        existing.provenance.operationId !== input.idempotencyKey ||
+        existing.provenance.operationContentHash !== operationContentHash
+      ) {
+        throw new Error(
+          "Outcome idempotency key was already used for different content.",
+        );
+      }
+      return recordedOutcomeResponse(existing, input.result, input.budgetChars);
+    }
+    await commitMemoryFiles(
+      projectStorageDirectory(graph.project.id),
+      [prepared.request],
+      () => store.saveMemoryItem(graph.project.id, item, "outcome"),
+    );
   } finally {
     store.close();
   }
-  return fitBudgetedResponse(
-    {
-      schemaVersion: 1,
-      outcome: {
-        id: item.id,
-        result: input.result,
-        summary: item.summary,
-        path: item.bodyPath,
-        authority: item.authority,
-      },
-      nextAction:
-        "If this task established a durable decision, convention, constraint, or fix, propose it separately with propose_memory_update.",
-    },
-    {
-      budgetChars: input.budgetChars,
-      totalMatches: 1,
-      expandableIds: [item.id],
-    },
-  );
+  return recordedOutcomeResponse(item, input.result, input.budgetChars);
 }

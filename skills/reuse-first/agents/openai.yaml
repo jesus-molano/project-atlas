@@ -1,5 +1,7 @@
 interface:
   display_name: "Reuse First"
-  short_description: "Enforce component discovery before new UI code"
+  short_description: "Decide component reuse before UI changes"
   brand_color: "#43D1A0"
   default_prompt: "Use $reuse-first to find and justify the best existing component before implementing UI."
+policy:
+  allow_implicit_invocation: false

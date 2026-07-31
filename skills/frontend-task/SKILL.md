@@ -1,138 +1,151 @@
 ---
 name: frontend-task
-description: Explicit workflow for preparing, implementing, and validating a frontend task with Project Atlas. Invoke only when the user writes `$frontend-task` or directly asks to use this skill.
+description: Explicit Project Atlas workflow to implement, validate, review, and close frontend work. Invoke only by direct request.
 ---
 
 # Frontend Task
 
-Use this workflow only after explicit invocation. One objective plus a few links
-is sufficient input. Inspect the repository and callable capabilities before
-asking for information that can be discovered locally.
+Invoke only when the user writes `$frontend-task` or explicitly names the
+Frontend Task skill. Do not infer activation from generic frontend work.
 
-## 1. Prepare once
+Use one native Codex task. Atlas supplies bounded evidence; it must not create,
+route, resume, cancel, or grant permissions.
 
-1. Read repository instructions and identify the package, framework, existing
-   implementation, tests, and validation commands.
-2. Treat the first objective as immutable task identity. Corrections may add
-   scope or raise risk, but never lower the stored risk for the same `task_id`.
-3. Classify only sources that are supplied or materially required. Repository
-   evidence is the baseline; Jira, Confluence, Figma, OpenAPI, and other links
-   are not a mandatory chain.
-4. If Project Atlas is available, call `atlas_prepare_task` once with the
-   absolute repository root, objective, explicit sources, and prior `task_id`
-   only when resuming the same task. Keep the returned task ID and handles.
-5. Ask at most three questions, and only for product decisions, conflicting
-   authoritative evidence, or a required source that cannot be recovered.
+## Load references only when active
 
-Source authority is explicit: a confirmed exact link or local contract outranks
-search candidates. Missing optional evidence is a warning, not a blocker.
-Never probe credentials or install/connect a plugin without user authorization.
+| Condition | Read |
+| --- | --- |
+| External reference or source-dependent task | [source-precheck.md](references/source-precheck.md) |
+| Medium/large task, continuation, or material unknowns | [brief-contract.md](references/brief-contract.md) |
+| Confirmed external evidence or missing core operation | [capability-routing.md](references/capability-routing.md) |
+| Unequivocal continuation or correction of the same objective | [continuation-mode.md](references/continuation-mode.md) |
+| Technical work is complete and memory may be useful | [memory-closeout.md](references/memory-closeout.md) |
 
-### OpenAPI failures
+## 1. Establish the baseline and source preflight
 
-For a transient Swagger/OpenAPI failure, retry once. Then prefer, in order:
-an already validated receipt; generated repository clients/types/tests; a
-user-supplied local contract. If the contract is authoritative, ask before
-using stale evidence and block only the contract-dependent work when no safe
-evidence exists. Report the HTTP status and concrete recovery choices. Never
-remove a source merely to reduce risk.
+1. Read repository instructions; record root/package, branch/HEAD, dirty
+   baseline, and required checks. Existing changes are user-owned. Inspect code
+   after source decisions resolve.
+2. Preserve the first objective. Corrections may add scope/risk, never silently
+   replace the objective or lower risk for its `task_id`.
+3. Classify only sources that are supplied or materially required. A bare
+   reference stays `pending`, even beside "use this".
+   Confirmation must bind its exact identity, provider, intended authority, and
+   task scope unambiguously.
+4. Before connector access, confirm, replace, omit, or mark unavailable every
+   pending source. Ask one grouped question only if it changes implementation;
+   skip irrelevant provider checklists.
+5. Classify size and risk separately: small is local/established; medium is
+   shared, stateful, API, or meaningful multi-file; large spans flows, systems,
+   migrations, or surfaces. Auth, personal/destructive/financial data,
+   critical accessibility, and authority conflicts are high risk.
 
-## 2. Produce an architectural plan
+Never probe credentials or connect a plugin without authorization.
+Missing optional evidence is a warning, not a blocker.
 
-Before editing, make the plan decision complete:
+## 2. Prepare once per evidence version
 
-- objective, affected package and explicit exclusions;
-- source authority and unresolved conflicts;
-- reuse/extend/compose/extract/create choice with evidence;
-- component and file surface, public API and data flow;
-- loading, empty, error, success, disabled and responsive states as relevant;
-- accessibility and localization effects;
-- targeted tests, validation commands, and acceptance criteria.
+Call `atlas_prepare_task` once with the absolute root, objective, resolved source
+decisions, receipts/relations, and a prior task ID only for that same task. Keep
+the task ID and handles. Atlas hash-binds the full objective and current
+governance; later evidence may raise but never lower it.
 
-Use `atlas_expand_context` only for a named unresolved handle. Once the target
-is known, call `atlas_lock_change_scope` with one primary component, no more
-than two references, and explicit exclusions. Do not explore beyond the locked
-surface without stating the evidence that invalidated it.
+If preparation returns `needs-confirmation`, no repository scan or connector
+retrieval occurred. Resolve the named decisions and repeat with the same task
+ID. Otherwise repeat only for named graph/objective/source/visual invalidation.
 
-Plan mode and filesystem permissions belong to native Codex. Atlas does not
-invent a second read-only/write transition. Wait for plan approval when the
-host requires it, then continue in the same native task with the permissions
-selected by the user.
+Expand only one named unresolved handle. If Atlas is unavailable, perform the
+same repository-first reasoning manually.
 
-## 3. Implement narrowly
+For a transient OpenAPI 502/503/504, retry once. Then prefer a current receipt,
+generated clients/types/tests, or a supplied local contract. Ask before using
+stale authority; block only dependent work when no safe evidence exists.
 
-- Follow repository conventions and reuse existing primitives and tokens.
-- Preserve confirmed source identities and operation contracts.
-- Do not create a new abstraction unless the reuse evidence rules out the
-  nearest candidates.
-- Keep API, auth, persistence, accessibility-critical, and destructive
-  behavior within explicitly confirmed scope.
-- For Figma work, load the relevant Figma skill/reference only when Figma is a
-  confirmed source. Prefer the exact confirmed node; candidates never replace
-  it silently.
-- When visual authority is unresolved and bounded exploration is necessary,
-  invoke `$visual-direction` explicitly. Do not load it for non-visual work or
+## 3. Decide reuse, plan, then lock
+
+Before editing, make one explicit component decision:
+`reuse`, `extend`, `compose`, `extract-and-reuse`, `create`, or
+`not-applicable`; name the selection, nearest alternative, and rationale.
+
+Produce a size-proportional, decision-complete plan:
+
+- objective/criteria, package, files/APIs, exclusions, authority and reuse;
+- data flow/states/assumptions, tests, review tier, and delivery boundary.
+
+Resolve visual authority before locking. Load the Figma skill only for a
+confirmed exact source. Invoke `$visual-direction` explicitly in fidelity mode
+to freeze it without alternatives, or in bounded exploration mode only when
+authority is unresolved. Every visual implementation attaches its contract via
+`atlas_task_state` `attach-evidence` before locking; later evidence needs relock.
+
+For small work, keep a compact intent, decision, scope, and checks. For larger
+work, use the brief and obtain required approval.
+Plan mode and filesystem permissions belong to native Codex.
+
+Call `atlas_lock_change_scope` only after the decision. `reuse`, `extend`,
+`compose`, and `extract-and-reuse` require an existing `primary_component`
+among selected IDs. `create` uses a planned surface/files, no selected
+component, and rejected candidates or a no-viable-candidate rationale;
+`not-applicable` uses a non-component surface. Pass at most two references,
+explicit exclusions, and only confirmed OpenAPI impact. Resolve required
+findings before edit; broaden only after named invalidation.
+
+## 4. Implement narrowly
+
+- Reuse repository components, tokens, patterns, and generated contracts.
+- Keep API, auth, persistence, accessibility-critical, and destructive behavior
+  inside confirmed scope.
+- Preserve exact Figma node identity; Atlas candidates never replace it
+  silently. Do not explore for non-visual work, established patterns, or
   exact-design fidelity.
+- Use the same native task. The main native Codex task is coordinator and sole writer;
+  optional independent-evidence delegates are read-only.
 
-Checkpoint with `atlas_task_state` only at a semantic boundary: locked scope,
-blocked source, validated change, or resume after compaction. Do not checkpoint
-after every tool call.
+Use `atlas_task_state` only to resume, attach verified evidence, record a real
+blocker, or save a semantic checkpoint not captured elsewhere. Never poll or
+checkpoint after every call.
 
-## 4. Validate deterministically
+## 5. Validate and review by size/risk
 
-1. Run the narrowest relevant tests, then required typecheck/lint/build checks.
-2. Call `atlas_validate_change` with the task ID and confirmed OpenAPI
-   operations. Resolve failures; report advisory warnings with evidence.
-3. Review the diff for unrelated changes, missing states, invented visual
-   values, API drift, and accidental generated artifacts.
+Run narrow tests first, inspect the complete delta against its dirty baseline,
+then run required checks. Call `atlas_validate_change`; fix scope escapes and
+real regressions, and report advisory findings with evidence.
 
-## 5. Review proportionally
+For a visual lock, register the matrix captures and attach an immutable
+pre-clean review while bytes exist; clean the session, then attach the final
+review with identical handles/hashes and cleanup receipt. Complete unique
+viewport/state coverage and cleanup are mandatory.
 
-The main native Codex task is coordinator and sole writer. Do not create a
-separate implementer by default. Optional recovery delegates must be read-only
-and are justified only by measurable context pressure or genuinely independent
-domains; they return evidence, never scope decisions or edits.
+- small/low: no agent reviewer; run focused tests and required fast checks;
+- medium: one read-only correctness/architecture reviewer when shared/API/state
+  warrants it, plus relevant focused tests, lint, typecheck, or build;
+- large/high: up to three narrow read-only reviewers plus full applicable gates
+  and integration/e2e or visual evidence for correctness, UX/accessibility,
+  and security/API only when their domains are present.
 
-After deterministic checks, use independent native review by risk:
+Give reviewers the objective, criteria, lock/exclusions, risk, evidence IDs,
+changed files, and checks. Require `pass`, `blocked`, or findings with stable ID,
+severity, tight file/line evidence, reproduction, fix, confidence, and scope.
+Verify, rerun affected checks, and stop after two review passes.
 
-- small/low: no agent reviewer; use deterministic checks and human diff review;
-- medium: one read-only correctness/architecture reviewer for shared
-  components, stateful UI, API integration, mock-to-backend migration, or a
-  meaningful multi-file surface;
-- high: up to three narrow read-only reviewers only for applicable domains:
-  correctness/architecture, UX-accessibility-fidelity, and security/API.
+## 6. Close technically, then handle memory separately
 
-Do not use a broad mega-reviewer. A correction may raise but never lower the
-review tier. Atlas must not create, route, resume, cancel, or grant permissions
-to reviewers.
+Call `atlas_task_state` with action `complete` after implementation, validation,
+review, and cleanup. Include result, verification, reuse decision, changed-file
+summary, risks, and delivery. It is an immutable technical outcome—not proof of
+commit/push/PR/deploy—and must not write Project Memory.
 
-Give a reviewer only the original objective, approved acceptance criteria,
-locked change surface and exclusions, risk/tier, relevant receipt/handle IDs,
-changed-file list or local diff access, and validation commands/results. Do not
-replay the conversation, skill, indexes, policies, source bodies, or full diff
-inside the prompt; the reviewer inspects the checkout as needed and cannot
-edit.
+Completion is first-writer-wins: HEAD, lock/delta, objective, sources, handles,
+and final review hash are bound durably. Identical interrupted/expired retries
+converge; changed payload or evidence is rejected.
 
-Require `pass`, `blocked`, or prioritized findings. Each finding needs a stable
-ID, severity, tight file/line evidence, violated criterion or contract,
-reproduction/check, bounded remediation, confidence, and whether it expands
-scope. Unsupported preferences and speculation are not findings.
+Default to no memory write. Read memory-closeout only for requested retention
+or a concrete candidate. Use `atlas_memory` action `review-proposal` only to
+inspect an exact named proposal.
+Every memory mutation first submits its complete payload without consent, then
+repeats it unchanged only after literal action/target approval. Implementation
+approval, completion, silence, or generic "continue" is not memory consent.
 
-The coordinator verifies each finding before editing, fixes accepted findings
-as the sole writer, reruns affected checks, and may request one focused second
-read-only pass over the remediation. Stop after two review passes. Escalate
-conflicting evidence, absent authority, or scope expansion to the human.
-
-## 6. Record and close
-
-1. Call `atlas_record_outcome` once with the result, verification, and reuse
-   decision. Propose project memory only for durable knowledge; never promote
-   it automatically.
-2. Store only supported content-free review metrics when available. Never send
-   reviewer prompts, code, diff bodies, comments, or model responses to Atlas.
-3. Return a concise outcome: files/behavior changed, verification performed,
-   review status, unresolved risks, and memory candidate or `none`.
-
-If Atlas is unavailable, perform the same repository-first reasoning manually
-and continue. Load a file under `references/` only when its named domain is
-actually active; none is required for every task.
+Return behavior/files changed, verification, review/delivery state, unresolved
+risks, and memory status. Never commit, push, create a PR, or update an external
+system unless separately requested.

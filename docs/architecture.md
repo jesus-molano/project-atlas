@@ -39,6 +39,12 @@ preserves 34 v1 tools only for parity and field rollout. Installation registers
 core. The legacy profile is retired after the v2 acceptance gates in
 [the audit](project-atlas-v2-audit.md#parity-and-retirement-gates).
 
+The core source-state vocabulary is `pending`, `confirmed`, `omitted`,
+`unavailable`, and `replaced`. Historical `external` is accepted only by the
+legacy adapter/types for read and migration compatibility; callers must convert
+it to `confirmed` plus an exact current receipt, or to `omitted`/`unavailable`,
+before using the core workflow.
+
 ## Storage and identity
 
 Atlas stores data outside checkouts under the centralized local storage root.

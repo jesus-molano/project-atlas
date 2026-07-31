@@ -76,6 +76,9 @@ describe("task execution manifest and retrieval budget", () => {
       taskId: "task-42",
       skills: [{ id: "frontend-task" }],
     });
+    await expect(
+      loadTaskExecutionManifest(rootPath, projection.handle, "task-43"),
+    ).rejects.toThrow(/different task/i);
     expect(await readdir(rootPath)).toEqual(before);
   });
 
@@ -102,6 +105,9 @@ describe("task execution manifest and retrieval budget", () => {
     expect(await loadTaskRetrievalResult(rootPath, second.handle)).toEqual({
       candidates: [{ id: "login-form" }],
     });
+    await expect(
+      loadTaskRetrievalResult(rootPath, second.handle, "task-43"),
+    ).rejects.toThrow(/different task/i);
   });
 
   it("requires an explicit invalidation before a second reuse computation", async () => {

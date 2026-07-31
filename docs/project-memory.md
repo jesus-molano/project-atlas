@@ -39,29 +39,42 @@ important is overwritten invisibly.
 - Reads and rebuilds are automatic.
 - Repository and Figma facts may refresh automatically because they are
   reconstructible.
-- Every completed `$frontend-task` result includes a compact `Memory
-  candidates` status, even when no durable knowledge was detected. A novel
-  durable decision, convention, constraint, integration, known issue, or
-  reusable lesson is shown with evidence, canonical scope, confidence, and one
-  explicit confirmation question.
-- Only after that exact confirmation does an agent use
-  `propose_memory_update` for durable knowledge. The proposal contains
-  evidence, confidence, relations, and any item it supersedes.
-- `apply_memory_update` requires explicit `confirmed: true`, refuses proposals
-  with unresolved `decision-required` findings, and requires a second
-  `canonical_confirmed: true` acknowledgement before writing canonical Atlas
-  storage.
-- `record_outcome` may append a local observed/verified episode only after the
-  user asks to retain that local result. It does not promote the episode to a
-  team rule.
+- Technical completion is independent of memory. `$frontend-task` closes a
+  verified implementation with `atlas_task_state` action `complete`; this
+  records task state but does not create an episode or proposal.
+- `atlas_memory` is the only core memory gateway. `review-proposal` reads one
+  exact proposal ID without mutating it. Every mutating call requires literal
+  user consent that matches one explicit action and target; generic approval to
+  implement or close the task is insufficient.
+- Consent is a two-call, payload-bound protocol. The first unchanged mutation
+  request omits `consent`, performs no write, and returns the complete bounded
+  scope, an issued receipt, and a token. After showing that exact scope and
+  receiving literal approval, the caller repeats the exact payload with the
+  token. Any change of task, action, proposal, content, evidence, or target
+  requires a fresh token; success returns a consumed receipt.
+- The second call advances a durable write-once audit chain from `issued` to
+  `executing`, `committed`, and `consumed`. The payload hash is also the memory
+  operation's idempotency key, so a retry can recover a committed result or
+  repeat only an unfinished operation without duplicating the mutation.
+- `record-episodic` stores one local observed or verified episode only when the
+  user explicitly asks to retain that result. It never promotes the episode to
+  a team rule.
+- `propose-canonical` creates a reviewable proposal for a named durable
+  decision, convention, constraint, integration, known issue, or reusable
+  lesson. The proposal includes evidence, confidence, relations, scope, and any
+  item it supersedes.
+- `apply-canonical` requires a separate literal confirmation of the exact
+  proposal and refuses unresolved `decision-required` findings.
+- `reject-proposal` requires literal confirmation of the exact proposal to
+  reject. Rejection remains auditable.
 - Contradictions, duplicates, stale items, and prior failed attempts become
   evidence-backed findings instead of silent writes.
 
-The public surface stays deliberately small: `orient_project`,
-`search_project_memory`, `get_memory_item`, `get_task_context`,
-`check_before_change`, proposal/apply, and outcome recording. A separate
-decision-context tool would duplicate typed memory search plus the preventive
-gate, so decisions and constraints use those existing contracts.
+The public core surface stays deliberately small: `atlas_prepare_task`,
+`atlas_expand_context`, `atlas_lock_change_scope`, `atlas_validate_change`,
+`atlas_task_state`, and `atlas_memory`. Indexed retrieval arrives as bounded
+results or handles from prepare/expand; exact proposal review and all writes go
+through `atlas_memory`.
 
 ## Locations and portability
 
@@ -77,18 +90,17 @@ The SQLite database is isolated by the repository's stable project ID. Use
 available for explicit diagnostics or automation.
 
 Invoking `$frontend-task` permits it to read relevant indexed memory. It does
-not authorize recording an outcome, creating a proposal, or applying canonical
-memory. The closeout reports `none`, `canonical-candidate`, `local-only`,
-`canonical-stored`, or `declined`; only an explicit confirmation of the named
-write authorizes persistence.
-
-The `AgentCompactResult.memoryCloseout` object is shared across chat and GUI.
-Codex determines it once under the frontend-task contract; the GUI presents it
-without reclassifying candidates or implementing a separate approval rule.
+not authorize recording an episode, proposing or applying canonical memory, or
+rejecting a proposal. A named proposal may be read with `review-proposal`, but
+that review grants no mutation authority. Closeout reports `none`, `episodic-candidate`,
+`canonical-candidate`, `proposal-pending`, `stored`, or `declined`; only literal
+consent for the named `atlas_memory` action and target authorizes persistence.
+The GUI may present the same proposal/state for review, but it cannot infer
+consent, reclassify the candidate, or complete a native Codex task.
 
 ## Obsidian
 
-Open the repository—or just its approved memory folder—as an Obsidian vault.
+Open the repository, or just its approved memory folder, as an Obsidian vault.
 Frontmatter, `[[wikilinks]]`, and backlinks work directly. Obsidian is only an
 optional editor/visualizer over the same files: there is no plugin and no
 parallel memory database.
@@ -103,6 +115,15 @@ API tokens, and known credential formats. Error messages report the field and
 pattern class without echoing the value. This is preventive pattern matching,
 not a substitute for secret scanning or security review. Never place
 credentials in Project Memory, fixtures, prompts, or global synced folders.
+
+Each normal memory operation preflights every destination, rejects symlinks,
+stages and syncs files, and commits related SQLite rows atomically; an ordinary
+error rolls back filesystem replacements and the database operation. The
+consent chain reconciles application-level interruption, but Atlas does not yet
+maintain a filesystem/database recovery journal for a process or power loss in
+the narrow commit window. After such an interruption, run storage diagnostics
+and rebuild/reconcile the affected index before trusting the last operation;
+only a `committed`/`consumed` result says the lifecycle observed completion.
 
 An Engram adapter may be considered later for explicit import/export, but Atlas
 does not install or maintain a second memory system.

@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  merge_group:
   pull_request:
   push:
     branches:
@@ -33,27 +34,42 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm lint:css
-      - run: pnpm audit:architecture
-      - run: pnpm audit:product
-      - run: pnpm audit:docs
-      - run: pnpm audit:maintainability
-      - run: pnpm audit:summary
-      - run: pnpm typecheck
-      - run: pnpm build
-      - run: pnpm audit:artifacts
-      - run: pnpm test --maxWorkers=2
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test Codex kit installation and configuration
+        run: pnpm test:kit
+      - name: Static gates, build, typecheck, and artifact audit
+        run: pnpm check:ci
+      - name: Smoke-test the built core MCP over stdio
+        run: node frontend-codex-kit/smoke-core-mcp.mjs packages/mcp/dist/index.js
+      - name: Test unit and integration contracts
+        run: pnpm test:unit:built --maxWorkers=2
         if: runner.os == 'Windows'
-      - run: pnpm test:launcher
+      - name: Test product launcher
+        run: pnpm test:launcher:built
         if: runner.os == 'Windows'
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Test coverage
+        run: pnpm test:coverage:built --maxWorkers=2
         if: runner.os == 'Linux'
-      - run: pnpm test:coverage --maxWorkers=2
+      - name: Benchmark context cost
+        run: pnpm benchmark:context-cost:built
         if: runner.os == 'Linux'
-      - run: pnpm benchmark:context-cost
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
         if: runner.os == 'Linux'
-      - run: pnpm test:e2e
+      - name: Test end-to-end smoke flows
+        run: pnpm test:e2e:built
         if: runner.os == 'Linux'
-      - run: pnpm audit --prod --audit-level high
+      - name: Upload end-to-end failure evidence
+        uses: actions/upload-artifact@v4
+        if: failure() && runner.os == 'Linux'
+        with:
+          name: playwright-failure-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+        if: runner.os == 'Linux'

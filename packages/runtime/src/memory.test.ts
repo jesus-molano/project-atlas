@@ -182,6 +182,14 @@ describe.sequential("Project Atlas runtime", () => {
     expect(narrow.code.length).toBeLessThanOrEqual(1);
     expect(narrow.design.candidates.length).toBeLessThanOrEqual(1);
 
+    const compact = await getTaskContext(
+      rootPath,
+      "add study filter to search on mobile",
+      { figmaFile: "PersonalShop", budgetChars: 2_000, topK: 3 },
+    );
+    expect(JSON.stringify(compact).length).toBeLessThanOrEqual(2_000);
+    expect(compact.code.length).toBeGreaterThan(0);
+
     const designOmitted = await getTaskContext(
       rootPath,
       "add study filter to search on mobile",
@@ -296,7 +304,9 @@ describe.sequential("Project Atlas runtime", () => {
     expect(selected.code[0]?.id).toBe(selectedComponent.id);
     expect(selected.memory[0]?.id).toBe("decision-search-url-v2");
     expect(selected.design.candidates[0]?.id).toBe(selectedDesignNodeId);
-    expect(selected.metrics.expandableIds).toContain(selectedComponent.id);
+    expect(selected.metrics.expandableIds).toContain(
+      `code:${selectedComponent.id}`,
+    );
     expect(selected.project.profile).toMatchObject({
       frameworks: expect.any(Array),
       coverage: expect.objectContaining({
@@ -748,6 +758,16 @@ paths:
       authority: "verified",
       scope: "local",
     });
+    expect(item.relatedHandles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "decision-search-url-v2",
+          handle: "memory:decision-search-url-v2",
+        }),
+      ]),
+    );
+    expect(item.metrics.expandableIds).toContain("memory:decision-search-url-v2");
+    expect(item.metrics.expandableIds).toContain(applied.applied[0]!.id);
 
     const outcome = await recordProjectOutcome({
       rootPath,

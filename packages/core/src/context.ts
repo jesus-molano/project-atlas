@@ -335,13 +335,17 @@ export function buildChangeSurface(
     primaryComponent?: string;
     secondaryComponents?: string[];
     outOfScope?: string[];
+    primarySurface?: NonNullable<ChangeSurfaceBundle["primarySurface"]>;
+    allowedFiles?: string[];
   } = {},
 ): ChangeSurfaceBundle {
   const normalizedIntent = intent.trim();
   if (!normalizedIntent) {
     throw new Error("Change surface requires a non-empty implementation intent.");
   }
-  const ranked = searchComponents(graph, normalizedIntent, 4);
+  const ranked = options.primarySurface
+    ? []
+    : searchComponents(graph, normalizedIntent, 4);
   const explicitPrimary = options.primaryComponent
     ? findComponent(graph, options.primaryComponent)
     : undefined;
@@ -432,6 +436,10 @@ export function buildChangeSurface(
       addFile(consumer?.relativePath, "consumer-reference", relation.id);
     }
   }
+  for (const allowedFile of options.allowedFiles ?? []) {
+    const normalized = allowedFile.trim().replaceAll("\\", "/");
+    if (normalized) addFile(normalized, "authorized");
+  }
   const impact = primaryContext
     ? {
         level:
@@ -447,14 +455,24 @@ export function buildChangeSurface(
   return {
     schemaVersion: 1,
     intent: normalizedIntent,
-    selection: explicitPrimary
-      ? "explicit"
-      : primary
-        ? "ranked"
-        : "unresolved",
+    selection: options.primarySurface
+      ? "non-component"
+      : explicitPrimary
+        ? "explicit"
+        : primary
+          ? "ranked"
+          : "unresolved",
+    ...(options.primarySurface ? { primarySurface: options.primarySurface } : {}),
     ...(primary ? { primary: componentContextReference(primary) } : {}),
     references,
     files: files.slice(0, 12),
+    authorizedFiles: [
+      ...new Set(
+        (options.allowedFiles ?? [])
+          .map((file) => file.trim().replaceAll("\\", "/").replace(/^\.\//u, ""))
+          .filter(Boolean),
+      ),
+    ].slice(0, 32),
     ...(primaryContext
       ? {
           publicApi: {

@@ -20,10 +20,12 @@ export function createManagedBlock(nodeExecutable, mcpEntry, newline = "\n") {
 }
 
 function normalizedHeader(header) {
-  return header.trim().replace(
-    /^mcp_servers\."component-atlas"$/,
-    SECTION_NAME,
-  );
+  const normalized = header.trim();
+  return /^mcp_servers\s*\.\s*(?:component-atlas|"component-atlas"|'component-atlas')$/.test(
+    normalized,
+  )
+    ? SECTION_NAME
+    : normalized;
 }
 
 function findManagedSections(source) {

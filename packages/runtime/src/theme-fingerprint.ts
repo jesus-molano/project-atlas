@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  SOURCE_RECEIPT_SCHEMA_VERSION,
   slash,
   type ComponentNode,
   type DesignToken,
@@ -207,6 +208,7 @@ export function enrichThemeFingerprintWithFigma(
       index.variables.totalVariables > 0 &&
       index.sources.some(
         (source) =>
+          source.receipt.schemaVersion === SOURCE_RECEIPT_SCHEMA_VERSION &&
           source.receipt.freshness === "current" &&
           source.receipt.resolved.fileKey === index.file.key,
       ),
@@ -225,7 +227,9 @@ export function enrichThemeFingerprintWithFigma(
     .map((variable) => `figma:${variable.name}`);
   const provenance = confirmed.map((index) => {
     const receipt = index.sources.find(
-      (source) => source.receipt.freshness === "current",
+      (source) =>
+        source.receipt.schemaVersion === SOURCE_RECEIPT_SCHEMA_VERSION &&
+        source.receipt.freshness === "current",
     )!.receipt;
     return {
       kind: "figma-variable" as const,

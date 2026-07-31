@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
 import {
   McpConfigConflictError,
@@ -9,8 +10,24 @@ import {
   updateCodexMcpConfig,
 } from "./register-codex-mcp.mjs";
 
-const nodePath = String.raw`C:\Program Files\nodejs\node.exe`;
-const entryPath = String.raw`C:\Users\Developer Tools\project-atlas\packages\mcp\dist\index.js`;
+const fixturePathsRoot = path.join(
+  path.parse(process.cwd()).root,
+  "Project Atlas Test Paths",
+);
+const nodePath = path.join(
+  fixturePathsRoot,
+  "Node Runtime",
+  process.platform === "win32" ? "node.exe" : "node",
+);
+const entryPath = path.join(
+  fixturePathsRoot,
+  "Developer Tools",
+  "project-atlas",
+  "packages",
+  "mcp",
+  "dist",
+  "index.js",
+);
 
 async function temporaryRoot() {
   return mkdtemp(path.join(os.tmpdir(), "project-atlas-mcp-config-"));
@@ -28,8 +45,8 @@ test("creates a missing config and parent directory", async (context) => {
   assert.equal(result.status, "created");
   const source = await readFile(configPath, "utf8");
   assert.match(source, new RegExp(`\\[${SECTION_NAME.replace(".", "\\.")}\\]`));
-  assert.match(source, /C:\\\\Program Files\\\\nodejs\\\\node\.exe/);
-  assert.match(source, /Developer Tools\\\\project-atlas/);
+  assert.ok(source.includes(`command = ${JSON.stringify(nodePath)}`));
+  assert.ok(source.includes(JSON.stringify(entryPath)));
 });
 
 test("preserves unrelated sections and comments and creates a backup", async (context) => {
@@ -101,6 +118,54 @@ test("recognizes an equivalent literal-string TOML block", async (context) => {
   });
   assert.equal(result.status, "unchanged");
   assert.equal(await readFile(configPath, "utf8"), original);
+});
+
+test("recognizes spaced and literal managed table keys", async (context) => {
+  const root = await temporaryRoot();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = path.join(root, "config.toml");
+  const original = [
+    "[mcp_servers . 'component-atlas']",
+    `command = '${nodePath}'`,
+    `args = ['${entryPath}', '--profile', 'core']`,
+    "",
+  ].join("\n");
+  await writeFile(configPath, original, "utf8");
+  const result = await updateCodexMcpConfig({
+    configPath,
+    nodeExecutable: nodePath,
+    mcpEntry: entryPath,
+  });
+  assert.equal(result.status, "unchanged");
+  assert.equal(await readFile(configPath, "utf8"), original);
+});
+
+test("refuses duplicate equivalent managed tables even with force", async (context) => {
+  const root = await temporaryRoot();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = path.join(root, "config.toml");
+  const original = [
+    "[mcp_servers.component-atlas]",
+    `command = '${nodePath}'`,
+    `args = ['${entryPath}', '--profile', 'core']`,
+    "",
+    "[mcp_servers . 'component-atlas']",
+    `command = '${nodePath}'`,
+    `args = ['${entryPath}', '--profile', 'core']`,
+    "",
+  ].join("\n");
+  await writeFile(configPath, original, "utf8");
+  await assert.rejects(
+    updateCodexMcpConfig({
+      configPath,
+      nodeExecutable: nodePath,
+      mcpEntry: entryPath,
+      force: true,
+    }),
+    /Multiple \[mcp_servers\.component-atlas\] sections/,
+  );
+  assert.equal(await readFile(configPath, "utf8"), original);
+  assert.deepEqual(await readdir(root), ["config.toml"]);
 });
 
 test("upgrades the previous one-argument Atlas block to core", async (context) => {

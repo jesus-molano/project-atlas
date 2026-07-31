@@ -6,9 +6,9 @@ Generated deterministically from the current checkout.
 | Surface | Current checkout |
 | --- | ---: |
 | Workspace packages | 10 |
-| Test/spec files | 68 |
+| Test/spec files | 91 |
 | Viewer Vue files included by self-scan | 16 |
-| MCP core tools (default) | 6 |
+| MCP core tools (default) | 3 |
 | MCP legacy tools (temporary compatibility profile) | 34 |
 
 The authoritative pass/fail evidence comes from CI: lint, CSS lint, typecheck,

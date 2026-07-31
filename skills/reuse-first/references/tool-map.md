@@ -1,21 +1,24 @@
-# Project Atlas code-tool map
+# Project Atlas core tool map
 
-| Purpose | MCP tool | CLI |
+Project Atlas exposes one six-tool core profile. Use no legacy tool names.
+
+| Stage | Core tool | Contract |
 | --- | --- | --- |
-| Refresh repository | `scan_repository` | `component-atlas scan <root>` |
-| Get compact task context | `get_reuse_context` | `component-atlas context <root> <intent>` |
-| Lock one implementation surface | `get_change_surface` | Keep one primary, at most two reference-only components, bounded files, and explicit exclusions |
-| Find extra candidates | `search_components` | `component-atlas search <root> <query>` |
-| Inspect component | `get_component` | `component-atlas show <root> <selector>` |
-| Explain similarity | `find_similar_components` | `component-atlas similar <root> <selector>` |
-| Find consumers | `list_component_usages` | `component-atlas impact <root> <selector>` |
-| Estimate API impact | `analyze_prop_change_impact` | `component-atlas impact <root> <selector>` |
-| Record gate | `record_component_decision` | `component-atlas decision <root> --intent <text> --decision <kind> --rationale <text>` |
-| Cache sparse Figma map | `map_figma_file` | `component-atlas figma map <root> <url> --metadata <file>` |
-| Match task to design | `find_design_candidates` | `component-atlas figma find <root> <task>` |
-| Inspect confirmed design node | `inspect_design_node` | `component-atlas figma inspect <root> <file> <node>` |
+| Prepare | `atlas_prepare_task` | Resolve the task-scoped source ledger, refresh code evidence only after preflight is ready, rank reuse, and return a stable task ID plus bounded handles. |
+| Clarify | `atlas_expand_context` | Expand exactly one named `code:`, `entity:`, `design:`, `memory:` or task-bound `visual:`, `visual-review:`, `delivery:`, `retrieval:`, `manifest:`, or `receipt-*` handle. Task-bound handles require the exact `task_id`. |
+| Decide and lock | `atlas_lock_change_scope` | Persist the reuse decision and rationale before editing, with one existing component or planned surface, at most two references, exact allowed files, derived graph/API impact, and exclusions. |
+| Validate | `atlas_validate_change` | Compare the complete task delta with the persisted lock, baseline, project evidence, and confirmed API operations. |
+| Resume or close | `atlas_task_state` | Resume, checkpoint, block, or record the immutable technical outcome. This is not proof of external delivery. Use explicit checkpoints only when no preceding core operation already recorded the same boundary. |
+| Optional memory | `atlas_memory` | Review one exact proposal with `review-proposal`; after literal action-specific consent, record episodic memory, propose/apply canonical memory, or reject a proposal. Never use it in automatic technical close. |
 
-Component selectors accept an Atlas ID, source path, source name, or effective
-runtime name. Use absolute repository paths and quote CLI paths with spaces.
-Focused queries are compact by default. CLI `--raw` and MCP `raw: true` expose
-full index data and are intended only for diagnostics.
+Use an absolute `root_path`. Use exact forward-slash repository-relative paths
+for `primary_surface.path` and `allowed_files` (no globs); `exclusions` may use
+repository-relative files, directories, or supported globs. Keep one stable
+`task_id` for the same objective.
+A corrected source, graph, objective, visual contract, or scope is a named
+invalidation; reuse existing handles when nothing relevant changed.
+
+If a core tool is unavailable, report that Project Atlas is unavailable and
+perform repository-first reasoning manually. Do not call a legacy MCP tool or
+assume `component-atlas` is installed on `PATH`. Run
+`frontend-codex-kit/doctor.ps1` from the Atlas checkout to diagnose installation.

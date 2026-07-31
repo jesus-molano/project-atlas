@@ -195,7 +195,156 @@ describe("source receipts", () => {
       operation: legacy.operation,
       observedAt: legacy.observedAt,
     });
-    expect(parseSourceReceipt({ ...legacy, id })).toEqual({ ...legacy, id });
+    const parsed = parseSourceReceipt({ ...legacy, id });
+    expect(parsed).toEqual({ ...legacy, id });
+    expect(() =>
+      createSourceReceipt({
+        ...legacy,
+        schemaVersion: 1,
+      } as unknown as Parameters<typeof createSourceReceipt>[0]),
+    ).toThrow(/cannot be upgraded/i);
+    expect(() =>
+      assertSourceReceiptMatchesDecision(
+        {
+          id: legacy.sourceDecisionId,
+          kind: "jira",
+          reference: "APP-42",
+          state: "confirmed",
+        },
+        parsed,
+      ),
+    ).toThrow(/historical.*v3/i);
+  });
+
+  it("reads legacy v2 receipts but never accepts them as current authority", () => {
+    const reference = "APP-42";
+    const identity = sourceIdentityFromReference("jira", reference);
+    const current = createSourceReceipt({
+      sourceDecisionId: taskSourceId("jira", reference),
+      provider: "jira",
+      requested: identity,
+      resolved: identity,
+      adapter: "atlassian-rovo",
+      route: "atlassian-rovo:get-issue",
+      operation: "get-issue",
+      scope: { kind: "issue", id: reference },
+      observedAt: "2026-07-28T10:00:00.000Z",
+      contentHash: "jira-export-v2",
+      coverage: "exact",
+      freshness: "current",
+    });
+    const legacyId = sourceReceiptId({
+      schemaVersion: 2,
+      sourceDecisionId: current.sourceDecisionId,
+      resolved: current.resolved,
+      adapter: current.adapter,
+      operation: current.operation,
+      observedAt: current.observedAt,
+      contentHash: current.contentHash,
+      scope: current.scope,
+    });
+    expect(legacyId).toBe("receipt-55cac2a1acefe519");
+    const legacy = { ...current, schemaVersion: 2 as const, id: legacyId };
+
+    expect(parseSourceReceipt(legacy)).toEqual(legacy);
+    expect(() =>
+      assertSourceReceiptMatchesDecision(
+        {
+          id: current.sourceDecisionId,
+          kind: "jira",
+          reference,
+          state: "confirmed",
+        },
+        legacy,
+      ),
+    ).toThrow(/historical.*v3/i);
+  });
+
+  it("binds every authority field into the v3 SHA-256 identity", () => {
+    const reference = "APP-42";
+    const identity = sourceIdentityFromReference("jira", reference);
+    const receipt = createSourceReceipt({
+      sourceDecisionId: taskSourceId("jira", reference),
+      provider: "jira",
+      requested: identity,
+      resolved: identity,
+      adapter: "manual-import",
+      route: "provided-export",
+      operation: "read-issue",
+      scope: { kind: "issue", id: reference },
+      observedAt: "2026-07-31T10:00:00.000Z",
+      contentHash: "sha256:fixture",
+      fallback: {
+        fromAdapter: "atlassian-rovo",
+        condition: "The primary adapter was unavailable.",
+        identityPreserved: true,
+      },
+      coverage: "exact",
+      freshness: "current",
+    });
+
+    expect(receipt.schemaVersion).toBe(3);
+    expect(receipt.id).toBe(
+      "receipt-fe1d409ab85199a6ce7f2b498c01010d7805575a932a1f26da2bfc1bc996f727",
+    );
+    const tampered = [
+      { ...receipt, sourceDecisionId: "source-jira-tampered" },
+      {
+        ...receipt,
+        provider: "other" as const,
+        requested: { ...receipt.requested, provider: "other" as const },
+        resolved: { ...receipt.resolved, provider: "other" as const },
+      },
+      { ...receipt, adapter: "other" as const },
+      { ...receipt, freshness: "stale" as const },
+      { ...receipt, coverage: "partial" as const },
+      { ...receipt, route: "different-route" },
+      { ...receipt, operation: "different-operation" },
+      { ...receipt, scope: { ...receipt.scope, id: "APP-43" } },
+      {
+        ...receipt,
+        scopeRelation: {
+          kind: "same-scope" as const,
+          sourceId: reference,
+          targetId: reference,
+        },
+      },
+      {
+        ...receipt,
+        derivation: {
+          kind: "same-origin-redirect" as const,
+          sourceId: reference,
+          targetId: "APP-42-export",
+          evidenceHash: `sha256:${"a".repeat(64)}`,
+        },
+      },
+      { ...receipt, contentHash: "sha256:different" },
+      { ...receipt, observedAt: "2026-07-31T10:00:01.000Z" },
+      {
+        ...receipt,
+        fallback: {
+          ...receipt.fallback!,
+          condition: "A different fallback condition.",
+        },
+      },
+      {
+        ...receipt,
+        requested: {
+          ...receipt.requested,
+          url: "https://example.invalid/browse/APP-42",
+        },
+      },
+      {
+        ...receipt,
+        resolved: {
+          ...receipt.resolved,
+          url: "https://example.invalid/export/APP-42",
+        },
+      },
+    ];
+    for (const candidate of tampered) {
+      expect(() => parseSourceReceipt(candidate)).toThrow(/immutable fields/i);
+    }
   });
 
   it("records a derived OpenAPI spec without replacing confirmed Swagger UI identity", () => {
@@ -239,6 +388,40 @@ describe("source receipts", () => {
         },
       }),
     ).toThrow(/derivation/i);
+  });
+
+  it("binds OpenAPI method and path into the immutable receipt identity", () => {
+    const reference = "https://api.example.com/openapi.json";
+    const requested = sourceIdentityFromReference("openapi", reference);
+    const resolved = {
+      ...requested,
+      method: "POST",
+      path: "/v1/accounts/{accountId}/verify",
+      operationId: "verifyAccount",
+    };
+    const receipt = createSourceReceipt({
+      sourceDecisionId: taskSourceId("openapi", reference),
+      provider: "openapi",
+      requested,
+      resolved,
+      adapter: "openapi-public-http",
+      route: reference,
+      operation: "resolve-operation",
+      scope: {
+        kind: "operation",
+        id: "POST /v1/accounts/{accountId}/verify",
+        parentId: requested.canonicalId,
+      },
+      observedAt: "2026-07-31T10:00:00.000Z",
+      coverage: "exact",
+      freshness: "current",
+    });
+    expect(() =>
+      parseSourceReceipt({
+        ...receipt,
+        resolved: { ...receipt.resolved, path: "/v1/other" },
+      }),
+    ).toThrow(/operation receipt|immutable fields/i);
   });
 
   it("applies the same exact-identity rule to Jira and Confluence", () => {

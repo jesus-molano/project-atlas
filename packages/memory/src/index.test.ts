@@ -138,6 +138,28 @@ describe("Project Atlas memory primitives", () => {
     expect(composed.code).toHaveLength(1);
     expect(composed.design.candidates).toHaveLength(1);
     expect(JSON.stringify(composed).length).toBeLessThanOrEqual(900);
+
+    const compactHandles = fitBudgetedResponse(
+      { value: "bounded" },
+      {
+        budgetChars: 2_000,
+        expandableIds: Array.from(
+          { length: 20 },
+          (_, index) => `code:component-${index}`,
+        ),
+      },
+    );
+    expect(compactHandles.metrics.expandableIds).toHaveLength(6);
+  });
+
+  it("does not surface unrelated memory solely because it is authoritative", () => {
+    const result = compactMemorySearch(
+      [baseItem],
+      "confirmation dialog account settings",
+      { budgetChars: 800 },
+    );
+    expect(result.results).toEqual([]);
+    expect(result.metrics.totalMatches).toBe(0);
   });
 
   it("rejects secret-like memory content without echoing the secret", () => {

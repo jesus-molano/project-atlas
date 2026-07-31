@@ -266,4 +266,64 @@ describe("reuse context", () => {
     );
     expect(JSON.stringify(surface)).not.toContain("classTokens");
   });
+
+  it("locks a non-component surface without inventing a component candidate", () => {
+    const graph: ComponentGraph = {
+      schemaVersion: GRAPH_SCHEMA_VERSION,
+      project: {
+        id: "service-fixture",
+        name: "service-fixture",
+        rootPath: "/fixture",
+        framework: "react",
+        scannedAt: new Date(0).toISOString(),
+        sourceFiles: 0,
+      },
+      components: [],
+      edges: [],
+      tokens: [],
+    };
+    const surface = buildChangeSurface(graph, "Update the profile API client", {
+      primarySurface: { kind: "service", id: "profile-client" },
+      allowedFiles: ["src/api/profile.ts", "src/api/profile.test.ts"],
+      outOfScope: ["src/auth/**"],
+    });
+    expect(surface).toMatchObject({
+      selection: "non-component",
+      primarySurface: { kind: "service", id: "profile-client" },
+      authorizedFiles: ["src/api/profile.ts", "src/api/profile.test.ts"],
+      files: [
+        { path: "src/api/profile.ts", role: "authorized" },
+        { path: "src/api/profile.test.ts", role: "authorized" },
+      ],
+      outOfScope: ["src/auth/**"],
+    });
+    expect(surface.primary).toBeUndefined();
+  });
+
+  it("retains every explicit authorized path outside the display-file cap", () => {
+    const graph: ComponentGraph = {
+      schemaVersion: GRAPH_SCHEMA_VERSION,
+      project: {
+        id: "authorized-fixture",
+        name: "authorized-fixture",
+        rootPath: "/fixture",
+        framework: "react",
+        scannedAt: new Date(0).toISOString(),
+        sourceFiles: 0,
+      },
+      components: [],
+      edges: [],
+      tokens: [],
+    };
+    const allowedFiles = Array.from(
+      { length: 20 },
+      (_, index) => `src/explicit-${index}.ts`,
+    );
+    const surface = buildChangeSurface(graph, "Update configuration", {
+      primarySurface: { kind: "configuration", id: "frontend-config" },
+      allowedFiles,
+    });
+    expect(surface.files).toHaveLength(12);
+    expect(surface.authorizedFiles).toEqual(allowedFiles);
+  });
 });

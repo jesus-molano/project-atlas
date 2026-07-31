@@ -10,6 +10,11 @@ The single default root on Windows is:
 %LOCALAPPDATA%\ProjectAtlas\
 ```
 
+The other platform defaults are:
+
+- macOS: `~/Library/Application Support/ProjectAtlas/`;
+- Linux: `${XDG_DATA_HOME:-~/.local/share}/ProjectAtlas/`.
+
 `PROJECT_ATLAS_HOME` may override that root for tests or managed
 installations. Atlas does not use `.codex` for project content. Codex's own MCP
 registration remains in Codex configuration because that file belongs to the
@@ -59,6 +64,28 @@ and cross-source scope relations. Capsules contain only a bounded resume
 projection, so a long confirmed URL is never truncated at the trust boundary
 and later checkpoints do not require the user to repeat it.
 
+`task-state/` also owns Git baselines, immutable final/technical-outcome receipts,
+source receipts, visual contracts/reviews, and the write-once memory-consent
+chain. These durable artifacts are intentionally separate from expiring
+capsules, so completion, visual review, and an approved memory mutation remain
+auditable after resume state is pruned.
+
+New source observations use SourceReceipt v3 IDs: `receipt-` followed by the
+64-character SHA-256 of the complete normalized semantic payload. Version 1
+and 2 receipts with 16-character IDs remain readable for migration and audit,
+but are historical evidence only and cannot authorize a new ChangeSurface,
+Figma asset, or source-dependent implementation.
+
+ChangeSurface v2 locks are write-once artifacts under
+`task-state/change-surfaces/<sha256>.json`. Each artifact binds the logical
+project checkout, task ID, normalized scope, Git baseline, and integrity hash.
+Capsule pruning never deletes these locks. Completion intents and delivery
+receipts use the same durable separation so identical retries can reconcile
+after interruption while conflicting completion payloads are rejected. The
+intent freezes result/summary/verification plus HEAD, lock/delta, source
+receipts, context handles, and the exact visual-review hash; the immutable
+commit makes post-expiry retries independent of the transient capsule.
+
 Logical project identity is based on the normalized Git remote, then the Git
 common directory, and finally the canonical path. Worktrees share the logical
 project while checkout-specific graphs and local outcomes retain their
@@ -96,8 +123,8 @@ explicit operation:
 pnpm atlas storage migrate "C:\path\to\product-repository" --apply --remove-source
 ```
 
-Atlas imports into
-`%LOCALAPPDATA%\ProjectAtlas\projects\<logical-project-id>\`, rechecks every
+Atlas imports into `<platform Atlas storage root>/projects/<logical-project-id>/`
+(`%LOCALAPPDATA%\ProjectAtlas\projects\<logical-project-id>\` on Windows), rechecks every
 source hash, and removes only `<repo>\.component-atlas` after all recognized
 repository-local files are present in centralized storage. It refuses cleanup
 after a partial import, an invalid file, a source change, or an unrecognized

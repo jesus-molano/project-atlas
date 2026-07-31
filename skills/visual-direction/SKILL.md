@@ -127,21 +127,49 @@ Figma source does not authorize modification.
 4. Compare hierarchy, density, typography, token use, responsive behavior,
    interaction states, accessibility, and exact Figma fidelity when applicable.
 5. Fix the single implementation; do not revive discarded variants.
-6. Record a compact VisualReview with pass/deviation/blocked results and
-   evidence handles. Close the artifact session after review and task closeout.
-7. Verify Git contains no preview, sandbox, generated image, or temporary
-   direction residue.
+6. Register every review capture and carry its exact
+   `artifact-<sha256-prefix>-<uuid>` handle, full SHA256, emitted capture
+   receipt, viewport, and state.
+   Attach a first immutable `visual-review:` receipt to the parent task while
+   the artifacts still exist, using `selected-retained`; this is an auditable
+   review boundary and deliberately blocks completion.
+7. Close the artifact session. It returns a content-free, task-bound cleanup
+   receipt after deletion. Attach a second/final review with the same capture
+   identities plus cleanup `clean` and that receipt. Because passing captures
+   are registered temporary artifacts, `not-applicable` cannot authorize a
+   passing close. `cleanup-pending` or a retained selection blocks completion.
+8. Expand the final `visual-review:` handle once and verify task, selected
+   contract, complete state-matrix coverage, result, and cleanup binding.
+9. Verify Git contains no preview, sandbox, generated image, or temporary
+   direction residue before the parent validates and closes the task.
 
-## Record compactly in Project Atlas
+## Return a core-compatible handoff
 
-Read `references/atlas-handoff.md` before recording visual-direction state.
-Use `scripts/build-atlas-handoff.mjs` to create one bounded capsule projection.
+Read `references/atlas-handoff.md` before returning visual-direction state.
+Use `scripts/build-atlas-handoff.mjs` to create one bounded core projection.
 
-- Reuse the native Codex task and the existing Atlas task capsule. Atlas never
-  launches, resumes, or changes permissions for Codex.
+- Reuse the native Codex task and stable Atlas task ID. Atlas never launches,
+  resumes, or changes permissions for Codex.
+- Initialize the artifact session with that exact Atlas task ID. A standalone
+  invocation without parent `root_path` and `task_id` must not invent them or
+  emit a core projection.
 - Carry IDs and opaque handles, never preview payloads, temporary paths,
   expanded receipts, or the full DesignContract.
+- Use `temporary-artifacts.mjs expand` for the full DesignContract while its
+  session lives; `atlas_expand_context visual:` exposes only the compact
+  durable authority/summary/hash projection.
+- Attach the selected `visual:` contract through `atlas_task_state` action
+  `attach-evidence` using the generated core projection. Locked and review
+  states always require that contract, including fidelity work. Re-run
+  `atlas_prepare_task` only when the objective or source ledger itself changed.
+  Use a separate checkpoint only when no core operation already recorded that
+  semantic boundary.
+- Never technically complete the parent task or call `atlas_memory` from this
+  child workflow.
 - Treat `cleanup-pending` as blocking implementation/completion claims.
+- A passing review is valid only when every declared viewport and required
+  state is represented, viewport/state pairs are unique, and each capture
+  handle prefix matches its full SHA256. Free-form capture strings are invalid.
 - The GUI may review receipts and memory proposals; it cannot reclassify
   authority, replace exact Figma identity, or select a direction.
 

@@ -1,30 +1,56 @@
 # `frontend-task` integration
 
-`frontend-task` is an explicit Codex skill. Its manifest sets
-`allow_implicit_invocation: false`; the installer writes no global frontend
-routing rule. Invoke it with `$frontend-task`.
+`frontend-task` is explicit-only. Its manifest sets
+`allow_implicit_invocation: false`, and the installer writes no global frontend
+routing rule. Invoke it with `$frontend-task`; use `/plan $frontend-task` when a
+reviewed plan gate is desired.
 
-The skill is under 8,000 characters and has no always-loaded references. It
-uses progressive disclosure: OpenAPI, Figma, security, continuation and memory
-references are read only when that domain is active.
+`reuse-first` is also explicit-only. `frontend-task` applies the same component
+decision contract internally and reuses one Atlas task ID; it never loads a
+second prepare/scan cycle.
 
-## Contract
+## Six-tool contract
 
-- inspect repository instructions and existing implementation first;
-- call `atlas_prepare_task` once;
-- ask only for product decisions, conflicting authority or an unrecoverable
-  required source;
-- produce a decision-complete plan and lock the `ChangeSurface`;
-- continue in the same native Codex task after approval;
-- validate deterministic checks and the Atlas diff findings;
-- record one outcome and propose memory only for durable knowledge.
+1. Run source preflight. Bare links remain `pending`; no connector or repository
+   scan runs until material source decisions are resolved.
+2. Call `atlas_prepare_task` once per evidence version.
+3. Expand only a named unresolved handle with `atlas_expand_context`.
+4. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, `create`, or
+   `not-applicable`, then persist that decision in `atlas_lock_change_scope`
+   before editing.
+5. Implement in the same native Codex task and call `atlas_validate_change`
+   after deterministic checks.
+6. Use `atlas_task_state` for resume/block/checkpoint and action `complete` for
+   technical close without memory.
+7. Use `atlas_memory` `review-proposal` only for an exact proposal ID; require
+   literal user consent for every mutating memory action.
 
-If Atlas is unavailable, Codex follows the same repository-first workflow
-without the MCP sidecar. Missing optional connectors never block the task.
+The skill routes optional detail by domain: source preflight, brief,
+capabilities, continuation, and memory closeout references are loaded only when
+their named condition is active.
 
-## Activation tests
+## Size-aware behavior
 
-Installation/skill tests must prove that a generic frontend prompt does not
-load the skill, the explicit `$frontend-task` invocation does, and migration
-removes only the marked Atlas block from `AGENTS.md` while preserving personal
-content.
+- Small: compact decision/scope, focused checks, no independent reviewer.
+- Medium: explicit brief/lock, relevant lint/typecheck/build, one correctness
+  review when shared/API/stateful risk warrants it.
+- Large or high-risk: reviewed plan, full applicable gates, and narrow domain
+  reviews only where evidence/risk justifies them.
+
+If Atlas is unavailable, Codex follows the same repository-first reasoning
+manually. Missing optional connectors never block unrelated work. Run
+`frontend-codex-kit/doctor.ps1` from the Atlas checkout when the six core tools
+are unexpectedly absent.
+
+## Contract tests
+
+Installation and workflow tests should prove:
+
+- generic frontend prompts load neither explicit-only skill;
+- source references remain pending until confirmed;
+- the reuse decision is persisted before the lock permits editing;
+- validation compares the complete task delta with the persisted lock;
+- technical completion writes no memory;
+- every mutating `atlas_memory` action requires literal matching consent, while
+  `review-proposal` cannot mutate or imply a later decision;
+- no default skill/reference names a legacy Atlas tool.

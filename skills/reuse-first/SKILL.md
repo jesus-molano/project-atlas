@@ -1,80 +1,83 @@
 ---
 name: reuse-first
-description: Enforce component discovery and an explicit reuse decision before creating or substantially changing frontend UI. Use for Vue, Nuxt, React, or Next implementation, design-to-code work, component extraction, shared API changes, and reviews that may introduce duplicate UI.
+description: Explicit component-reuse decision workflow for frontend UI using the six Project Atlas core tools. Invoke only when the user writes `$reuse-first`, or when another explicitly invoked skill directs Codex to apply this module without starting a duplicate Atlas task.
 ---
 
 # Reuse First
 
-Treat the existing component graph as required implementation context. Do not
-create a component until the discovery and decision gate is complete.
+Decide whether to reuse, extend, compose, extract, or create before changing UI.
+Use the current repository as authority and Project Atlas as bounded evidence.
 
-## Run the gate
+## Run one decision gate
 
-1. State the UI intent in one sentence: goal, pattern, data, states, and
-   interactions.
-2. Ask only missing questions whose answers can change the component decision:
-   accessibility, empty/loading/error behavior, responsive rules, variants,
-   ownership, reuse horizon, and API constraints.
-3. Refresh the index with `scan_repository`.
-4. Call `get_reuse_context` once using the full implementation intent and the
-   parent task's stable `task_id`. A repeated identical request must reuse its
-   handle; recompute only after a named graph, scope, or source-ledger
-   invalidation.
-5. Inspect the ranked candidates, scopes, API summaries, composition,
-   consumers, similarity evidence, tests, and impact in that bundle.
-6. Use `get_component`, `find_similar_components`, or
-   `list_component_usages` only when the compact bundle leaves a concrete
-   ambiguity. Keep their compact default; request `raw` only to diagnose an
-   incorrect index.
-7. Call `analyze_prop_change_impact` before extending a shared API.
-8. Choose exactly one decision:
-   - `reuse`: use the existing API unchanged.
-   - `extend`: add a cohesive backward-compatible variant or prop.
-   - `compose`: combine existing primitives without changing their APIs.
-   - `extract-and-reuse`: move a useful internal pattern behind a shared API.
-   - `create`: no candidate has the same responsibility or can evolve cleanly.
-9. Call `record_component_decision`. A `create` rationale must name the nearest
-   rejected candidates and explain why extension or composition is harmful.
-10. Lock the implementation boundary with one `get_change_surface` call:
-    exactly one primary component, no more than two reference-only components,
-    explicit exclusions, the parent task's stable `task_id`, and its current
-    source-ledger hash. Do not reopen
-    broad repository search unless graph, scope, or source-ledger invalidation
-    is recorded.
-11. Implement, validate with the target repository's own checks, refresh the
-    index, and verify that the graph reflects the result.
+1. State the implementation intent in one sentence: responsibility, data,
+   states, interactions, accessibility, and responsive behavior.
+2. Inspect repository instructions, the current implementation, tests, and the
+   dirty-worktree baseline. Treat existing changes as user-owned.
+3. If this module owns intake, keep every bare external reference `pending`
+   until exact identity, provider, authority, and task scope are unambiguous.
+   Do not prepare or retrieve while a material source remains pending. If
+   external requirement/API authority or visual/Figma authority is material and
+   no parent task exists, stop before preparation and ask to continue through
+   `$frontend-task`; this repository-only module must not create a partial task
+   that later cannot attach the governing receipt or visual contract.
+4. If this module owns the task, call `atlas_prepare_task` with the absolute
+   root and resolved task-scoped sources. Keep its `task_id`. If a parent
+   `$frontend-task` already prepared the same objective, reuse that task ID and
+   returned handles; never prepare or scan twice.
+5. Inspect the ranked candidates, scope, API summary, consumers, tests,
+   similarity evidence, and impact returned by preparation. Call
+   `atlas_expand_context` for one named handle only when a concrete ambiguity
+   remains.
+6. Choose exactly one decision before locking scope:
+   - `reuse`: use an existing public API unchanged;
+   - `extend`: add one cohesive backward-compatible capability;
+   - `compose`: combine existing primitives without changing their APIs;
+   - `extract-and-reuse`: promote a useful internal pattern behind a shared API;
+   - `create`: no candidate owns the same responsibility or can evolve cleanly;
+   - `not-applicable`: the task changes no reusable UI responsibility.
+7. Report the selected component, nearest rejected alternative, evidence, and
+   rationale. A `create` rationale must name the nearest candidates and explain
+   why extension or composition would damage ownership or API cohesion.
+8. Call `atlas_lock_change_scope` with the decision and rationale, exactly one
+   existing component or planned non-component surface, at most two
+   reference-only components, exact repository-relative allowed files, and
+   explicit exclusions. Atlas derives APIs/impact from graph and receipts. Do
+   not edit before the returned lock is clear or its decision-required findings
+   are resolved.
+9. Implement only the locked surface. Before changing a shared API, use the
+   lock's consumer and impact evidence; expand a single component handle only
+   if the compact result is insufficient.
+10. Run repository validation, then call `atlas_validate_change`. Resolve scope
+   escapes and real regressions; report advisory warnings with evidence.
+11. Close the technical task with `atlas_task_state` action `complete` only
+    after verification. Its technical outcome record is not evidence of
+    commit/push/PR/deployment. Do not write Project Memory unless the user
+    separately opts in through `atlas_memory`.
 
-## Apply scope rules
+## Scope rules
 
-- Prefer shared components, then same-feature components.
+- Prefer a shared component, then a same-feature component.
 - Never import an internal component directly across feature boundaries.
 - Do not add a boolean prop merely to hide a responsibility mismatch.
 - Treat similarity as evidence, not proof.
-- Preserve repository-specific instructions and validation commands.
+- Preserve repository-specific commands, accessibility rules, and tokens.
+- Reopen broad discovery only after naming a graph, source-ledger, objective, or
+  scope invalidation.
 
-## Handle unavailable tools
+## Tool availability
 
-Use the equivalent CLI commands from `references/tool-map.md` when MCP is not
-available. If neither is available, search the repository manually and still
-write the five-way decision before implementation.
+Read [references/tool-map.md](references/tool-map.md) when a core operation is
+missing or a task must resume. If Project Atlas is unavailable, search the
+repository manually, make the same explicit decision, and continue without
+inventing an Atlas result. Do not fall back to legacy Atlas tools or an
+unconfigured CLI.
 
-## Use optional design evidence
+## Parent integration
 
-When the parent workflow supplies Figma context, prefer a confirmed node. If it
-supplies only a file/page, use `find_design_candidates` and respect its gate:
-stop for `decision-required`, report `warning` with its recommendation, and keep
-`resolved` findings as non-blocking evidence. Do not request deep design
-context, variables, or a screenshot until the node is confirmed. Missing Figma
-or global Variables access does not block the component gate.
+`frontend-task` owns intake, source authority, size/risk, implementation,
+review, technical close, and optional memory. When it applies this gate, reuse
+its task ID and core calls; do not invoke a second copy of this workflow.
 
-## Integration boundary
-
-This workflow is the component-decision module for a future global
-`frontend-task` skill. The parent skill may supply Jira, Confluence, Figma,
-screenshots, or pasted requirements. Do not assume any source is installed and
-do not invent missing external context.
-
-## Report the gate
-
-Report the intent, decision, selected component, nearest rejected alternative,
-graph evidence, and validation. Keep it concise.
+Report the intent, decision, selected component, rejected alternative, locked
+surface, and validation concisely.

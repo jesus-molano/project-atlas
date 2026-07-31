@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assessTaskIntake,
+  assessScopedTaskRisk,
   assessTaskRisk,
   detectTaskSources,
   ensureTaskSourceDecisions,
@@ -38,6 +39,28 @@ describe("task intake", () => {
         "Biometric or multi-factor authentication",
       ]),
       requiresObjectiveConfirmation: true,
+    });
+  });
+
+  it("escalates risk monotonically from the discovered change surface", () => {
+    expect(
+      assessScopedTaskRisk("Change the button color", {
+        impact: {
+          level: "high",
+          directConsumers: 14,
+          transitiveConsumers: 31,
+        },
+        publicApiChanged: true,
+        implementationFiles: 9,
+      }),
+    ).toMatchObject({
+      level: "high",
+      requiresObjectiveConfirmation: true,
+      reasons: expect.arrayContaining([
+        "High-impact shared surface",
+        "Public component API change",
+        "Broad implementation surface",
+      ]),
     });
   });
 
@@ -147,6 +170,27 @@ describe("task intake", () => {
       confirmedKinds: [],
       externalKinds: ["openapi"],
     });
+  });
+
+  it("blocks a required source that was moved outside Atlas authority", () => {
+    const objective =
+      "Render catalog cards from https://api.example.com/openapi.json";
+    const sources = detectTaskSources(objective).map((source) => ({
+      ...source,
+      required: true,
+      state: "external" as const,
+      decidedAt: new Date(0).toISOString(),
+    }));
+    expect(
+      assessTaskIntake({
+        schemaVersion: 1,
+        scope: "task",
+        objective,
+        objectiveConfirmed: true,
+        risk: assessTaskRisk(objective),
+        sources,
+      }),
+    ).toMatchObject({ status: "blocked" });
   });
 
   it("does not invent absent source categories for a high-risk task", () => {

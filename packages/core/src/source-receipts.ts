@@ -1,5 +1,11 @@
-export const SOURCE_RECEIPT_SCHEMA_VERSION = 2 as const;
+import { sha256Hex } from "./sha256.js";
+
+export const SOURCE_RECEIPT_SCHEMA_VERSION = 3 as const;
 export const LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION = 1 as const;
+export const PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION = 2 as const;
+export const SOURCE_RECEIPT_ID_PATTERN =
+  /^receipt-(?:[a-f0-9]{16}|[a-f0-9]{64})$/u;
+export const CURRENT_SOURCE_RECEIPT_ID_PATTERN = /^receipt-[a-f0-9]{64}$/u;
 
 export type SourceReceiptProvider =
   | "figma"
@@ -54,6 +60,7 @@ export interface SourceIdentity {
 export interface SourceReceipt {
   schemaVersion:
     | typeof LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION
+    | typeof PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION
     | typeof SOURCE_RECEIPT_SCHEMA_VERSION;
   id: string;
   sourceDecisionId: string;
@@ -111,6 +118,41 @@ interface ReceiptSourceDecision {
 
 const NODE_ID = /^[A-Za-z0-9_.:-]{1,240}$/u;
 const MAX_TEXT = 1_000;
+const SOURCE_PROVIDERS = new Set<SourceReceiptProvider>([
+  "figma",
+  "jira",
+  "confluence",
+  "openapi",
+  "github",
+  "other",
+]);
+const SOURCE_ADAPTERS = new Set<SourceReceiptAdapter>([
+  "figma-desktop-mcp-local",
+  "figma-remote-connector",
+  "atlassian-rovo",
+  "openapi-local-file",
+  "openapi-pasted",
+  "openapi-public-http",
+  "openapi-internal-connector",
+  "github-connector",
+  "browser-in-app",
+  "chrome-browser",
+  "web-http",
+  "atlas-cache",
+  "manual-import",
+  "other",
+]);
+const SOURCE_SCOPE_KINDS = new Set<SourceReceiptScopeKind>([
+  "file",
+  "page",
+  "node",
+  "selection",
+  "issue",
+  "document",
+  "operation",
+  "repository",
+  "unknown",
+]);
 
 function short(value: string, maximum = MAX_TEXT): string {
   const normalized = value.trim();
@@ -248,8 +290,12 @@ export function sourceIdentityMatches(
   return true;
 }
 
-export function sourceReceiptId(input: {
-  schemaVersion?: 1 | 2;
+type CurrentSourceReceiptBody = Omit<SourceReceipt, "schemaVersion" | "id">;
+
+interface LegacySourceReceiptIdInput {
+  schemaVersion:
+    | typeof LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION
+    | typeof PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION;
   sourceDecisionId: string;
   resolved: SourceIdentity;
   adapter: SourceReceiptAdapter;
@@ -259,7 +305,39 @@ export function sourceReceiptId(input: {
   scope?: SourceReceipt["scope"];
   scopeRelation?: SourceReceipt["scopeRelation"];
   derivation?: SourceReceipt["derivation"];
-}): string {
+}
+
+function normalizedIdentity(identity: SourceIdentity): SourceIdentity {
+  if (!SOURCE_PROVIDERS.has(identity.provider)) {
+    throw new Error("Source receipt identity provider is invalid.");
+  }
+  const optional = (value: string | undefined, maximum = MAX_TEXT) =>
+    value === undefined ? undefined : short(value, maximum);
+  const host = optional(identity.host, 255)?.toLowerCase();
+  const method = optional(identity.method, 16)?.toUpperCase();
+  return {
+    provider: identity.provider,
+    canonicalId: short(identity.canonicalId),
+    ...(identity.url ? { url: short(identity.url) } : {}),
+    ...(host ? { host } : {}),
+    ...(identity.fileKey ? { fileKey: short(identity.fileKey, 240) } : {}),
+    ...(identity.nodeId ? { nodeId: short(identity.nodeId, 240) } : {}),
+    ...(identity.issueKey ? { issueKey: short(identity.issueKey, 160) } : {}),
+    ...(identity.pageId ? { pageId: short(identity.pageId, 240) } : {}),
+    ...(identity.operationId
+      ? { operationId: short(identity.operationId, 240) }
+      : {}),
+    ...(method ? { method } : {}),
+    ...(identity.path ? { path: short(identity.path, 500) } : {}),
+    ...(identity.version ? { version: short(identity.version, 240) } : {}),
+  };
+}
+
+type CurrentSourceReceiptIdInput = CurrentSourceReceiptBody & {
+  schemaVersion?: typeof SOURCE_RECEIPT_SCHEMA_VERSION;
+};
+
+function legacySourceReceiptId(input: LegacySourceReceiptIdInput): string {
   const immutable = [
     input.sourceDecisionId,
     input.resolved.provider,
@@ -269,7 +347,7 @@ export function sourceReceiptId(input: {
     input.observedAt,
     input.contentHash ?? "",
   ];
-  if ((input.schemaVersion ?? SOURCE_RECEIPT_SCHEMA_VERSION) >= 2) {
+  if (input.schemaVersion >= PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION) {
     immutable.push(
       input.scope?.kind ?? "",
       input.scope?.id ?? "",
@@ -306,29 +384,175 @@ export function sourceReceiptId(input: {
     .padStart(8, "0")}`;
 }
 
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === "boolean" || typeof value === "number") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(",")}}`;
+  }
+  throw new Error("Source receipt canonical payload contains an unsupported value.");
+}
+
+function canonicalIdentity(identity: SourceIdentity) {
+  return {
+    provider: identity.provider,
+    canonicalId: identity.canonicalId,
+    url: identity.url ?? null,
+    host: identity.host ?? null,
+    fileKey: identity.fileKey ?? null,
+    nodeId: identity.nodeId ?? null,
+    issueKey: identity.issueKey ?? null,
+    pageId: identity.pageId ?? null,
+    operationId: identity.operationId ?? null,
+    method: identity.method ?? null,
+    path: identity.path ?? null,
+    version: identity.version ?? null,
+  };
+}
+
+function currentReceiptSemanticPayload(input: CurrentSourceReceiptBody) {
+  return {
+    sourceDecisionId: input.sourceDecisionId,
+    provider: input.provider,
+    requested: canonicalIdentity(input.requested),
+    resolved: canonicalIdentity(input.resolved),
+    adapter: input.adapter,
+    route: input.route,
+    operation: input.operation,
+    scope: {
+      kind: input.scope.kind,
+      id: input.scope.id,
+      parentId: input.scope.parentId ?? null,
+    },
+    scopeRelation: input.scopeRelation
+      ? {
+          kind: input.scopeRelation.kind,
+          sourceId: input.scopeRelation.sourceId,
+          targetId: input.scopeRelation.targetId,
+          ancestorIds: input.scopeRelation.ancestorIds ?? null,
+          proofHash: input.scopeRelation.proofHash ?? null,
+        }
+      : null,
+    derivation: input.derivation
+      ? {
+          kind: input.derivation.kind,
+          sourceId: input.derivation.sourceId,
+          targetId: input.derivation.targetId,
+          evidenceHash: input.derivation.evidenceHash,
+          redirectChain: input.derivation.redirectChain ?? null,
+        }
+      : null,
+    contentHash: input.contentHash ?? null,
+    observedAt: input.observedAt,
+    fallback: input.fallback
+      ? {
+          fromAdapter: input.fallback.fromAdapter,
+          condition: input.fallback.condition,
+          identityPreserved: input.fallback.identityPreserved,
+        }
+      : null,
+    coverage: input.coverage,
+    freshness: input.freshness,
+  };
+}
+
+export function sourceReceiptId(
+  input: LegacySourceReceiptIdInput | CurrentSourceReceiptIdInput,
+): string {
+  if (
+    input.schemaVersion === LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION ||
+    input.schemaVersion === PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION
+  ) {
+    return legacySourceReceiptId(input);
+  }
+  return `receipt-${sha256Hex(
+    canonicalJson(
+      currentReceiptSemanticPayload(input as CurrentSourceReceiptIdInput),
+    ),
+  )}`;
+}
+
 export function createSourceReceipt(
   input: Omit<SourceReceipt, "schemaVersion" | "id"> & {
     schemaVersion?: typeof SOURCE_RECEIPT_SCHEMA_VERSION;
     id?: string;
   },
 ): SourceReceipt {
-  const observedAt = short(input.observedAt, 100);
-  if (!Number.isFinite(Date.parse(observedAt))) {
+  if (
+    input.schemaVersion !== undefined &&
+    input.schemaVersion !== SOURCE_RECEIPT_SCHEMA_VERSION
+  ) {
+    throw new Error(
+      "Legacy source receipts are historical evidence only and cannot be upgraded without a new observation.",
+    );
+  }
+  const observedAtInput = short(input.observedAt, 100);
+  const observedAtMilliseconds = Date.parse(observedAtInput);
+  if (!Number.isFinite(observedAtMilliseconds)) {
     throw new Error("Source receipt observedAt must be a valid date-time.");
   }
+  const observedAt = new Date(observedAtMilliseconds).toISOString();
+  if (!SOURCE_PROVIDERS.has(input.provider)) {
+    throw new Error("Source receipt provider is invalid.");
+  }
+  if (!SOURCE_ADAPTERS.has(input.adapter)) {
+    throw new Error("Source receipt adapter is invalid.");
+  }
+  if (!SOURCE_SCOPE_KINDS.has(input.scope.kind)) {
+    throw new Error("Source receipt scope kind is invalid.");
+  }
+  if (!(["exact", "partial", "candidate"] as const).includes(input.coverage)) {
+    throw new Error("Source receipt coverage is invalid.");
+  }
+  if (!(["current", "stale", "unknown"] as const).includes(input.freshness)) {
+    throw new Error("Source receipt freshness is invalid.");
+  }
+  const requested = normalizedIdentity(input.requested);
+  const resolved = normalizedIdentity(input.resolved);
   if (
-    input.provider !== input.requested.provider ||
-    input.provider !== input.resolved.provider
+    input.provider !== requested.provider ||
+    input.provider !== resolved.provider
   ) {
     throw new Error("Source receipt provider and identities do not match.");
-  }
-  if (!sourceIdentityMatches(input.requested, input.resolved)) {
-    throw new Error("Resolved source identity does not match the requested source.");
   }
   const sourceDecisionId = short(input.sourceDecisionId, 160);
   const operation = short(input.operation, 160);
   const route = short(input.route, 500);
   const scopeId = short(input.scope.id, 500);
+  const scope = {
+    kind: input.scope.kind,
+    id: scopeId,
+    ...(input.scope.parentId
+      ? { parentId: short(input.scope.parentId, 500) }
+      : {}),
+  };
+  if (
+    input.provider === "openapi" &&
+    (resolved.method || resolved.path || resolved.operationId)
+  ) {
+    if (
+      !resolved.method ||
+      !resolved.path?.startsWith("/") ||
+      scope.kind !== "operation" ||
+      scope.id !== `${resolved.method} ${resolved.path}`
+    ) {
+      throw new Error(
+        "An OpenAPI operation receipt must bind method, path, and operation scope.",
+      );
+    }
+  }
+  if (!sourceIdentityMatches(requested, resolved)) {
+    throw new Error("Resolved source identity does not match the requested source.");
+  }
   const contentHash = input.contentHash
     ? short(input.contentHash, 200)
     : undefined;
@@ -366,6 +590,20 @@ export function createSourceReceipt(
           : {}),
       }
     : undefined;
+  const fallback = input.fallback
+    ? {
+        fromAdapter: input.fallback.fromAdapter,
+        condition: short(input.fallback.condition, 500),
+        identityPreserved: input.fallback.identityPreserved,
+      }
+    : undefined;
+  if (
+    fallback &&
+    (!SOURCE_ADAPTERS.has(fallback.fromAdapter) ||
+      typeof fallback.identityPreserved !== "boolean")
+  ) {
+    throw new Error("Source receipt fallback is invalid.");
+  }
   if (
     scopeRelation &&
     (!["same-scope", "contained-scope"].includes(scopeRelation.kind) ||
@@ -385,40 +623,30 @@ export function createSourceReceipt(
       "swagger-ui-config-url",
       "swagger-ui-initializer",
     ].includes(derivation.kind) ||
-      derivation.sourceId !== input.requested.canonicalId ||
+      derivation.sourceId !== requested.canonicalId ||
       derivation.sourceId === derivation.targetId ||
       !/^sha256:[a-f0-9]{64}$/u.test(derivation.evidenceHash))
   ) {
     throw new Error("Source receipt derivation is invalid.");
   }
-  const normalized = {
-    ...input,
+  const normalized: CurrentSourceReceiptBody = {
     sourceDecisionId,
-    operation,
-    route,
-    scope: {
-      ...input.scope,
-      id: scopeId,
-      ...(input.scope.parentId
-        ? { parentId: short(input.scope.parentId, 500) }
-        : {}),
-    },
-    ...(scopeRelation ? { scopeRelation } : {}),
-    ...(derivation ? { derivation } : {}),
-    ...(contentHash ? { contentHash } : {}),
-    observedAt,
-  };
-  const expectedId = sourceReceiptId({
-    sourceDecisionId,
-    resolved: input.resolved,
+    provider: input.provider,
+    requested,
+    resolved,
     adapter: input.adapter,
     operation,
-    observedAt,
-    ...(contentHash ? { contentHash } : {}),
-    scope: normalized.scope,
+    route,
+    scope,
     ...(scopeRelation ? { scopeRelation } : {}),
     ...(derivation ? { derivation } : {}),
-  });
+    ...(contentHash ? { contentHash } : {}),
+    observedAt,
+    ...(fallback ? { fallback } : {}),
+    coverage: input.coverage,
+    freshness: input.freshness,
+  };
+  const expectedId = sourceReceiptId(normalized);
   if (input.id && input.id !== expectedId) {
     throw new Error("Source receipt ID does not match its immutable fields.");
   }
@@ -437,9 +665,11 @@ export function parseSourceReceipt(value: unknown): SourceReceipt {
   if (
     ![
       LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION,
+      PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION,
       SOURCE_RECEIPT_SCHEMA_VERSION,
-    ].includes(receipt.schemaVersion as 1 | 2) ||
+    ].includes(receipt.schemaVersion as SourceReceipt["schemaVersion"]) ||
     typeof receipt.id !== "string" ||
+    !SOURCE_RECEIPT_ID_PATTERN.test(receipt.id) ||
     typeof receipt.sourceDecisionId !== "string" ||
     !receipt.requested ||
     !receipt.resolved ||
@@ -453,10 +683,19 @@ export function parseSourceReceipt(value: unknown): SourceReceipt {
   ) {
     throw new Error("Source receipt is invalid.");
   }
-  if (receipt.schemaVersion === LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION) {
+  if (
+    receipt.schemaVersion === LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION ||
+    receipt.schemaVersion === PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION
+  ) {
     const legacy = receipt as SourceReceipt;
+    const legacySchemaVersion = receipt.schemaVersion as
+      | typeof LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION
+      | typeof PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION;
+    if (!/^receipt-[a-f0-9]{16}$/u.test(legacy.id)) {
+      throw new Error("Legacy source receipt ID is invalid.");
+    }
     const expectedId = sourceReceiptId({
-      schemaVersion: LEGACY_SOURCE_RECEIPT_SCHEMA_VERSION,
+      schemaVersion: legacySchemaVersion,
       sourceDecisionId: short(legacy.sourceDecisionId, 160),
       resolved: legacy.resolved,
       adapter: legacy.adapter,
@@ -464,6 +703,15 @@ export function parseSourceReceipt(value: unknown): SourceReceipt {
       observedAt: short(legacy.observedAt, 100),
       ...(legacy.contentHash
         ? { contentHash: short(legacy.contentHash, 200) }
+        : {}),
+      ...(legacySchemaVersion >= PREVIOUS_SOURCE_RECEIPT_SCHEMA_VERSION
+        ? {
+            scope: legacy.scope,
+            ...(legacy.scopeRelation
+              ? { scopeRelation: legacy.scopeRelation }
+              : {}),
+            ...(legacy.derivation ? { derivation: legacy.derivation } : {}),
+          }
         : {}),
     });
     if (
@@ -475,6 +723,9 @@ export function parseSourceReceipt(value: unknown): SourceReceipt {
       throw new Error("Legacy source receipt is invalid.");
     }
     return legacy;
+  }
+  if (!CURRENT_SOURCE_RECEIPT_ID_PATTERN.test(receipt.id)) {
+    throw new Error("Source receipt v3 ID is invalid.");
   }
   const {
     schemaVersion: _schemaVersion,
@@ -491,6 +742,11 @@ export function assertSourceReceiptMatchesDecision(
   decision: ReceiptSourceDecision,
   receipt: SourceReceipt,
 ): void {
+  if (receipt.schemaVersion !== SOURCE_RECEIPT_SCHEMA_VERSION) {
+    throw new Error(
+      "Legacy source receipts are historical only; authoritative evidence requires a SourceReceipt v3 observation.",
+    );
+  }
   if (decision.state !== "confirmed") {
     throw new Error("Only a confirmed source may produce an evidence receipt.");
   }

@@ -8,9 +8,9 @@ design file into the conversation.
 The normal entry point is native Codex with `$frontend-task`. You describe the
 task; the skill selects useful sources and uses Atlas as a compact, verifiable
 context sidecar only when it adds value. The GUI is an optional control,
-inspection, and traceability surface—not a replacement conversation.
+inspection, and traceability surface, not a replacement conversation.
 
-## Quick start — Windows + Codex
+## Quick start - Windows + Codex
 
 Requirements:
 
@@ -25,47 +25,61 @@ Open PowerShell and run:
 git clone https://github.com/jesus-molano/project-atlas.git
 Set-Location .\project-atlas
 .\frontend-codex-kit\install.ps1 -Agent codex
+.\frontend-codex-kit\doctor.ps1
 ```
 
-The installer builds the local product, installs the skills, removes only the
-obsolete marked Atlas routing block if it exists, and registers the six-tool
-MCP core profile in Codex's shared `config.toml`. Restart Codex and open a new
-task after it finishes.
+The installer builds the local product, installs the three explicit-only
+skills, removes only the obsolete marked Atlas routing block if it exists, and
+registers the six-tool MCP core profile in Codex's shared `config.toml`.
+`doctor.ps1` then verifies the effective install without changing it. Restart
+Codex and open a new task after both commands finish.
 
-Now open your product repository in Codex and invoke:
+Now open your product repository in Codex. Use the direct fast path for a
+localized, low-risk change:
+
+```text
+$frontend-task Implement this localized change: <description>
+```
+
+Use Plan mode for medium, large, high-risk, or materially uncertain work:
 
 ```text
 /plan $frontend-task Prepara e implementa esta tarea: <description>
 ```
 
-That is the recommended workflow. You do not need to run `scan`, `memory`,
-`context`, or Figma commands first.
+You do not need to run `scan`, `memory`, `context`, or Figma commands first.
 
 ## What happens on the first task
 
 `frontend-task`:
 
-1. detects the current repository, task text, explicit links, and capabilities
-   that are actually connected;
-2. classifies repository, Atlas, Jira/Confluence, Figma, Swagger/OpenAPI, and
-   GitHub for this specific task;
-3. confirms every detected external reference before connector access; every
-   new high-risk task first gets one grouped Jira, Confluence, Figma, and
-   Swagger/OpenAPI intake even when no links or connectors were detected;
-4. scans the local code with Code Atlas;
-5. indexes existing allowed Project Memory when the project has any;
-6. uses Design Atlas only when Figma is relevant and a file, page, or node is
-   available or confirmed;
-7. retrieves a few explainable candidates under a hard context budget;
-8. checks decisions, contradictions, fragile areas, and prior failed attempts;
-9. prepares read-only, then implements only after a reviewed same-thread write
-   confirmation;
-10. refreshes the code graph, records the observed outcome, and only *proposes*
-    durable memory when something is worth keeping.
+1. records the exact checkout, branch, HEAD, dirty baseline, objective, links,
+   requested scope, and delivery authority;
+2. runs a cheap source preflight before deep repository or Atlas work; bare
+   external links remain `pending` until the user confirms or omits them;
+3. calls `atlas_prepare_task` once for that confirmed evidence version, using
+   only sources that are supplied or materially required;
+4. separates task size (`small`, `medium`, `large`) from risk and retrieves a
+   bounded set of explainable candidates and opaque handles;
+5. expands only the evidence needed to decide `reuse`, `extend`, `compose`,
+   `extract-and-reuse`, `create`, or `not-applicable`;
+6. persists that decision and the narrow change surface with
+   `atlas_lock_change_scope` before editing;
+7. implements in native Codex and scales planning/review to task size and risk;
+8. runs focused repository checks, attaches any required structured visual
+   review after temporary cleanup, then validates the complete Git delta with
+   `atlas_validate_change` and reviews it;
+9. closes the technical task with an immutable `atlas_task_state` technical
+   outcome record, without writing memory; this is not proof of commit, push,
+   PR, deployment, or any external delivery;
+10. may review one exact memory proposal; every mutating `atlas_memory` action
+    uses a no-write scope/token call followed by the exact unchanged call only
+    after literal user consent. Technical completion never implies it.
 
 Invoking the skill authorizes that task workflow. It does not authorize Atlas
-to install plugins, access an unconnected source, write to Jira/Figma/Confluence,
-or apply durable Project Memory without confirmation.
+to install plugins, access an unconfirmed or unconnected source, write to
+Jira/Figma/Confluence, or mutate Project Memory without matching literal
+consent.
 
 ## What happens on later tasks
 
@@ -127,7 +141,7 @@ Browsing, searching, rescanning, and reviewing local evidence use zero model
 tokens. Model execution and filesystem permissions exist only in native Codex;
 the GUI cannot launch, resume, cancel, or reclassify a task.
 
-The loopback browser exposes **Choose folder…** through a narrowly scoped local
+The loopback browser exposes **Choose folder...** through a narrowly scoped local
 directory dialog on Windows. A packaged desktop host can provide the same action
 through its versioned folder-picker adapter. Dropping an absolute folder path is
 also supported when the host exposes it. Atlas fills the path for review and
@@ -154,10 +168,10 @@ block the task.
 | Location | Contents |
 | --- | --- |
 | Product repository | Product code; Atlas does not change it merely by being queried |
-| `%LOCALAPPDATA%\ProjectAtlas\projects\<project-id>\` | SQLite, indexes, memory, decisions, capsules, journals, receipts, manifests, and bounded retrieval state |
-| `%LOCALAPPDATA%\ProjectAtlas\temp\` | Owned temporary assets/previews with TTL and explicit cleanup |
-| `%LOCALAPPDATA%\ProjectAtlas\recent-projects.json` | Minimal recent-project registry |
-| `~/.agents/skills/` | Global `frontend-task`, explicit `visual-direction`, and `reuse-first` skill links/copies |
+| Platform Atlas root: `%LOCALAPPDATA%\ProjectAtlas\` (Windows), `~/Library/Application Support/ProjectAtlas/` (macOS), or `${XDG_DATA_HOME:-~/.local/share}/ProjectAtlas/` (Linux) | SQLite, indexes, memory, decisions, capsules, journals, receipts, manifests, and bounded retrieval state under `projects/` |
+| `<platform Atlas root>/temp/` | Owned temporary assets/previews with TTL and explicit cleanup |
+| `<platform Atlas root>/recent-projects.json` | Minimal recent-project registry |
+| `~/.agents/skills/` | Global explicit-only `frontend-task`, `visual-direction`, and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |
 | `~/.codex/AGENTS.md` | Personal instructions; the installer only removes its obsolete marked Atlas block |
 
@@ -193,9 +207,12 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
   installer. Use `-ForceMcpConfig` only when replacing that exact section is
   intentional. A backup is created before changes.
 - **Node resolves through an ephemeral fnm path:** activate an installed fnm
-  version and ensure `FNM_DIR` is available, then rerun.
+  version, confirm `fnm current` and `fnm exec --using <version> node --version`
+  succeed, then rerun.
 - **`$frontend-task` is not detected:** restart Codex and open a new task.
-  Confirm `~/.agents/skills/frontend-task/SKILL.md` exists.
+  Run `.\frontend-codex-kit\doctor.ps1`; its failed check prints the exact
+  reinstall or config action. Confirm `~/.agents/skills/frontend-task/SKILL.md`
+  exists.
 - **A fixed port is required for diagnostics:** add `--port <port>` to
   `pnpm atlas`; normal use selects a free port automatically.
 - **The browser did not open:** copy the printed loopback URL, or add
@@ -226,7 +243,7 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
 - [Centralized storage and diagnostics](docs/storage.md)
 - [Token budgets](docs/token-budgets.md)
 - [Context-cost measurement and cross-computer workflow](docs/phase-2-context-cost-assessment.md)
-- [Phases 3–5 implementation record](docs/phases-3-5-implementation.md)
+- [Phases 3-5 implementation record](docs/phases-3-5-implementation.md)
 
 - [Security and validation boundary](docs/validation.md)
 - [Quality audit, stress tests, and performance baseline](docs/quality-audit.md)

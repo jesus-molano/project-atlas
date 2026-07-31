@@ -1,80 +1,144 @@
 # Native Codex workflow
 
-Project Atlas is a context and evidence sidecar. Native Codex is the only model
-executor and the only place where read-only planning becomes workspace-write.
+Project Atlas is a context and evidence sidecar. Native Codex owns conversation,
+planning, permissions, implementation, review, and delivery.
 
-## Install
+## Install and diagnose
 
 ```powershell
 .\frontend-codex-kit\install.ps1 -Agent codex
+.\frontend-codex-kit\doctor.ps1
 ```
 
-The installer builds Atlas, installs explicit skills, registers MCP with
-`--profile core`, and removes only the obsolete marked Atlas block from
-`~/.codex/AGENTS.md`. Personal instructions are preserved.
+The installer builds Atlas, installs the three explicit skills, registers the
+six-tool `core` MCP profile, and removes only the obsolete marked Atlas block
+from `~/.codex/AGENTS.md`. Restart Codex and open a new task after changes.
 
-## Start a task
+## Start
 
-Open the target checkout in Codex and write:
+For a localized low-risk task, invoke the daily entry point directly:
 
 ```text
-$frontend-task Replace the mocked synchronization with the real backend contract <links>
+$frontend-task Update the existing empty-state copy and its focused test
 ```
 
-Without the explicit `$frontend-task` token the skill is not loaded. A normal
-frontend request remains a normal Codex task.
+For medium, large, high-risk, or materially uncertain work, use a reviewed plan
+gate:
 
-The skill performs one bounded preparation, inspects the repository, resolves
-only material sources and proposes a decision-complete plan. After approval,
-continue in the same native task with workspace-write. Do not create a separate
-writer by default.
+```text
+/plan $frontend-task Replace the mocked synchronization with the real backend contract <links>
+```
 
-## Atlas calls
+Without `$frontend-task`, a normal frontend request remains a normal Codex task.
+`reuse-first` and `visual-direction` are also explicit-only, but they are not
+parallel end-to-end entry points:
 
-The normal sequence is:
+| Skill | Boundary |
+| --- | --- |
+| `$frontend-task` | The normal end-to-end frontend workflow: sources, reuse, implementation, validation, technical outcome, and optional separate memory flow. |
+| `$reuse-first` | A repository-only reuse gate, or a child module of an existing frontend task. If external/visual authority is material, start or continue `$frontend-task` instead of creating a second task. |
+| `$visual-direction` | A child of a prepared Atlas task when its output will govern implementation. Standalone exploration may compare temporary directions, but cannot attach an Atlas handoff without the parent `task_id`. |
 
-1. `atlas_prepare_task` once;
-2. `atlas_expand_context` only for a named unresolved handle;
-3. `atlas_lock_change_scope` before editing;
-4. `atlas_task_state` only at a semantic checkpoint, blocker, or continuation;
-5. `atlas_validate_change` after deterministic checks;
-6. `atlas_record_outcome` once.
+## Daily sequence
 
-Administrative scanning, diagnostics, Figma assets/variables and migrations
-remain CLI/GUI operations. The temporary 34-tool profile can be selected with
-`--profile legacy` only for parity evaluation.
+1. Inspect repository instructions, branch/HEAD, dirty baseline, package,
+   implementation, and validation commands.
+2. Resolve only supplied or materially required sources. Bare detected links
+   remain pending until confirmed; irrelevant provider checklists are skipped.
+3. Call `atlas_prepare_task` after preflight. Repeat under the same task ID only
+   for a named evidence invalidation.
+4. Expand one unresolved handle with `atlas_expand_context` if necessary.
+5. Make the reuse decision, present a size-proportional plan, then call
+   `atlas_lock_change_scope` with that decision and explicit exclusions.
+6. Implement the smallest locked surface in the same native task.
+7. Run focused tests and required checks. For visual work, attach an immutable
+   pre-clean review while captures exist, clean the temporary session, then
+   attach the final task/contract-bound review with the same capture hashes and
+   the content-free cleanup receipt.
+8. Call `atlas_validate_change`; inspect the complete staged, unstaged,
+   untracked, renamed, and deleted task delta, then call `atlas_task_state`
+   action `complete` for an immutable technical outcome record.
+9. Default to no memory write. `review-proposal` may read one exact proposal;
+   every mutation first returns a no-write exact scope/token and requires an
+   unchanged second call after literal consent.
+10. Commit, push, PR, deployment, or external updates happen only when
+    separately requested and are reported separately from the Atlas record.
 
-## Sources and failures
+The first accepted completion payload is a durable intent bound to the current
+HEAD, lock/delta, source receipts, context handles, and final visual-review
+hash. Identical concurrent or interrupted retries converge on one completion;
+different evidence or closeout text is rejected. Completion never implies a
+memory write.
 
-Repository evidence is always available. Jira, Confluence, Figma, GitHub and
-OpenAPI are considered only when supplied or material. Optional failures are
-warnings. A transient OpenAPI 502/503/504 is retried once, then Atlas/Codex uses
-an approved validated receipt, generated client/types/tests, or a supplied
-local specification. Unsafe authoritative gaps block only dependent work.
+## Core calls
+
+| Tool | Use |
+| --- | --- |
+| `atlas_prepare_task` | Source-gated preparation, code refresh, bounded reuse/context, stable task ID |
+| `atlas_expand_context` | One named unresolved handle |
+| `atlas_lock_change_scope` | Persist decision, exact allowed files, references, Git baseline, derived graph/API evidence, and exclusions before edit |
+| `atlas_validate_change` | Validate the complete task delta against the lock and confirmed contracts |
+| `atlas_task_state` | Resume, attach bounded evidence/review, checkpoint, block, or technically complete |
+| `atlas_memory` | Review one proposal; mutate only through the two-call, payload-bound literal-consent protocol |
+
+Administrative migrations, bulk diagnostics, and local GUI inspection remain
+CLI/GUI operations. They are not part of the normal task path.
+
+## Exact lock contract
+
+| Decision | Required primary | Component bookkeeping |
+| --- | --- | --- |
+| `reuse`, `extend`, `compose`, `extract-and-reuse` | Existing `primary_component` from the current Atlas graph | The primary must be in `selected_component_ids`; every selected/rejected ID must exist and the sets cannot overlap. |
+| `create` | Planned `primary_surface` plus exact future `allowed_files` | No selected component. Name real rejected candidates, or state explicitly that no viable candidate exists. |
+| `not-applicable` | Non-component `primary_surface` | No selected or rejected component candidates. |
+
+`root_path` is absolute. `primary_surface.path` and `allowed_files` are exact,
+forward-slash, repository-relative paths; they are not globs. `exclusions` may
+name repository-relative files/directories or supported globs. APIs and impact
+are derived from the graph and current authoritative receipts rather than
+accepted as caller assertions.
+
+## Terminal outcomes and retry
+
+| Situation | Atlas action |
+| --- | --- |
+| Work cannot safely proceed | `atlas_task_state` `block`, with the exact blocker and next safe action. |
+| Verified subset is useful but required scope remains | `complete` with `result: partial`, explicit remaining risk, and exact verified files/checks. |
+| Attempt is conclusively unsuccessful | `complete` with `result: failure` and the diagnostic evidence; do not claim delivery. |
+| Intended scope is verified | `complete` with `result: success`. |
+
+Completion is first-writer-wins. An interrupted/concurrent retry must repeat the
+same summary, verification list, files, source/handle bindings, and final visual
+review exactly; changed closeout evidence starts a new decision, not a retry.
 
 ## Validation and review
 
-Run targeted tests first, then the package-required lint, typecheck and build.
-Review the local diff and call `atlas_validate_change`. Independent model review
-is risk-based and Codex-native; see
-[the v2 audit](project-atlas-v2-audit.md#independent-agent-review-and-remediation-loop).
+- Small/low: focused checks and human-readable diff review; no agent reviewer.
+- Medium: relevant lint/typecheck/build plus one read-only correctness review
+  when shared/API/stateful scope warrants it.
+- Large/high: full applicable gates and narrow specialist reviews for only the
+  active domains.
 
-## Local telemetry
+Independent review supplements deterministic checks and never becomes a second
+writer.
 
-Telemetry is opt-in:
+## Sources and failures
 
-```powershell
-pnpm atlas telemetry configure
-pnpm atlas telemetry serve
-pnpm atlas telemetry status
-pnpm atlas telemetry disable
-```
+Repository evidence is the baseline. Optional Jira, Confluence, Figma, GitHub,
+or OpenAPI failures are warnings. Required authoritative gaps block only their
+dependent work. Transient OpenAPI failures retry once, then prefer a current
+receipt, generated client/types/tests, or a supplied local contract.
 
-The receiver is loopback-only. Configuration sets `log_user_prompt=false` and
-stores no prompts, code, diffs, tool arguments or tool outputs.
+## GUI and telemetry
 
-## GUI
+Run `pnpm atlas` for local evidence inspection. The GUI can rescan local data,
+review decisions/proposals, and manage explicit project/worktree operations. It
+cannot execute or resume Codex, change permissions, technically complete a
+native task, or apply memory without the originating consent flow.
 
-Run `pnpm atlas` for local inspection. The GUI can browse and rescan evidence,
-manage local project/worktree state, review decisions and inspect private
-metrics. It cannot start, resume, cancel or change permissions for Codex.
+Telemetry is opt-in and loopback-only. It stores no prompts, code, diffs, tool
+arguments, tool outputs, or source bodies.
+
+This document is the canonical human workflow. The executable contract is
+[`skills/frontend-task/SKILL.md`](../skills/frontend-task/SKILL.md); other
+guides describe only their narrower responsibility and link back here.

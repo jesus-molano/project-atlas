@@ -1,4 +1,7 @@
-import { tokenize } from "@component-atlas/core";
+import {
+  SOURCE_RECEIPT_SCHEMA_VERSION,
+  tokenize,
+} from "@component-atlas/core";
 import { decisionGate, designIndexFindings } from "./findings.js";
 import { parseFigmaReference } from "./figma-url.js";
 import { DESIGN_INDEX_SCHEMA_VERSION } from "./types.js";
@@ -516,6 +519,7 @@ export function resolveExplicitDesignTarget(
     .map((source) => source.receipt)
     .filter(
       (receipt) =>
+        receipt.schemaVersion === SOURCE_RECEIPT_SCHEMA_VERSION &&
         receipt.provider === "figma" &&
         ["node", "selection"].includes(receipt.scope.kind) &&
         receipt.scope.id === normalizedNodeId &&

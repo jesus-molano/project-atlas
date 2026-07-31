@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import {
   createSourceReceipt,
+  parseSourceReceipt,
+  SOURCE_RECEIPT_SCHEMA_VERSION,
   sourceIdentityFromReference,
   sourceIdentityMatches,
   taskSourceId,
@@ -856,10 +858,12 @@ function cachedSourceReceipt(
 
 export function normalizeDesignIndex(index: DesignFileIndex): DesignFileIndex {
   const sources = index.sources.map((source) => {
-    const receipt =
-      (source as DesignFileIndex["sources"][number] & {
-        receipt?: SourceReceipt;
-      }).receipt ?? cachedSourceReceipt(index, source);
+    const suppliedReceipt = (
+      source as typeof source & { receipt?: SourceReceipt }
+    ).receipt;
+    const receipt = suppliedReceipt
+      ? parseSourceReceipt(suppliedReceipt)
+      : cachedSourceReceipt(index, source);
     return {
       ...source,
       receipt,
@@ -939,6 +943,11 @@ export function buildFigmaDesignIndex(
     "figma",
     input.confirmedSourceReference ?? input.figmaUrl,
   );
+  if (input.sourceReceipt && input.sourceReceipt.schemaVersion !== SOURCE_RECEIPT_SCHEMA_VERSION) {
+    throw new Error(
+      "Legacy Figma source receipts are historical evidence only. Observe the source again and provide a current v3 receipt before building a new Design Index.",
+    );
+  }
   if (
     input.sourceReceipt &&
     (!sourceIdentityMatches(requestedIdentity, input.sourceReceipt.requested) ||

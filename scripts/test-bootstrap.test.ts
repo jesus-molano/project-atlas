@@ -12,11 +12,14 @@ const rootPackage = JSON.parse(
 describe("clean-checkout test bootstrap", () => {
   it("generates Nuxt types before Vitest imports Viewer modules", () => {
     const testScript = rootPackage.scripts?.test ?? "";
+    const unitScriptName = "test:unit:built";
+    const unitScript = rootPackage.scripts?.[unitScriptName] ?? "";
     const prepareIndex = testScript.indexOf("prepare:viewer");
-    const vitestIndex = testScript.indexOf("vitest run");
+    const unitIndex = testScript.indexOf(unitScriptName);
 
     expect(rootPackage.scripts?.["prepare:viewer"]).toContain("nuxt prepare");
     expect(prepareIndex).toBeGreaterThanOrEqual(0);
-    expect(vitestIndex).toBeGreaterThan(prepareIndex);
+    expect(unitIndex).toBeGreaterThan(prepareIndex);
+    expect(unitScript).toContain("vitest run");
   });
 });

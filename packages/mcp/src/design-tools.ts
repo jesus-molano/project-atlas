@@ -1,6 +1,7 @@
 import {
   assertSourceReceiptMatchesDecision,
   createSourceReceipt,
+  SOURCE_RECEIPT_ID_PATTERN,
   sourceIdentityFromReference,
 } from "@component-atlas/core";
 import {
@@ -267,7 +268,7 @@ export function registerDesignTools(server: McpServer): void {
     {
       root_path: z.string(),
       task_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u),
-      source_receipt_id: z.string().regex(/^receipt-[a-f0-9]{16}$/u),
+      source_receipt_id: z.string().regex(SOURCE_RECEIPT_ID_PATTERN),
       asset_url: z.string().url(),
       scope_node_id: z.string().min(1).max(160),
       asset_node_id: z.string().min(1).max(160).optional(),

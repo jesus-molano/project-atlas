@@ -19,16 +19,20 @@ Keep this file as a map, not a manual.
 
 ## Non-negotiable rules
 
-- Use `frontend-task` for frontend work when available; missing optional
-  connectors or Atlas never block repository-first progress.
-- Search existing components and request compact Project Atlas task context
-  before creating shared UI.
+- Invoke `$frontend-task` explicitly when a frontend task should use the Atlas
+  workflow; do not route every frontend request implicitly.
+- Resolve supplied/material external sources before deep retrieval. Missing
+  optional connectors or Atlas never block repository-first progress.
+- Decide reuse/extend/compose/extract/create/not-applicable and lock that
+  decision plus scope before editing shared UI.
 - Check impact before changing a public component API.
 - Treat Figma Ready for dev as useful evidence, never a prerequisite.
 - Never place credentials or secrets in Project Memory.
-- Propose durable memory changes; do not confirm them without explicit approval.
+- Do not perform any memory action without literal approval for its exact
+  action and target.
 
 ## Task close
 
-Run the relevant validation, rescan Atlas after structural component changes,
-record the observed outcome, and propose only genuinely durable learnings.
+Run relevant validation, validate the complete task delta against the lock, and
+close technically without memory. Handle any genuinely durable learning later
+through a separately approved `atlas_memory` action.

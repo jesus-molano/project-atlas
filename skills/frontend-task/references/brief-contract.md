@@ -1,180 +1,162 @@
-# Frontend task brief contract
+# Frontend task brief
 
-Create this brief before implementation. Omit empty source sections, but keep
-material unknowns visible.
+Use this conversational contract for medium/large tasks, high-risk work, and
+resumable continuations. It is a human brief, not an MCP request body. The
+mapping to the six core tools is defined below. For a small task, report only
+objective, decision, scope, assumptions, and checks.
 
 ```yaml
-objective: One-sentence user or product outcome
-intake:
-  scope: task
+objective: One observable product outcome
+identity:
+  task_id: Stable Atlas/native task ID
+  mode: new | continue | correct | finish
   objective_confirmed: true | false
-  readiness: ready | needs-confirmation | blocked
-  source_ledger:
-    - kind: jira | confluence | figma | github | openapi | other
-      reference: Exact task-scoped URL or ID
-      state: pending | confirmed | omitted | unavailable | external | replaced
-      origin: explicit | inferred | manual
-      relationship: primary | search-candidate | linked-secondary
-mode: new | continue | correct | finish
-planning_checkpoint:
-  phase: pre-investigation | post-evidence | not-required
-  high_risk_source_intake: pending | confirmed | not-required
-  grouped_sources: [jira, confluence, figma, openapi]
-delta:
-  preserved:
-    - Existing user changes or completed behavior
-  pending:
-    - Only remaining or corrected behavior
-  affected_evidence:
-    - Files, decisions, outcomes, or source handles that changed
 repository:
   root: Absolute path
-  target: Package, route, feature, or component area
-  framework: Detected framework and version when relevant
-project_context:
-  budget_chars: Shared Project Atlas hard cap
-  memory:
-    - Relevant decision, convention, failed attempt, or none
-  findings:
-    - decision-required, warning, or resolved with evidence
-  handles:
-    - Opaque Atlas IDs only
-  source_receipt_ids:
-    - Immutable receipt IDs only; expand one on demand
-  retrieval:
-    hits: 0
-    misses: 0
-    retries: 0
-capabilities:
-  repository: required | not-applicable
-  atlas: recommended | optional | unavailable | not-applicable
-  jira: required | recommended | optional | unavailable | not-applicable
-  confluence: required | recommended | optional | unavailable | not-applicable
-  figma: required | recommended | optional | unavailable | not-applicable
-  openapi: required | recommended | optional | unavailable | not-applicable
-  github: required | recommended | optional | unavailable | not-applicable
-sources:
-  conversation: Present or absent
-  jira: Issue key/link or absent/unavailable
-  confluence: Page/link or absent/unavailable
-  figma: Confirmed node, indexed file/page, screenshot, or absent/unavailable
-  openapi: Confirmed Swagger/OpenAPI URL, local path, pasted contract, or absent/unavailable
+  package: Target package/route/feature
+  framework: Detected framework/version when relevant
+  branch: Current branch or detached HEAD
+  head: Exact HEAD
+  dirty_baseline:
+    - User-owned staged, unstaged, or untracked paths present before work
+classification:
+  size: small | medium | large
+  risk: low | medium | high
+  reasons: [Evidence-backed reasons]
 acceptance:
-  - Observable behavior
-states:
-  - Loading, empty, error, success, disabled, pending, destructive, or none
-constraints:
-  - Responsive, accessibility, API, ownership, design-system, or delivery rules
+  - Observable criterion
+sources:
+  ledger:
+    - kind: jira | confluence | figma | github | openapi | other
+      reference: Exact URL, ID, or local path
+      state: pending | confirmed | omitted | unavailable | replaced
+      replacement_for: Prior source ID when this source explicitly replaces it, or none
+      authority_role: requirement | visual | contract | implementation-reference
+      required: true | false
+      relationship: primary | search-candidate | linked-secondary
+      evidence_status: pending | newly-retrieved | receipt-bound
+  receipt_ids: [Only immutable Atlas receipt IDs already persisted for this task]
+  conflicts:
+    - Smallest contradictory statements and recommended resolution
+  relations:
+    - Explicit source-to-scope relationship
 reuse:
   intent: Precise component responsibility
-  decision: reuse | extend | compose | extract-and-reuse | create | pending
-  evidence:
-    - Atlas or repository evidence
-design:
-  target: Confirmed node or pending
-  candidates:
-    - Node, confidence, and reason when discovery was needed
+  decision: reuse | extend | compose | extract-and-reuse | create | not-applicable
+  selected: Component ID/path or none
+  nearest_rejected: Component IDs/paths or none
+  rationale: Evidence-backed reason
+scope:
+  primary_component: One existing graph component, mutually exclusive with primary_surface
+  primary_surface:
+    kind: route | service | state | api | configuration | files
+    id: Planned or non-component surface identity
+    path: Exact repository-relative path or none
+  reference_components: [At most two]
+  allowed_files: [Exact forward-slash repository-relative paths; no globs]
+  derived_apis: [Atlas-derived public APIs/endpoints]
+  derived_impact: Atlas-derived consumers/relationships
+  exclusions: [Explicit exclusions]
+  lock_status: pending | locked | blocked
+behavior:
+  data_flow: Compact description
+  states:
+    loading: required | not-applicable
+    empty: required | not-applicable
+    error: required | not-applicable
+    success: required | not-applicable
+    disabled: required | not-applicable
+    pending: required | not-applicable
+    destructive: required | not-applicable
+  responsive: Relevant viewports/rules or not-applicable
+  accessibility: Semantics, keyboard, focus, announcements, contrast, motion
+  localization: Copy/format effects or not-applicable
 visual_direction:
-  activation: inactive | explicit
+  authority: Exact Figma identity, incumbent system, selected direction, or none
   mode: fidelity | inherit | explore | redesign | not-applicable
-  authority:
-    visual: Exact Figma identity, incumbent system, or selected direction
-    implementation: Repository system or bounded defaults
-  invention_budget: 0 | 1 | 2 | 3
-  incumbent:
-    - Existing components, tokens, density, tone, navigation, motion, and constraints
-  direction_cards:
-    - Zero, two, or three compact direction IDs and premises
-  selected:
-    base: Direction ID or exact Figma node
-    borrowed_traits:
-      - At most two compatible traits
-  contract_hash: Compact DesignContract hash or pending
-  state_matrix:
-    - Relevant viewports/states and evidence
-  artifacts:
-    lifecycle: ephemeral-only
-    contract_handle: Opaque temporary visual handle or none
-    contract_hash: Direction hash or none
-    selected_artifact_handle: Temporary chosen-preview handle or none
-    selected_artifact_hash: Content hash or none
-    expires_at: ISO timestamp or none
-    cleanup: open | selected | clean | cleanup-pending
-risk: low | medium | high
+  visual_handle: Selected opaque visual handle or none
+  contract_hash: Selected contract hash or none
+  cleanup: clean | active | cleanup-pending | not-applicable
 unknowns:
   blocking:
-    - Only decisions that change the implementation materially
+    - Only unresolved decisions that materially change implementation
   warnings:
-    - Non-blocking inconsistencies with recommendation
+    - Non-blocking inconsistency plus recommendation
   resolved:
-    - Low-impact assumptions and repository convention used
+    - Low-impact assumption backed by repository convention
 validation:
-  - Commands and manual checks required
-resume_capsule:
-  task_id: Stable task ID
-  handles:
-    - Opaque Atlas IDs and optional selected visual contract handle
-  covered: [Bounded scope IDs]
-  remaining: [Bounded scope IDs]
-  worktree_head: Exact HEAD
+  focused: [Narrow tests/checks]
+  required: [Repository-required lint/typecheck/build/e2e]
+  atlas: atlas_validate_change
+review:
+  tier: none | correctness | specialist
+  domains: [correctness, ux-a11y-fidelity, security-api]
+delivery:
+  requested: working-tree | commit | push | pull-request
+  external_write_authorized: true | false
+resume:
+  covered: [Bounded completed scope]
+  remaining: [Bounded remaining scope]
   next_safe_action: One action
-memory_delta:
-  outcome: Observed or verified task result
-  closeout_status: none | canonical-candidate | canonical-stored | local-only | declined
-  candidates:
-    - type: decision | convention | constraint | integration | known-issue | lesson
-      title: Compact candidate title
-      summary: Reusable knowledge only
-      evidence: [Exact evidence handles or validation facts]
-      scope: canonical
-      confidence: 0.0-1.0
-  local_outcome: Episodic or checkout-only result, or none
-  confirmation_required: true | false
-  confirmation_prompt: Exact canonical-write confirmation question, or empty
-scope_delta:
-  project:
-    - Explicitly promoted durable knowledge, or none
-  checkout:
-    - Derived graph, local changes, and episodic validation
-  task:
-    - Intake, source ledger, brief, risk, permissions, and run state
+technical_close:
+  status: pending | complete | blocked
+  verification: [Completed checks]
+memory:
+  status: none | episodic-candidate | canonical-candidate | proposal-pending | stored | declined
+  consent: not-requested | pending | literal-confirmed | declined
 ```
 
-## Compact preparation response
+## MCP mapping
 
-Before code, report no more than:
+| Brief field | Core input/evidence |
+| --- | --- |
+| `objective`, `identity.task_id`, `identity.objective_confirmed` | `atlas_prepare_task.objective`, `task_id`, `objective_confirmed` |
+| `sources.ledger[*]` | `sources[*]`; a newly retrieved provider result goes in that source's `evidence`, including stable `observed_at` |
+| `sources.receipt_ids` | Top-level `atlas_prepare_task.receipt_ids`, only for task receipts Atlas already persisted |
+| `sources.relations` | `atlas_prepare_task.source_relations` |
+| `reuse.*`, `scope.primary_*`, `reference_components`, `allowed_files`, `exclusions` | `atlas_lock_change_scope`; selected/rejected component values are exact graph IDs |
+| `scope.derived_apis`, `scope.derived_impact` | Read-only output derived by Atlas; never pass these as caller assertions |
+| `validation.*` | Repository commands first, then `atlas_validate_change` |
+| `technical_close` | `atlas_task_state` action `complete`; the record is not proof of commit/push/PR/deploy |
+| `memory` | Independent `atlas_memory` flow; never implied by technical close |
 
-1. objective and acceptance summary;
-2. sources used and unavailable optional sources;
-3. design target, or two/three visual direction cards only when exploration is
-   active;
-4. selected DesignContract/state matrix and reuse decision, or strongest
-   candidates while selection is pending;
-5. one evidence-backed blocking question, if one truly exists;
-6. warnings, risk, and intended validation;
-7. the compact **Memory candidates** closeout from `memory-closeout.md`.
+For `reuse`, `extend`, `compose`, and `extract-and-reuse`, use an existing
+`primary_component` and include it in selected IDs. For `create`, use
+`primary_surface`, exact future `allowed_files`, no selected IDs, and real
+rejected candidates (or an explicit “no viable candidate” rationale). For
+`not-applicable`, use only a non-component `primary_surface` and no candidate
+bookkeeping.
 
-Do not paste full Jira pages, Confluence documents, Figma trees, or Atlas raw
-nodes into the response. Link or cite the exact evidence and retain only the
-fields that affect implementation.
+## Preparation response
+
+Before code, report only:
+
+1. objective, size/risk, and acceptance summary;
+2. source authority, unavailable optional sources, and unresolved conflicts;
+3. reuse decision and selected/nearest rejected candidates;
+4. locked or proposed surface and exclusions;
+5. relevant states, accessibility/responsive effects, and validation;
+6. one evidence-backed blocking question, if needed.
+
+Do not include memory closeout before implementation and verification. Do not
+paste full source documents, raw indexes, Figma trees, or receipt bodies.
 
 ## Gate examples
 
 Decision required:
 
-> The ticket says the modal can be dismissed, while the confirmed Figma frame
-> omits every dismiss action. I recommend allowing Escape and a close button to
-> preserve the repository's dialog accessibility contract. Should this flow be
-> intentionally non-dismissible?
+> The API contract requires an idempotency key, while the existing generated
+> client does not expose one. I recommend pausing only the submit integration
+> until the governing contract is confirmed. Should the supplied contract
+> remain authoritative?
 
 Warning:
 
-> `ConfirmDialog` and `DeleteDialog` have the same composition and consumers in
-> Atlas. Extend or compose the shared dialog before creating another component;
-> verify whether their destructive copy is the only difference.
+> Two dialogs have the same responsibility and consumers. Choose `extend` or
+> `compose` before creating another component; the nearest rejected candidate
+> must be named in the lock rationale.
 
 Resolved:
 
-> No global Figma Variables permission is available. Use the confirmed node's
-> selection variables and the repository token names; this does not block the
-> task.
+> Global Figma Variables are unavailable. The confirmed node and repository
+> tokens provide enough bounded fidelity evidence, so this remains non-blocking.

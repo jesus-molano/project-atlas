@@ -1,6 +1,7 @@
 import {
   buildComponentContext,
   buildReuseContext,
+  SOURCE_RECEIPT_SCHEMA_VERSION,
   tokenize,
   type TaskContextSourcePolicy,
 } from "@component-atlas/core";
@@ -74,9 +75,9 @@ export async function getTaskContext(
     const selectedCodeIds = selectedHandles
       .filter((handle) => handle.startsWith("code:"))
       .map((handle) => handle.slice("code:".length));
-    const selectedMemoryIds = selectedHandles
+    const selectedMemorySelectors = selectedHandles
       .filter((handle) => handle.startsWith("memory:"))
-      .map((handle) => handle.slice("memory:".length));
+      .flatMap((handle) => [handle, handle.slice("memory:".length)]);
     const selectedDesign = selectedHandles
       .filter((handle) => handle.startsWith("design:"))
       .map((handle) => handle.slice("design:".length))
@@ -94,7 +95,7 @@ export async function getTaskContext(
     );
     const selectedMemory = store
       .listMemoryItems(graph.project.id, graphCheckoutId(graph))
-      .filter((item) => selectedMemoryIds.includes(item.id))
+      .filter((item) => selectedMemorySelectors.includes(item.id))
       .map((item) => ({
         item,
         score: 1,
@@ -529,11 +530,15 @@ export async function getTaskContext(
         .map((source) => source.receipt)
         .filter((receipt) => designReceiptIds.has(receipt.id)) ?? []),
       ...(api?.receipts ?? []),
-    ].filter(
-      (receipt, index, collection) =>
-        collection.findIndex((candidate) => candidate.id === receipt.id) ===
-        index,
-    );
+    ]
+      .filter(
+        (receipt) => receipt.schemaVersion === SOURCE_RECEIPT_SCHEMA_VERSION,
+      )
+      .filter(
+        (receipt, index, collection) =>
+          collection.findIndex((candidate) => candidate.id === receipt.id) ===
+          index,
+      );
     await persistSourceReceipts(rootPath, sourceReceipts);
     const payload = {
       schemaVersion: 1,
@@ -597,6 +602,7 @@ export async function getTaskContext(
       semantic: {
         entities: semanticEntities.map((entity) => ({
           id: entity.id,
+          handle: `entity:${entity.id}`,
           kind: entity.kind,
           name: entity.name,
           path: entity.relativePath,
@@ -655,21 +661,59 @@ export async function getTaskContext(
       nextSteps: [
         "Expand only the memory or component IDs needed for the decision.",
         "Run check_before_change on the chosen files before editing.",
-        "After validation, record the outcome and propose any durable memory delta.",
+        "After validation, close the technical task without writing memory implicitly.",
       ],
     };
-    return fitBudgetedResponse(payload, {
-      budgetChars: options.budgetChars ?? 4_200,
+    const responseBudget = options.budgetChars ?? 4_200;
+    // Below the normal 3.2-3.6K task bundle, omit repository-profile detail
+    // that is already available through project/entity handles. Keeping the
+    // full object shell at 2K can otherwise consume the budget even after all
+    // candidate arrays have been shortened.
+    const responsePayload =
+      responseBudget <= 2_400
+        ? {
+            schemaVersion: payload.schemaVersion,
+            task: payload.task,
+            sourcePolicy: payload.sourcePolicy,
+            project: {
+              name: payload.project.name,
+              framework: payload.project.framework,
+            },
+            memory: payload.memory,
+            ...(payload.decisions ? { decisions: payload.decisions } : {}),
+            selections: payload.selections,
+            code: payload.code,
+            ...(payload.semantic.entities.length > 0 ||
+            payload.semantic.relations.length > 0
+              ? { semantic: payload.semantic }
+              : {}),
+            design: payload.design,
+            sourceReceiptIds: payload.sourceReceiptIds,
+            ...(payload.api ? { api: payload.api } : {}),
+            findings: payload.findings,
+            gate: payload.gate,
+            nextSteps: payload.nextSteps.slice(0, 1),
+          }
+        : payload;
+    return fitBudgetedResponse(responsePayload, {
+      budgetChars: responseBudget,
       totalMatches:
         memoryCandidates.length +
         reuse.candidates.length +
         (design?.candidates.length ?? 0) +
         (api?.operations.length ?? 0),
       expandableIds: [
-        ...selectedCodeIds,
-        ...rankedMemory.map(({ item }) => item.id),
-        ...reuse.candidates.map((candidate) => candidate.component.id),
-        ...(design?.candidates.map((candidate) => candidate.node.id) ?? []),
+        ...selectedCodeIds.map((id) => `code:${id}`),
+        ...rankedMemory.map(({ item }) =>
+          item.id.startsWith("memory:") ? item.id : `memory:${item.id}`,
+        ),
+        ...reuse.candidates.map(
+          (candidate) => `code:${candidate.component.id}`,
+        ),
+        ...semanticEntities.map((entity) => `entity:${entity.id}`),
+        ...(design?.candidates.map(
+          (candidate) => `design:${candidate.node.id}`,
+        ) ?? []),
       ],
       preserveKeys: [
         "findings",
@@ -687,7 +731,11 @@ export async function getTaskContext(
           designCandidates.length +
           (api?.operations.length ?? 0),
         misses:
-          Math.max(0, selectedMemoryIds.length - selectedMemory.length) +
+          Math.max(
+            0,
+            selectedHandles.filter((handle) => handle.startsWith("memory:"))
+              .length - selectedMemory.length,
+          ) +
           Math.max(0, selectedCodeIds.length - selectedCode.length) +
           (selectedDirectTarget && designCandidates.length === 0 ? 1 : 0),
         retries: 0,

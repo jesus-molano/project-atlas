@@ -15,7 +15,8 @@ The v2 implementation therefore:
 - removes the embedded model runner and every GUI execution route;
 - keeps Code Atlas, Design Atlas, Project Memory, Action Center, Health,
   Settings, project selection, branches, and worktrees;
-- makes `$frontend-task` explicit and small;
+- makes `$frontend-task`, `$reuse-first`, and `$visual-direction` explicit-only
+  and progressively discloses their references;
 - makes the six-tool MCP core profile the default while retaining the 34-tool
   legacy profile temporarily for measured parity;
 - records exact Codex totals locally when OTel/JSONL provides them and labels
@@ -78,29 +79,40 @@ them starts a model.
 
 1. Open native Codex in the exact checkout.
 2. Invoke `$frontend-task` explicitly with one objective and material links.
-3. `atlas_prepare_task` refreshes stale indexes, classifies only relevant
-   sources, ranks reuse and returns bounded handles.
-4. Codex inspects the repository and proposes acceptance criteria,
-   `ChangeSurface`, exclusions, states, accessibility and validation.
-5. After human approval, the same Codex task receives workspace-write and is
-   the only writer.
-6. Codex implements the smallest locked surface, runs targeted checks, calls
-   `atlas_validate_change`, and reviews the diff.
-7. `atlas_record_outcome` stores verification and a reviewable memory proposal
-   only when the learning is durable.
-8. A continuation reuses the same task ID and compact capsule. A different
+3. Codex records checkout/branch/HEAD/dirty baseline, classifies only supplied
+   or materially required sources, and resolves pending references before deep
+   repository or Atlas work.
+4. `atlas_prepare_task` accepts only resolved source decisions; every required
+   confirmed source must carry its exact current receipt before repository scan.
+   It refreshes stale indexes and returns bounded candidates, active receipt/
+   relationship IDs, findings, and expandable handles for that evidence version.
+5. Codex expands only unresolved evidence, makes the reuse decision, proposes a
+   size-proportional plan, and calls `atlas_lock_change_scope` with the decision
+   and exclusions before editing.
+6. The same native Codex task remains the sole writer, implements the smallest
+   locked surface, runs size/risk-proportional checks and review, calls
+   `atlas_validate_change`, and inspects the complete staged, unstaged,
+   untracked, renamed, and deleted task delta. Visual tasks attach a structured
+   review bound to the locked visual contract after temporary cleanup.
+7. `atlas_task_state` action `complete` records the technical result and
+   verification without writing Project Memory.
+8. `atlas_memory` may review one exact proposal. Every mutating action first
+   returns a no-write, payload-bound consent scope/token and only an unchanged
+   second call after matching literal user approval may write. Technical
+   completion is never memory consent.
+9. A continuation reuses the same task ID and compact capsule. A different
    repository or incoherent objective starts a different native task.
 
 ## Six-tool MCP core
 
 | Tool | Contract |
 | --- | --- |
-| `atlas_prepare_task` | Prepare one bounded task and return risk, source state, reuse candidates, memory and handles. |
+| `atlas_prepare_task` | Prepare one source-gated, bounded task and return size/risk, source state, candidates, receipt/relationship IDs and handles. |
 | `atlas_expand_context` | Expand one named code/design/memory/receipt handle in concise or detailed form. |
-| `atlas_lock_change_scope` | Persist the primary component, references, files/APIs, impact and exclusions. |
-| `atlas_validate_change` | Validate the local diff against the lock, project fingerprint, reuse and confirmed API operations. |
-| `atlas_task_state` | Resume or save one semantic checkpoint/blocker without replaying the prompt. |
-| `atlas_record_outcome` | Record result, verification, reuse decision and optional memory proposal. |
+| `atlas_lock_change_scope` | Persist a versioned Git-baseline lock with reuse/create/not-applicable decision, rationale, primary component/surface, references, exact allowed files, derived APIs/impact and exclusions before editing. |
+| `atlas_validate_change` | Validate the complete staged/unstaged/untracked/deleted/renamed delta against the active lock, project fingerprint, reuse and confirmed API operations; block on contract drift. |
+| `atlas_task_state` | Resume, attach bounded source/visual evidence or a structured visual review, save one semantic checkpoint/blocker, or record an immutable technical outcome with no memory write. It does not prove external delivery. |
+| `atlas_memory` | Review one exact proposal, or use a two-call, payload-bound consent receipt to `record-episodic`, `propose-canonical`, `apply-canonical`, or `reject-proposal`. |
 
 The core tools compose existing runtime logic. Administrative scanning, Figma
 variables/assets, diagnostics, and bulk operations stay in CLI/GUI or the
@@ -164,10 +176,10 @@ monolith exceptions.
 
 ### Recommendation and timing
 
-Independent review provides enough signal for medium/high-risk changes when it
-is evidence-bound. It is not worth the duplicated context, latency and false
-positives on every small change. Make it risk-based, not a universal standard
-and not a GUI option.
+Independent review provides enough signal for large/high-risk changes and for
+medium shared/API/stateful surfaces when it is evidence-bound. It is not worth
+the duplicated context, latency and false positives on every small change.
+Make it size-and-risk based, not a universal standard and not a GUI option.
 
 The v2 MCP and private telemetry foundations must be present before enabling a
 measured rollout. They now provide the required boundary; reviewer activation
@@ -195,7 +207,7 @@ grant permissions to a reviewer.
 | Tier | Trigger | Review |
 | --- | --- | --- |
 | Small/low | Localized change, no shared contract/security/a11y-critical path, deterministic checks pass | No agent reviewer; deterministic validation plus human diff review. |
-| Medium | Shared component, stateful UI, API integration, migration of mocks, or meaningful multi-file surface | One correctness/architecture reviewer. |
+| Medium | Shared component, stateful UI, API integration, migration of mocks, or meaningful multi-file surface | One correctness/architecture reviewer when that surface warrants independent review. |
 | High | Auth/security, destructive behavior, authoritative API change, broad design-system change, or large `ChangeSurface` | Up to three narrow reviewers: correctness/architecture, UX-a11y-fidelity, security/API. |
 
 Do not create a mega-reviewer. A specialist is activated only when its domain

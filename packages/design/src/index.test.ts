@@ -55,6 +55,16 @@ describe("Figma Design Index", () => {
       }),
     ]);
 
+    expect(() =>
+      normalizeDesignIndex({
+        ...index,
+        sources: index.sources.map((source) => ({
+          ...source,
+          receipt: { ...source.receipt, route: "tampered-route" },
+        })),
+      }),
+    ).toThrow(/immutable fields/i);
+
     const mismatch = resolveExplicitDesignTarget(index, "10:2");
     expect(mismatch.candidates).toEqual([]);
     expect(mismatch.findings).toEqual([
@@ -64,6 +74,15 @@ describe("Figma Design Index", () => {
       }),
     ]);
 
+    index.sources[0]!.receipt.schemaVersion = 2;
+    const historical = resolveExplicitDesignTarget(index, "10:1");
+    expect(historical.candidates).toEqual([]);
+    expect(historical.findings[0]).toMatchObject({
+      code: "explicit-target-mismatch",
+      level: "decision-required",
+    });
+
+    index.sources[0]!.receipt.schemaVersion = 3;
     index.sources[0]!.receipt.freshness = "stale";
     const stale = resolveExplicitDesignTarget(index, "10:1");
     expect(stale.candidates).toEqual([]);
@@ -125,6 +144,24 @@ describe("Figma Design Index", () => {
       ],
     });
     expect(resolvedSelection.gate.status).not.toBe("blocked");
+
+    const currentReceipt = index.sources[0]!.receipt;
+    expect(() =>
+      buildFigmaDesignIndex({
+        figmaUrl:
+          "https://www.figma.com/design/StorefrontKey/Storefront?node-id=10-1",
+        confirmedSourceReference: confirmed,
+        metadata,
+        scopeNodeId: "10:1",
+        scopePageId: "0:1",
+        sourceReceipt: {
+          ...currentReceipt,
+          schemaVersion: 2,
+          id: "receipt-0123456789abcdef",
+        },
+      }),
+    ).toThrow(/historical evidence only/i);
+
     expect(() =>
       buildFigmaDesignIndex({
         figmaUrl:
