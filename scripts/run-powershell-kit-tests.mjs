@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { powerShellProcessEnvironment } from "./powershell-process-environment.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const candidates = process.platform === "win32"
@@ -18,6 +19,7 @@ for (const candidate of candidates) {
     ["-NoProfile", "-Command", "$PSVersionTable.PSVersion"],
     {
       encoding: "utf8",
+      env: powerShellProcessEnvironment(candidate),
       windowsHide: true,
     },
   );
@@ -47,6 +49,7 @@ for (const testFile of testFiles) {
     ],
     {
       cwd: repositoryRoot,
+      env: powerShellProcessEnvironment(executable),
       stdio: "inherit",
       windowsHide: true,
     },

@@ -9,6 +9,7 @@ import {
   SECTION_NAME,
   updateCodexMcpConfig,
 } from "./register-codex-mcp.mjs";
+import { powerShellProcessEnvironment } from "../scripts/powershell-process-environment.mjs";
 
 const fixturePathsRoot = path.join(
   path.parse(process.cwd()).root,
@@ -32,6 +33,35 @@ const entryPath = path.join(
 async function temporaryRoot() {
   return mkdtemp(path.join(os.tmpdir(), "project-atlas-mcp-config-"));
 }
+
+test("isolates Windows PowerShell from a PowerShell 7 module path", () => {
+  const source = {
+    Path: "C:\\Tools",
+    PsMoDuLePaTh: "C:\\Program Files\\PowerShell\\7\\Modules",
+  };
+
+  assert.deepEqual(
+    powerShellProcessEnvironment("powershell", {
+      platform: "win32",
+      environment: source,
+    }),
+    { Path: source.Path },
+  );
+  assert.deepEqual(
+    powerShellProcessEnvironment("pwsh", {
+      platform: "win32",
+      environment: source,
+    }),
+    source,
+  );
+  assert.deepEqual(
+    powerShellProcessEnvironment("powershell", {
+      platform: "linux",
+      environment: source,
+    }),
+    source,
+  );
+});
 
 test("creates a missing config and parent directory", async (context) => {
   const root = await temporaryRoot();
