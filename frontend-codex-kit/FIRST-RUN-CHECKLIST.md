@@ -4,14 +4,22 @@
 
 - [ ] Clone or pull `project-atlas` to a stable local path.
 - [ ] Check `node --version` is 24+ and `pnpm --version` is 11.x.
-- [ ] On Windows run `.\frontend-codex-kit\install.ps1 -Agent codex`; on
+- [ ] On Arch Linux or CachyOS, install the supported packages with
+      `sudo pacman -Syu --needed git nodejs-lts-krypton pnpm openai-codex`.
+      The rolling `nodejs` package is also valid when it provides Node 24+.
+- [ ] On Windows run `.\frontend-codex-kit\install.ps1 -Agent codex`; on Arch
+      Linux/CachyOS run
+      `bash ./frontend-codex-kit/install.sh --agent codex`; on
       Ubuntu/macOS run
       `pwsh -NoProfile -File ./frontend-codex-kit/install.ps1 -Agent codex`.
-- [ ] Run `.\frontend-codex-kit\doctor.ps1` on Windows or
-      `pwsh -NoProfile -File ./frontend-codex-kit/doctor.ps1` elsewhere; every
-      check passes and no file is changed by the doctor.
-- [ ] Confirm the installer reports `[mcp_servers.component-atlas]` in the
-      expected `$CODEX_HOME/config.toml` or `~/.codex/config.toml`.
+- [ ] Run `.\frontend-codex-kit\doctor.ps1` on Windows,
+      `bash ./frontend-codex-kit/doctor.sh` on Arch Linux/CachyOS, or
+      `pwsh -NoProfile -File ./frontend-codex-kit/doctor.ps1` on
+      Ubuntu/macOS; every check passes and no file is changed by the doctor.
+- [ ] On Arch Linux/CachyOS, confirm the native Bash route required no
+      PowerShell or `pwsh`.
+- [ ] Confirm the doctor reports `[PASS] Codex MCP config` for the expected
+      `$CODEX_HOME/config.toml` or `~/.codex/config.toml`.
 - [ ] Restart Codex and open a new task so it reloads the shared MCP config.
 - [ ] Open the real frontend repository in Codex.
 - [ ] Start a localized low-risk change with
@@ -74,10 +82,13 @@
 
 From the Project Atlas clone:
 
-```powershell
+```sh
 pnpm atlas
-pnpm atlas -- "C:\path\to\product-repository"
+pnpm atlas -- "/home/user/dev/product-repository"
 ```
+
+On Windows, use `pnpm atlas -- "C:\path\to\product-repository"` for a direct
+repository path.
 
 - [ ] The browser opens the free loopback URL printed by the launcher.
 - [ ] Starting without a path shows the project selector.

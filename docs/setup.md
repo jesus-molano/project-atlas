@@ -19,7 +19,24 @@ Set-Location .\project-atlas
 .\frontend-codex-kit\doctor.ps1
 ```
 
-On Ubuntu/macOS install PowerShell 7 and use:
+On Arch Linux or CachyOS, install the repository packages and use the native
+Bash scripts:
+
+```sh
+sudo pacman -Syu --needed git nodejs-lts-krypton pnpm openai-codex
+git clone https://github.com/jesus-molano/project-atlas.git
+cd project-atlas
+bash ./frontend-codex-kit/install.sh --agent codex
+bash ./frontend-codex-kit/doctor.sh
+```
+
+This route does not require PowerShell or `pwsh`. Arch's rolling `nodejs`
+package is also supported whenever it provides Node 24 or newer; the command
+above selects Node 24 LTS explicitly. Keep the Atlas clone at a stable path:
+skill links and the MCP command refer back to that clone, and updates are
+applied there.
+
+On Ubuntu/macOS, the existing PowerShell 7 route remains available:
 
 ```sh
 pwsh -NoProfile -File ./frontend-codex-kit/install.ps1 -Agent codex
@@ -27,9 +44,10 @@ pwsh -NoProfile -File ./frontend-codex-kit/doctor.ps1
 ```
 
 Required on every platform: Git, Node.js 24+, and pnpm 11.x. Windows PowerShell
-5.1 or PowerShell 7 works on Windows; non-Windows requires `pwsh`. Link mode
-uses a Windows junction or a symbolic link; select `-InstallMode copy` if the
-host policy disallows links.
+5.1 or PowerShell 7 works on Windows. Arch/CachyOS uses native Bash; the
+Ubuntu/macOS commands above require `pwsh`. Link mode uses a Windows junction
+or a symbolic link. Select `-InstallMode copy` on PowerShell or
+`--install-mode copy` on Bash if the host policy disallows links.
 
 The doctor is read-only and prints one action for every failed check. After it
 passes, restart Codex and open a new task. Then open the product repository and
@@ -45,7 +63,8 @@ No manual Atlas bootstrap is required for the normal task flow.
 
 Codex is the primary route. Its installer, read-only doctor, explicit-only skill
 policy, six-tool MCP core, and frontend workflow are covered by repository CI on
-Windows and Ubuntu.
+Windows and Ubuntu. The native Bash installer and doctor are additionally
+covered in an Arch Linux container.
 
 Claude Code is a compatibility preview. The installer can place the same Agent
 Skills under `~/.claude/skills` and register the same host-neutral MCP core with
@@ -75,7 +94,8 @@ For Codex, the managed technical identifier is
 
 ## Codex MCP modes
 
-Use `-CodexMcpMode auto|config|cli`:
+Use `-CodexMcpMode auto|config|cli` on PowerShell or
+`--codex-mcp-mode auto|config|cli` on Bash:
 
 | Mode | Behavior |
 | --- | --- |
@@ -108,7 +128,8 @@ variant). A matching block is left byte-identical.
 
 If the section points elsewhere or contains additional settings, installation
 stops and prints the current and expected paths. Review them first. Rerun with
-`-ForceMcpConfig` only when replacing that exact section is intentional.
+`-ForceMcpConfig` on PowerShell or `--force-mcp-config` on Bash only when
+replacing that exact section is intentional.
 
 The Node path is absolute and validated. With fnm, the installer prefers the
 real installation for the active version rather than an ephemeral multishell
@@ -136,6 +157,43 @@ path.
 .\frontend-codex-kit\install.ps1 -Agent both
 ```
 
+The native Bash installer exposes the equivalent POSIX-style flags:
+
+```sh
+# Show exact actions and paths without writing
+bash ./frontend-codex-kit/install.sh --agent codex --dry-run
+
+# Force the direct Codex config route
+bash ./frontend-codex-kit/install.sh --agent codex --codex-mcp-mode config
+
+# Replace a conflicting Atlas MCP section after reviewing it
+bash ./frontend-codex-kit/install.sh --agent codex --force-mcp-config
+
+# Install without registering MCP
+bash ./frontend-codex-kit/install.sh --agent codex --skip-mcp
+
+# Copy skills instead of linking them
+bash ./frontend-codex-kit/install.sh --agent codex --install-mode copy
+
+# Install Codex plus the Claude Code compatibility preview
+bash ./frontend-codex-kit/install.sh --agent both
+```
+
+| PowerShell | Bash | Purpose |
+| --- | --- | --- |
+| `-Agent` | `--agent` | Select `codex`, `claude`, or `both` |
+| `-InstallMode` | `--install-mode` | Select `link` or `copy` |
+| `-CodexMcpMode` | `--codex-mcp-mode` | Select `auto`, `config`, or `cli` |
+| `-ForceMcpConfig` | `--force-mcp-config` | Replace a reviewed conflicting MCP section |
+| `-SkipMcp` | `--skip-mcp` | Skip MCP registration |
+| `-DryRun` | `--dry-run` | Resolve and report without writing |
+| `-SkipDependencies` | `--skip-dependencies` | Reuse installed workspace dependencies |
+| `-SkipBuild` | `--skip-build` | Reuse current build artifacts |
+| `-CodexSkillsRoot` | `--codex-skills-root` | Override the Codex skill destination |
+| `-ClaudeSkillsRoot` | `--claude-skills-root` | Override the Claude skill destination |
+| `-CodexAgentsPath` | `--codex-agents-path` | Override the Codex instruction file |
+| `-AtlasRoot` | `--atlas-root` | Select a stable Atlas clone explicitly |
+
 Other recovery/development flags:
 
 - `-SkipDependencies`: do not run `pnpm install`;
@@ -144,8 +202,8 @@ Other recovery/development flags:
 - `-CodexAgentsPath`: override the `AGENTS.md` path used only for legacy-block
   removal.
 
-`-DryRun` still resolves the real Node, config, skill, and package paths, but it
-does not create directories, links, backups, or config files.
+`-DryRun` and `--dry-run` still resolve the real Node, config, skill, and
+package paths, but do not create directories, links, backups, or config files.
 
 ## Read-only doctor
 
@@ -155,16 +213,25 @@ Run after installation, update, or an MCP/skill detection problem:
 .\frontend-codex-kit\doctor.ps1
 ```
 
+On Arch Linux or CachyOS:
+
+```sh
+bash ./frontend-codex-kit/doctor.sh
+```
+
 It verifies Git, a stable Node 24+ executable, pnpm 11.x, CLI/MCP builds, the
 live six-tool core contract through a stdio MCP smoke test, all three
 installed skill manifests, their explicit-only policy, and the exact
 `component-atlas` Codex entry pointing to this clone with `--profile core`. It
 never writes. A failed check prints the reinstall/config action; review
-conflicts before using `-ForceMcpConfig`.
+conflicts before using `-ForceMcpConfig` or `--force-mcp-config`.
 
-The doctor validates Codex only. It does not inspect `~/.claude/skills` or
-`~/.claude.json`; use the manual Claude checks below for the compatibility
-preview.
+The Bash doctor accepts `--atlas-root`, `--codex-skills-root`,
+`--codex-config-path`, and `--skip-mcp-smoke`, equivalent to the PowerShell
+doctor options. Both doctors validate Codex only and remain read-only.
+
+They do not inspect `~/.claude/skills` or `~/.claude.json`; use the manual
+Claude checks below for the compatibility preview.
 
 ## Update
 
@@ -175,7 +242,31 @@ git pull --ff-only
 .\frontend-codex-kit\doctor.ps1
 ```
 
+On Arch Linux or CachyOS, update the same stable clone and rerun the native
+installer and doctor:
+
+```sh
+cd /path/to/project-atlas
+git pull --ff-only
+bash ./frontend-codex-kit/install.sh --agent codex
+bash ./frontend-codex-kit/doctor.sh
+```
+
 The installer is idempotent. Restart Codex and open a new task afterwards.
+
+## Optional local GUI
+
+The installer builds the local GUI as part of the same stable clone. Open its
+project selector, or pass one product repository directly:
+
+```sh
+pnpm atlas
+pnpm atlas -- "/home/user/dev/product-repository"
+```
+
+On Windows, the direct path can use the usual form
+`pnpm atlas -- "C:\path\to\product-repository"`. Keep the launching terminal
+open; press Ctrl+C there to stop the loopback viewer.
 
 ## Storage and authority
 
@@ -210,11 +301,20 @@ where `codex mcp` is known to work:
 .\frontend-codex-kit\install.ps1 -Agent codex -CodexMcpMode cli
 ```
 
+On Arch Linux or CachyOS, the equivalent command is:
+
+```sh
+bash ./frontend-codex-kit/install.sh --agent codex --codex-mcp-mode cli
+```
+
 Claude Code uses its supported CLI registration as a compatibility preview:
 
 ```powershell
 .\frontend-codex-kit\install.ps1 -Agent claude
 ```
+
+The native Bash equivalent is
+`bash ./frontend-codex-kit/install.sh --agent claude`.
 
 Then run `claude mcp get component-atlas` and inspect `/mcp` in Claude Code.
 Confirm the entry uses the stable Node executable, this clone's MCP entry,
@@ -228,27 +328,30 @@ does not claim parity with Codex.
 
 ## Development validation
 
-```powershell
+```text
 pnpm audit:product
 pnpm test
 pnpm typecheck
 pnpm build
 pnpm test:kit
+# Linux only
+pnpm test:kit:shell
 ```
 
 ## Repository protection policy
 
 The repository-owned CI contract is `.github/workflows/ci.yml`. Protect
 `main` with a GitHub ruleset that requires pull requests, resolved review
-threads, a current branch, and these two stable status checks:
+threads, a current branch, and these three stable status checks:
 
 - `Validate (ubuntu-latest)`;
-- `Validate (windows-latest)`.
+- `Validate (windows-latest)`;
+- `Validate native installer (Arch Linux)`.
 
 Disable force pushes and branch deletion. The workflow also handles
 `merge_group`, so those same checks can gate a merge queue if the repository
 enables one. Requiring approvals or CODEOWNERS is an organization policy choice,
-but administrators should not bypass the two CI checks for normal delivery.
+but administrators should not bypass the three CI checks for normal delivery.
 GitHub stores and enforces branch rules outside the Git checkout, so cloning
 this repository cannot activate them automatically; an owner must configure or
 audit the ruleset in repository settings.

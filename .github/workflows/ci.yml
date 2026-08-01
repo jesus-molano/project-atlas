@@ -38,6 +38,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Test Codex kit installation and configuration
         run: pnpm test:kit
+      - name: Test Bash kit installation and configuration
+        run: bash frontend-codex-kit/test-shell-kit.sh
+        if: runner.os == 'Linux'
       - name: Static gates, build, typecheck, and artifact audit
         run: pnpm check:ci
       - name: Smoke-test the built core MCP over stdio
@@ -47,7 +50,6 @@ jobs:
         if: runner.os == 'Windows'
       - name: Test product launcher
         run: pnpm test:launcher:built
-        if: runner.os == 'Windows'
       - name: Test coverage
         run: pnpm test:coverage:built --maxWorkers=2
         if: runner.os == 'Linux'
@@ -73,3 +75,25 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
         if: runner.os == 'Linux'
+
+  arch-kit:
+    name: Validate native installer (Arch Linux)
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    timeout-minutes: 30
+    steps:
+      - name: Install Arch dependencies
+        run: pacman -Syu --noconfirm git nodejs-lts-krypton pnpm openai-codex
+      - uses: actions/checkout@v4
+      - name: Install and diagnose the real product on Arch
+        shell: bash
+        env:
+          HOME: ${{ runner.temp }}/project-atlas-home
+          CODEX_HOME: ${{ runner.temp }}/project-atlas-codex
+          XDG_DATA_HOME: ${{ runner.temp }}/project-atlas-data
+        run: |
+          mkdir -p "$HOME"
+          bash ./frontend-codex-kit/install.sh --agent codex
+          bash ./frontend-codex-kit/doctor.sh
+      - name: Test Bash kit installation and configuration
+        run: bash frontend-codex-kit/test-shell-kit.sh

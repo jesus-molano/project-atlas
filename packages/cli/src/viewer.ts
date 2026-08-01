@@ -361,7 +361,7 @@ export async function findAvailableLoopbackPort(): Promise<number> {
     });
     const address = server.address();
     if (!address || typeof address === "string" || address.port <= 0) {
-      throw new Error("Windows did not provide a free loopback port.");
+      throw new Error("The operating system did not provide a free loopback port.");
     }
     return address.port;
   } finally {

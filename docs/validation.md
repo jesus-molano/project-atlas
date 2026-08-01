@@ -61,6 +61,7 @@ session identity, project, date and manual/automatic kind.
 
 ```text
 pnpm test:kit
+pnpm test:kit:shell # Linux native installer/doctor
 pnpm check:ci
 pnpm test:unit:built --maxWorkers=2
 pnpm test:coverage:built --maxWorkers=2
@@ -72,9 +73,10 @@ pnpm audit --prod --audit-level high
 
 `check:ci` owns lint, CSS lint, architecture/product/docs/maintainability/summary
 audits, the production build, typecheck, and build-artifact verification. CI
-runs the kit and static gates on Windows and Ubuntu; platform-specific test jobs
-then cover unit/launcher behavior on Windows and coverage/benchmark/E2E on
-Ubuntu. A failed Linux end-to-end run retains its Playwright report and test
+runs the shared kit and static gates on Windows and Ubuntu, the native Bash kit
+on Ubuntu and in an Arch Linux container, launcher behavior on Windows and
+Ubuntu, and unit/coverage/benchmark/E2E checks on their designated matrix
+platforms. A failed Linux end-to-end run retains its Playwright report and test
 artifacts for seven days when those files exist.
 
 Independent agent review is an additional risk-based evaluator, never a

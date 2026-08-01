@@ -14,7 +14,7 @@ inspection, and traceability surface, not a replacement conversation.
 
 | Client | Status | Verified boundary |
 | --- | --- | --- |
-| Codex | Primary | Installer, read-only doctor, explicit-only skill policy, six-tool MCP core, and the frontend workflow are exercised by the Windows/Ubuntu CI suite. |
+| Codex | Primary | Installer, read-only doctor, explicit-only skill policy, six-tool MCP core, and the frontend workflow are exercised on Windows and Ubuntu; the native installer/doctor also run in an Arch Linux container. |
 | Claude Code | Compatibility preview | The installer can link/copy the same Agent Skills and register the same MCP core through the supported Claude CLI. There is no equivalent doctor, Claude-specific explicit-only enforcement, connector setup, or end-to-end workflow validation yet. |
 
 Claude Code can therefore use Atlas's host-neutral context and memory contracts,
@@ -45,6 +45,30 @@ The installer builds the local product, installs the three explicit-only
 skills, removes only the obsolete marked Atlas routing block if it exists, and
 registers the six-tool MCP core profile in Codex's shared `config.toml`.
 `doctor.ps1` then verifies the effective install without changing it. Restart
+Codex and open a new task after both commands finish.
+
+## Quick start - Arch Linux / CachyOS + Codex
+
+Install the supported distribution packages, then install Atlas from a stable
+clone:
+
+```sh
+sudo pacman -Syu --needed git nodejs-lts-krypton pnpm openai-codex
+git clone https://github.com/jesus-molano/project-atlas.git
+cd project-atlas
+bash ./frontend-codex-kit/install.sh --agent codex
+bash ./frontend-codex-kit/doctor.sh
+```
+
+The Arch/CachyOS route is native Bash and does not require PowerShell or
+`pwsh`. The rolling `nodejs` package is also valid whenever `node --version`
+reports 24 or newer; `nodejs-lts-krypton` is the conservative Node 24 LTS
+choice shown above. Keep the clone at a stable path because installed skill
+links and the local MCP configuration resolve back to it.
+
+The Bash installer performs the same build, explicit-only skill installation,
+legacy routing migration, and Codex MCP registration as the Windows route.
+`doctor.sh` verifies the resulting installation without changing it. Restart
 Codex and open a new task after both commands finish.
 
 Now open your product repository in Codex. Use the direct fast path for a
@@ -125,6 +149,12 @@ pnpm atlas -- "C:\path\to\product-repository"
 
 If the normal Codex installer was already run, dependencies and the initial
 production build are already present; use the same `pnpm atlas` commands.
+On Arch Linux or CachyOS, the equivalent direct-project command is, for
+example:
+
+```sh
+pnpm atlas -- "/home/user/dev/product-repository"
+```
 
 `pnpm atlas` builds the production product only when its build is missing or
 older than its sources, selects a free loopback port, starts only the local
@@ -187,7 +217,7 @@ block the task.
 | `~/.agents/skills/` | Codex global explicit-only `frontend-task`, `visual-direction`, and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |
 | `~/.codex/AGENTS.md` | Personal instructions; the installer only removes its obsolete marked Atlas block |
-| `~/.claude/skills/` | Claude Code compatibility-preview links/copies for the same three skills, only when `-Agent claude` or `-Agent both` is used |
+| `~/.claude/skills/` | Claude Code compatibility-preview links/copies for the same three skills, only when `-Agent claude|both` on PowerShell or `--agent claude|both` on Bash is used |
 | `~/.claude.json` | Claude Code's user-scoped `component-atlas` MCP entry, managed by its CLI only when the compatibility preview is installed |
 
 `component-atlas` remains the internal MCP/package identifier for compatibility.
@@ -209,6 +239,15 @@ From the Project Atlas clone:
 ```powershell
 git pull --ff-only
 .\frontend-codex-kit\install.ps1 -Agent codex
+.\frontend-codex-kit\doctor.ps1
+```
+
+On Arch Linux or CachyOS:
+
+```sh
+git pull --ff-only
+bash ./frontend-codex-kit/install.sh --agent codex
+bash ./frontend-codex-kit/doctor.sh
 ```
 
 The installer is idempotent. Restart Codex and open a new task afterwards.
@@ -219,15 +258,17 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
   and rerun the normal installer. Windows now writes `config.toml` directly and
   does not invoke `codex mcp get/add`.
 - **MCP config conflict:** compare the current and expected paths printed by the
-  installer. Use `-ForceMcpConfig` only when replacing that exact section is
-  intentional. A backup is created before changes.
+  installer. Use `-ForceMcpConfig` on PowerShell or `--force-mcp-config` on
+  Bash only when replacing that exact section is intentional. A backup is
+  created before changes.
 - **Node resolves through an ephemeral fnm path:** activate an installed fnm
   version, confirm `fnm current` and `fnm exec --using <version> node --version`
   succeed, then rerun.
 - **`$frontend-task` is not detected:** restart Codex and open a new task.
-  Run `.\frontend-codex-kit\doctor.ps1`; its failed check prints the exact
-  reinstall or config action. Confirm `~/.agents/skills/frontend-task/SKILL.md`
-  exists.
+  Run `.\frontend-codex-kit\doctor.ps1` on Windows or
+  `bash ./frontend-codex-kit/doctor.sh` on Arch/CachyOS; its failed check prints the
+  exact reinstall or config action. Confirm
+  `~/.agents/skills/frontend-task/SKILL.md` exists.
 - **A fixed port is required for diagnostics:** add `--port <port>` to
   `pnpm atlas`; normal use selects a free port automatically.
 - **The browser did not open:** copy the printed loopback URL, or add
@@ -238,8 +279,9 @@ The installer is idempotent. Restart Codex and open a new task afterwards.
   intentionally not activated implicitly.
 - **The Atlas clone has local changes:** inspect `git status`; do not use
   `git pull` until those changes are committed, moved, or intentionally removed.
-- **Installation must continue without MCP:** use `-SkipMcp` as an escape hatch,
-  then configure the server later through approved Codex settings.
+- **Installation must continue without MCP:** use `-SkipMcp` on PowerShell or
+  `--skip-mcp` on Bash as an escape hatch, then configure the server later
+  through approved Codex settings.
 
 ## Technical documentation
 

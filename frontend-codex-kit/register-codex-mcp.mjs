@@ -121,7 +121,7 @@ export class McpConfigConflictError extends Error {
         `Current args: ${details.currentArgs?.join(", ") ?? "<unrecognized>"}`,
         `Expected command: ${details.expectedCommand}`,
         `Expected args: ${details.expectedArgs.join(", ")}`,
-        "Review the existing server or rerun with -ForceMcpConfig.",
+        "Review the existing server or rerun with -ForceMcpConfig / --force-mcp-config.",
       ].join("\n"),
     );
     this.name = "McpConfigConflictError";
