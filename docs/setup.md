@@ -61,10 +61,10 @@ No manual Atlas bootstrap is required for the normal task flow.
 
 ## Client support status
 
-Codex is the primary route. Its installer, read-only doctor, explicit-only skill
-policy, six-tool MCP core, and frontend workflow are covered by repository CI on
-Windows and Ubuntu. The native Bash installer and doctor are additionally
-covered in an Arch Linux container.
+Codex is the primary route. Its installer, read-only doctor, selective
+`frontend-task` policy, explicit child skills, six-tool MCP core, and frontend
+workflow are covered by repository CI on Windows and Ubuntu. The native Bash
+installer and doctor are additionally covered in an Arch Linux container.
 
 Claude Code is a compatibility preview. The installer can place the same Agent
 Skills under `~/.claude/skills` and register the same host-neutral MCP core with
@@ -79,8 +79,8 @@ The installer:
 
 - installs workspace dependencies and builds the CLI, MCP, and local GUI product;
 - does not add repository-local Atlas state or alter Git ignore configuration;
-- links or copies explicit-only `frontend-task`, `reuse-first`, and
-  `visual-direction` into the selected agent's skill folder;
+- links or copies selectively automatic `frontend-task` plus explicit-only
+  `reuse-first` and `visual-direction` into the selected agent's skill folder;
 - removes only the obsolete marked Atlas routing block from
   `~/.codex/AGENTS.md`, preserving a neighboring backup, and never adds global
   routing;
@@ -220,9 +220,10 @@ bash ./frontend-codex-kit/doctor.sh
 ```
 
 It verifies Git, a stable Node 24+ executable, pnpm 11.x, CLI/MCP builds, the
-live six-tool core contract through a stdio MCP smoke test, all three
-installed skill manifests, their explicit-only policy, and the exact
-`component-atlas` Codex entry pointing to this clone with `--profile core`. It
+live six-tool core contract through a stdio MCP smoke test, all three installed
+skill manifests, the selective `frontend-task` policy, the explicit child-skill
+policies, and the exact `component-atlas` Codex entry pointing to this clone
+with `--profile core`. It
 never writes. A failed check prints the reinstall/config action; review
 conflicts before using `-ForceMcpConfig` or `--force-mcp-config`.
 

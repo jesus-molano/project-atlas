@@ -5,16 +5,17 @@ map of a frontend project before it changes code. It finds existing components,
 design evidence, decisions, risks, and prior outcomes without dumping the whole
 repository or design file into the conversation.
 
-The normal entry point is native Codex with `$frontend-task`. You describe the
-task; the skill selects useful sources and uses Atlas as a compact, verifiable
-context sidecar only when it adds value. The GUI is an optional control,
+The normal entry point is native Codex. `$frontend-task` can be invoked by name
+or selected automatically for complex frontend implementation with strong
+signals such as multiple material sources, shared/public boundaries, broad
+migrations, or an existing Atlas task. The GUI is an optional control,
 inspection, and traceability surface, not a replacement conversation.
 
 ## Client support
 
 | Client | Status | Verified boundary |
 | --- | --- | --- |
-| Codex | Primary | Installer, read-only doctor, explicit-only skill policy, six-tool MCP core, and the frontend workflow are exercised on Windows and Ubuntu; the native installer/doctor also run in an Arch Linux container. |
+| Codex | Primary | Installer, read-only doctor, selective `frontend-task` policy, explicit child skills, six-tool MCP core, and the frontend workflow are exercised on Windows and Ubuntu; the native installer/doctor also run in an Arch Linux container. |
 | Claude Code | Compatibility preview | The installer can link/copy the same Agent Skills and register the same MCP core through the supported Claude CLI. There is no equivalent doctor, Claude-specific explicit-only enforcement, connector setup, or end-to-end workflow validation yet. |
 
 Claude Code can therefore use Atlas's host-neutral context and memory contracts,
@@ -41,9 +42,10 @@ Set-Location .\project-atlas
 .\frontend-codex-kit\doctor.ps1
 ```
 
-The installer builds the local product, installs the three explicit-only
-skills, removes only the obsolete marked Atlas routing block if it exists, and
-registers the six-tool MCP core profile in Codex's shared `config.toml`.
+The installer builds the local product, installs selectively automatic
+`frontend-task` plus the explicit-only `reuse-first` and `visual-direction`,
+removes only the obsolete marked Atlas routing block if it exists, and registers
+the six-tool MCP core profile in Codex's shared `config.toml`.
 `doctor.ps1` then verifies the effective install without changing it. Restart
 Codex and open a new task after both commands finish.
 
@@ -66,12 +68,13 @@ reports 24 or newer; `nodejs-lts-krypton` is the conservative Node 24 LTS
 choice shown above. Keep the clone at a stable path because installed skill
 links and the local MCP configuration resolve back to it.
 
-The Bash installer performs the same build, explicit-only skill installation,
+The Bash installer performs the same build, selective skill installation,
 legacy routing migration, and Codex MCP registration as the Windows route.
 `doctor.sh` verifies the resulting installation without changing it. Restart
 Codex and open a new task after both commands finish.
 
-Now open your product repository in Codex. Use the direct fast path for a
+Now open your product repository in Codex. A normal complex frontend request can
+select Atlas automatically. Invoke the skill directly when you want Atlas for a
 localized, low-risk change:
 
 ```text
@@ -214,7 +217,7 @@ block the task.
 | Platform Atlas root: `%LOCALAPPDATA%\ProjectAtlas\` (Windows), `~/Library/Application Support/ProjectAtlas/` (macOS), or `${XDG_DATA_HOME:-~/.local/share}/ProjectAtlas/` (Linux) | SQLite, indexes, memory, decisions, capsules, journals, receipts, manifests, and bounded retrieval state under `projects/` |
 | `<platform Atlas root>/temp/` | Owned temporary assets/previews with TTL and explicit cleanup |
 | `<platform Atlas root>/recent-projects.json` | Minimal recent-project registry |
-| `~/.agents/skills/` | Codex global explicit-only `frontend-task`, `visual-direction`, and `reuse-first` skill links/copies |
+| `~/.agents/skills/` | Codex global selectively automatic `frontend-task` plus explicit-only `visual-direction` and `reuse-first` skill links/copies |
 | `$CODEX_HOME/config.toml` or `~/.codex/config.toml` | The local `component-atlas` MCP server entry |
 | `~/.codex/AGENTS.md` | Personal instructions; the installer only removes its obsolete marked Atlas block |
 | `~/.claude/skills/` | Claude Code compatibility-preview links/copies for the same three skills, only when `-Agent claude|both` on PowerShell or `--agent claude|both` on Bash is used |

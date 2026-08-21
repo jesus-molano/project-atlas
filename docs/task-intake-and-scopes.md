@@ -1,7 +1,8 @@
 # Task intake and persistence scopes
 
 Task authorization belongs to native Codex; reusable evidence belongs to
-Atlas. `$frontend-task` is explicit-only and starts with a cheap source and
+Atlas. `$frontend-task` may be explicit or selected automatically for a complex
+frontend implementation with strong signals. It starts with a cheap source and
 checkout preflight before any deep scan or retrieval.
 
 ## Intake

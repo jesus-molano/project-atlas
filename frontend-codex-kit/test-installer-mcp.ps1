@@ -398,7 +398,8 @@ input.on("line", (line) => {
       New-Item -ItemType Directory -Force -Path $skillDirectory | Out-Null
     }
     $skillText = "---`nname: $skillName`ndescription: Doctor fixture.`n---`n"
-    $metadataText = "policy:`n  allow_implicit_invocation: false`n"
+    $implicitPolicy = if ($skillName -eq "frontend-task") { "true" } else { "false" }
+    $metadataText = "policy:`n  allow_implicit_invocation: $implicitPolicy`n"
     [System.IO.File]::WriteAllText(
       (Join-Path $sourceSkill "SKILL.md"),
       $skillText,

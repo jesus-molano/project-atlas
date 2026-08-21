@@ -1,14 +1,18 @@
 ---
 name: frontend-task
-description: Explicit Atlas frontend workflow. Invoke only by direct request.
+description: Implement complex frontend work with Project Atlas when multiple authorities, shared or public UI/API boundaries, cross-route state, a broad migration, or an Atlas continuation need bounded evidence and scope validation. Also use explicitly; skip small edits, research, diagnosis, and review-only work.
 ---
 
 # Frontend Task
 
-Invoke only when the user writes `$frontend-task` or explicitly requests
-Frontend Task; never infer it from generic frontend work.
+Explicit requests apply at any size. Activate implicitly only for frontend
+implementation with multiple material authorities; a shared/public component
+or API; state spanning routes, packages, or browser/server; a broad migration;
+or an Atlas continuation. Skip small edits, research, diagnosis, and review.
+Name the decisive signal. Ask only about consequential ambiguity, not whether
+to use Atlas.
 
-Use one Codex task. Atlas supplies bounded evidence; it must not create,
+Use a Codex task. Atlas supplies bounded evidence; it must not create,
 route, resume, cancel, or grant permissions.
 
 ## Load references only when active
@@ -80,7 +84,6 @@ authority is unresolved. Every visual implementation attaches its contract via
 
 For small work, keep a compact intent, decision, scope, and checks. For larger
 work, use the brief and obtain required approval.
-Plan mode and filesystem permissions belong to native Codex.
 
 Call `atlas_lock_change_scope` only after the decision. `reuse`, `extend`,
 `compose`, and `extract-and-reuse` require an existing `primary_component`
@@ -95,7 +98,7 @@ findings before edit; broaden only after named invalidation.
 - Reuse repository components, tokens, patterns, and generated contracts.
 - Keep API, auth, persistence, accessibility-critical, and destructive behavior
   inside confirmed scope.
-- Preserve exact Figma node identity; Atlas candidates never replace it
+- Preserve Figma node identity; Atlas candidates never replace it
   silently. Do not explore for non-visual work, established patterns, or
   exact-design fidelity.
 - Use the same native task. The main native Codex task is coordinator and sole writer;
@@ -117,35 +120,30 @@ pre-clean review while bytes exist; clean the session, then attach the final
 review with identical handles/hashes and cleanup receipt. Complete unique
 viewport/state coverage and cleanup are mandatory.
 
-- small/low: no agent reviewer; run focused tests and required fast checks;
+- small: no agent reviewer; run focused tests and required fast checks;
 - medium: one read-only correctness/architecture reviewer when shared/API/state
   warrants it, plus relevant focused tests, lint, typecheck, or build;
 - large/high: up to three narrow read-only reviewers plus full applicable gates
   and integration/e2e or visual evidence for correctness, UX/accessibility,
   and security/API only when their domains are present.
 
-Give reviewers objective, criteria, lock/exclusions, risk, evidence, diff, and
-checks. Require `pass`, `blocked`, or findings with tight file/line evidence,
-ID, severity, reproduction, fix, confidence, and scope. Verify, rerun affected checks, and
-stop after two review passes.
+Require file/line evidence for findings. Verify them, rerun affected checks,
+and stop after two review passes.
 
 ## 6. Close technically, then handle memory separately
 
-Call `atlas_task_state` with action `complete` after implementation, validation,
-review, and cleanup. Include result, verification, reuse decision, changed-file
-summary, risks, and delivery. It is an immutable technical outcome—not proof of
-commit/push/PR/deploy—and must not write Project Memory.
+Call `atlas_task_state` action `complete` after implementation, validation,
+review, and cleanup. Include result, verification, reuse decision, changed
+files, risks, and delivery. Completion is an immutable technical outcome, not
+proof of external delivery, and must not write Project Memory.
 
 Completion is first-writer-wins: HEAD, lock/delta, objective, sources, handles,
 and final review hash are bound durably. Identical interrupted/expired retries
 converge; changed payload or evidence is rejected.
 
 Default to no memory write. Read memory-closeout only for requested retention
-or a concrete candidate. Use `atlas_memory` action `review-proposal` only to
-inspect an exact named proposal.
-Every memory mutation first submits its complete payload without consent, then
-repeats it unchanged only after literal action/target approval. Implementation
-approval, completion, silence, or generic "continue" is not memory consent.
+or a concrete candidate; it owns proposal review and the mandatory two-call,
+literal-consent protocol for every mutation.
 
 Return behavior/files changed, verification, review/delivery state, unresolved
 risks, and memory status. Never commit, push, create a PR, or update an external

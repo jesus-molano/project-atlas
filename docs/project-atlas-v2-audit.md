@@ -15,8 +15,9 @@ The v2 implementation therefore:
 - removes the embedded model runner and every GUI execution route;
 - keeps Code Atlas, Design Atlas, Project Memory, Action Center, Health,
   Settings, project selection, branches, and worktrees;
-- makes `$frontend-task`, `$reuse-first`, and `$visual-direction` explicit-only
-  and progressively discloses their references;
+- makes `$frontend-task` selectively automatic for complex implementation,
+  keeps `$reuse-first` and `$visual-direction` explicit-only, and progressively
+  discloses their references;
 - makes the six-tool MCP core profile the default while retaining the 34-tool
   legacy profile temporarily for measured parity;
 - records exact Codex totals locally when OTel/JSONL provides them and labels
@@ -41,7 +42,7 @@ Current hard limits:
 | --- | ---: |
 | MCP core tool count | 6 |
 | MCP core serialized contract | 16,000 characters |
-| Explicit `frontend-task` skill | 8,000 characters |
+| Selected `frontend-task` skill | 8,000 characters |
 | Always-loaded skill references | 0 |
 | Initial Atlas task context | 3,600 characters |
 | Atlas-attributable overhead target | 8k tokens p95 |
@@ -60,7 +61,8 @@ from task context and tool responses.
 - `/api/agent/runs*`, resume/cancel/status/synchronization execution routes;
 - Codex adapter health and in-memory run state;
 - permission/risk transitions invented by the GUI;
-- global instructions that implicitly load `frontend-task` for frontend work.
+- global instructions that indiscriminately load `frontend-task` for all
+  frontend work.
 
 ### Retained
 
@@ -78,7 +80,9 @@ them starts a model.
 ## Native daily flow
 
 1. Open native Codex in the exact checkout.
-2. Invoke `$frontend-task` explicitly with one objective and material links.
+2. Describe one objective and its material links. Codex may select
+   `frontend-task` automatically when the request has strong complexity
+   signals, or the user may invoke `$frontend-task` explicitly.
 3. Codex records checkout/branch/HEAD/dirty baseline, classifies only supplied
    or materially required sources, and resolves pending references before deep
    repository or Atlas work.

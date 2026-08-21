@@ -70,7 +70,14 @@ try {
     throw "Refused malformed markers still created a backup or mutation."
   }
 
-  foreach ($skillName in @("frontend-task", "reuse-first", "visual-direction")) {
+  $frontendManifest = Join-Path $skillsRoot "frontend-task/agents/openai.yaml"
+  $frontendPolicy = [System.IO.File]::ReadAllText(
+    (Resolve-Path $frontendManifest)
+  )
+  if ($frontendPolicy -notmatch "allow_implicit_invocation:\s*true") {
+    throw "frontend-task is not available for selective implicit activation."
+  }
+  foreach ($skillName in @("reuse-first", "visual-direction")) {
     $skillManifest = Join-Path $skillsRoot "$skillName/agents/openai.yaml"
     $manifest = [System.IO.File]::ReadAllText((Resolve-Path $skillManifest))
     if ($manifest -notmatch "allow_implicit_invocation:\s*false") {
@@ -81,14 +88,17 @@ try {
     (Resolve-Path $frontendTaskDefinition)
   )
   $installerSource = [System.IO.File]::ReadAllText((Resolve-Path $installer))
-  if ($definition -notmatch 'Invoke only when the user writes `\$frontend-task`') {
-    throw "The explicit frontend-task activation contract is missing."
+  if ($definition -notmatch 'Activate implicitly only\s+for frontend\s+implementation') {
+    throw "The selective frontend-task activation contract is missing."
+  }
+  if ($definition -notmatch 'Skip small edits, research, diagnosis, and review') {
+    throw "The frontend-task small-task exclusion is missing."
   }
   if ($installerSource.Contains('For frontend work, use `frontend-task`')) {
     throw "The installer still writes the obsolete global frontend routing rule."
   }
 
-  Write-Host "Explicit skill activation and AGENTS.md migration tests passed."
+  Write-Host "Selective skill activation and AGENTS.md migration tests passed."
 } finally {
   if (Test-Path -LiteralPath $root) {
     [System.IO.Directory]::Delete($root, $true)

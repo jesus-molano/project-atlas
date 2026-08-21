@@ -10,9 +10,10 @@ planning, permissions, implementation, review, and delivery.
 .\frontend-codex-kit\doctor.ps1
 ```
 
-The installer builds Atlas, installs the three explicit skills, registers the
-six-tool `core` MCP profile, and removes only the obsolete marked Atlas block
-from `~/.codex/AGENTS.md`. Restart Codex and open a new task after changes.
+The installer builds Atlas, installs selectively automatic `frontend-task` and
+the two explicit child skills, registers the six-tool `core` MCP profile, and
+removes only the obsolete marked Atlas block from `~/.codex/AGENTS.md`. Restart
+Codex and open a new task after changes.
 
 ## Start
 
@@ -29,14 +30,18 @@ gate:
 /plan $frontend-task Replace the mocked synchronization with the real backend contract <links>
 ```
 
-Without `$frontend-task`, a normal frontend request remains a normal Codex task.
-`reuse-first` and `visual-direction` are also explicit-only, but they are not
-parallel end-to-end entry points:
+Without `$frontend-task`, Codex may select Atlas only for frontend
+implementation with strong signals: multiple material authorities,
+shared/public UI or API boundaries, cross-route/package state, a broad
+migration, or an existing Atlas task. Small local work and research,
+diagnosis, or review-only requests remain normal Codex tasks. `reuse-first` and
+`visual-direction` stay explicit-only and are not parallel end-to-end entry
+points:
 
 | Skill | Boundary |
 | --- | --- |
 | `$frontend-task` | The normal end-to-end frontend workflow: sources, reuse, implementation, validation, technical outcome, and optional separate memory flow. |
-| `$reuse-first` | A repository-only reuse gate, or a child module of an existing frontend task. If external/visual authority is material, start or continue `$frontend-task` instead of creating a second task. |
+| `$reuse-first` | A standalone repository-only reuse gate. `frontend-task` applies the same reuse decision contract internally without starting a second skill or prepare cycle. |
 | `$visual-direction` | A child of a prepared Atlas task when its output will govern implementation. Standalone exploration may compare temporary directions, but cannot attach an Atlas handoff without the parent `task_id`. |
 
 ## Daily sequence

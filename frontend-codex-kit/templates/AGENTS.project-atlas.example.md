@@ -19,8 +19,9 @@ Keep this file as a map, not a manual.
 
 ## Non-negotiable rules
 
-- Invoke `$frontend-task` explicitly when a frontend task should use the Atlas
-  workflow; do not route every frontend request implicitly.
+- Let `frontend-task` activate selectively for complex frontend implementation,
+  or invoke `$frontend-task` explicitly when Atlas is desired. Do not add a
+  catch-all rule that routes every frontend request through Atlas.
 - Resolve supplied/material external sources before deep retrieval. Missing
   optional connectors or Atlas never block repository-first progress.
 - Decide reuse/extend/compose/extract/create/not-applicable and lock that

@@ -40,7 +40,8 @@ stable path because installed links and the MCP command resolve back to it.
 The command:
 
 - installs dependencies and builds the complete local Atlas product;
-- installs explicit-only `frontend-task`, `reuse-first`, and `visual-direction`;
+- installs selectively automatic `frontend-task` plus explicit-only
+  `reuse-first` and `visual-direction`;
 - removes the obsolete marked Atlas routing block from Codex `AGENTS.md`;
 - adds the local Project Atlas MCP server to Codex;
 - confirms the centralized platform application-data storage root.
@@ -171,8 +172,9 @@ the doctor prints every resolved path without changing it.
 
 It verifies Git, Node 24+, pnpm 11.x, CLI/MCP build artifacts, a live stdio
 smoke of the six-tool core profile, current full copies of all three skills or
-links that point exactly to the selected clone, their explicit-only metadata,
-and the exact `component-atlas` config target plus `--profile core`. Every
+links that point exactly to the selected clone, the selective `frontend-task`
+policy, the explicit child-skill policies, and the exact `component-atlas`
+config target plus `--profile core`. Every
 failed check prints one recovery action and the script exits non-zero. Use `-AtlasRoot`,
 `-CodexSkillsRoot`, or `-CodexConfigPath` on PowerShell, or `--atlas-root`,
 `--codex-skills-root`, or `--codex-config-path` on Bash, to diagnose
@@ -213,8 +215,9 @@ The installer removes only the obsolete text between:
 All other instructions are preserved. A missing block is a no-op; duplicate or
 malformed markers are refused. Before removal it preserves the original beside
 the file as `AGENTS.md.project-atlas.bak` (or a numbered variant). The installer
-never adds global frontend routing. Invoke `$frontend-task` explicitly in the
-task that needs it.
+never adds global frontend routing. Codex uses the skill's narrow description
+for selective automatic activation; invoke `$frontend-task` explicitly
+whenever you want to force the Atlas workflow.
 
 ## Claude Code compatibility preview
 
@@ -252,8 +255,8 @@ entry explicitly rather than assuming the new clone is active.
 This path shares Atlas context, receipts, and memory storage with Codex, but it
 is best-effort compatibility, not end-to-end parity. Neither `doctor.ps1` nor
 `doctor.sh` inspects Claude skills or `~/.claude.json`; the CI suite does not
-run a Claude workflow, and the Codex `agents/openai.yaml` explicit-only policy
-is not a Claude-specific enforcement mechanism. Invoke `/frontend-task`
+run a Claude workflow, and the Codex `agents/openai.yaml` invocation policy is
+not a Claude-specific enforcement mechanism. Invoke `/frontend-task`
 deliberately. Configure Jira, Confluence, Figma, GitHub, and any other provider
 capability separately in Claude Code.
 

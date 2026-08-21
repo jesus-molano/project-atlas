@@ -268,27 +268,33 @@ foreach ($skillName in @("frontend-task", "reuse-first", "visual-direction")) {
     $skillDetail `
     "Move a conflicting destination if present, then run $installerCommand."
 
-  $explicitOnly = $false
+  $expectedImplicit = if ($skillName -eq "frontend-task") { "true" } else { "false" }
+  $expectedPolicyDetail = if ($skillName -eq "frontend-task") {
+    "automatic-selective"
+  } else {
+    "explicit-only"
+  }
+  $policyReady = $false
   $policyInspectionError = ""
   try {
     if (Test-Path -LiteralPath $installedMetadata -PathType Leaf) {
-      $explicitOnly = [bool](Select-String `
+      $policyReady = [bool](Select-String `
         -LiteralPath $installedMetadata `
-        -Pattern '^\s*allow_implicit_invocation:\s*false\s*$' `
+        -Pattern "^\s*allow_implicit_invocation:\s*$expectedImplicit\s*$" `
         -Quiet)
     }
   } catch {
     $policyInspectionError = $_.Exception.Message
   }
-  $policyDetail = if ($explicitOnly) {
-    "explicit-only"
+  $policyDetail = if ($policyReady) {
+    $expectedPolicyDetail
   } elseif ($policyInspectionError) {
     "inspection failed: $policyInspectionError"
   } else {
-    "missing explicit-only metadata"
+    "expected allow_implicit_invocation: $expectedImplicit"
   }
   Write-DoctorCheck `
-    $explicitOnly `
+    $policyReady `
     "Skill policy $skillName" `
     $policyDetail `
     "Run $installerCommand from the current Atlas clone."

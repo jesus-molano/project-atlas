@@ -6,7 +6,7 @@ fallback benchmark produced roughly 20.6k estimated input tokens before normal
 conversation and reasoning. Those values explain the observed pre-plan cost but
 are not billing totals.
 
-Atlas v2 uses a six-tool core contract, an explicit skill with zero
+Atlas v2 uses a six-tool core contract, a selectively loaded skill with zero
 always-loaded references, and a 3,600-character initial context cap. The legacy
 profile remains available only for parity evaluation.
 
@@ -29,7 +29,7 @@ tool arguments or tool output. Export is explicit and content-free.
 ## Benchmark
 
 `pnpm benchmark:context-cost` runs the fixed isolated task matrix and reports
-the current core contract, explicit skill size, context groups and privacy
+the current core contract, selected skill size, context groups and privacy
 statement. Release targets are:
 
 - Atlas-attributable overhead at or below 8k tokens p95;

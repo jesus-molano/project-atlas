@@ -4,4 +4,4 @@ interface:
   brand_color: "#57D6B6"
   default_prompt: "Use $frontend-task to prepare, implement, validate, and proportionally review this frontend task from the current worktree and relevant evidence."
 policy:
-  allow_implicit_invocation: false
+  allow_implicit_invocation: true

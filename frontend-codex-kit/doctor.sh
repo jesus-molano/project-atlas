@@ -266,16 +266,21 @@ for skill_name in frontend-task reuse-first visual-direction; do
   write_check "$matches_source" "Skill $skill_name" "$skill_detail" \
     "Move a conflicting destination if present, then run $installer_command."
 
+  expected_implicit="false"
+  policy_detail="explicit-only"
+  [[ "$skill_name" == "frontend-task" ]] && {
+    expected_implicit="true"
+    policy_detail="automatic-selective"
+  }
   if [[ -f "$installed_metadata" ]] && grep -Eq \
-    '^[[:space:]]*allow_implicit_invocation:[[:space:]]*false[[:space:]]*$' \
+    "^[[:space:]]*allow_implicit_invocation:[[:space:]]*$expected_implicit[[:space:]]*$" \
     "$installed_metadata"; then
-    explicit_only="true"
-    policy_detail="explicit-only"
+    policy_ready="true"
   else
-    explicit_only="false"
-    policy_detail="missing explicit-only metadata"
+    policy_ready="false"
+    policy_detail="expected allow_implicit_invocation: $expected_implicit"
   fi
-  write_check "$explicit_only" "Skill policy $skill_name" "$policy_detail" \
+  write_check "$policy_ready" "Skill policy $skill_name" "$policy_detail" \
     "Run $installer_command from the current Atlas clone."
 done
 

@@ -1,9 +1,18 @@
 # `frontend-task` integration
 
-`frontend-task` is explicit-only. Its manifest sets
-`allow_implicit_invocation: false`, and the installer writes no global frontend
-routing rule. Invoke it with `$frontend-task`; use `/plan $frontend-task` when a
-reviewed plan gate is desired.
+`frontend-task` supports selective implicit activation. Its manifest sets
+`allow_implicit_invocation: true`, while its description and entrypoint limit
+automatic use to frontend implementation with strong signals: multiple
+material authorities, shared/public UI or API boundaries, cross-route/package
+state, a broad migration, or an existing Atlas task. Small local edits and
+research, diagnosis, or review-only work remain normal Codex tasks. Explicit
+`$frontend-task` remains available at any size; `/plan $frontend-task` requests
+a reviewed plan gate.
+
+The installer writes no global frontend routing rule. When selection is
+implicit, the skill names the decisive signal but does not ask permission
+merely to use Atlas. It asks only for unresolved material sources, authority
+conflicts, or other consequential decisions.
 
 `reuse-first` is also explicit-only. `frontend-task` applies the same component
 decision contract internally and reuses one Atlas task ID; it never loads a
@@ -46,7 +55,10 @@ are unexpectedly absent.
 
 Installation and workflow tests should prove:
 
-- generic frontend prompts load neither explicit-only skill;
+- `frontend-task` permits implicit activation while `reuse-first` and
+  `visual-direction` remain explicit-only;
+- small local frontend edits stay outside Atlas, while complex implementation
+  with strong signals is eligible for automatic selection;
 - source references remain pending until confirmed;
 - the reuse decision is persisted before the lock permits editing;
 - validation compares the complete task delta with the persisted lock;

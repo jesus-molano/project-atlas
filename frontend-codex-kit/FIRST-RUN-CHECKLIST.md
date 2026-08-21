@@ -22,9 +22,11 @@
       `$CODEX_HOME/config.toml` or `~/.codex/config.toml`.
 - [ ] Restart Codex and open a new task so it reloads the shared MCP config.
 - [ ] Open the real frontend repository in Codex.
-- [ ] Start a localized low-risk change with
-      `$frontend-task Implementa este cambio localizado: <description>`; use
-      `/plan $frontend-task ...` for medium/large/high-risk work.
+- [ ] Confirm a small local frontend prompt stays on the normal Codex flow.
+- [ ] Confirm a frontend implementation with multiple material authorities can
+      select `frontend-task` automatically and names the decisive signal.
+- [ ] Use `$frontend-task Implementa este cambio localizado: <description>` to
+      force Atlas; use `/plan $frontend-task ...` for an explicit reviewed gate.
 
 ## First task acceptance check
 

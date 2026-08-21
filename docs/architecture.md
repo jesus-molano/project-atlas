@@ -4,7 +4,7 @@ Project Atlas separates deterministic evidence from model execution.
 
 ```mermaid
 flowchart LR
-  C["Native Codex task"] --> S["Explicit frontend-task skill"]
+  C["Native Codex task"] --> S["Selective frontend-task skill"]
   S --> M["MCP core: six tools"]
   M --> R["Runtime composition"]
   R --> I["Code / Design indexes"]
