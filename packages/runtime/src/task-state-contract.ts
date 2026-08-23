@@ -48,7 +48,7 @@ const VISUAL_HASH = /^[a-f0-9]{16,64}$/u;
 const VISUAL_REVIEW_HANDLE =
   /^visual-review:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}$/u;
 export const EXPANDABLE_HANDLE_PATTERN =
-  /^(?:(?:code|design|memory|entity):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|visual-review:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16}|delivery:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16})$/u;
+  /^(?:(?:code|design|memory|entity):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|visual-review:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16}|delivery:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|contract:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|continuation:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16})$/u;
 
 export type TaskJournalMilestone =
   | "objective-approved"
@@ -542,6 +542,23 @@ export function taskContextResumeHandles(
     .slice(0, 8);
 }
 
+function prioritizedResumeHandles(handles: string[]): string[] {
+  const priority = (handle: string): number =>
+    handle.startsWith("continuation:")
+      ? 0
+      : handle.startsWith("contract:")
+        ? 1
+        : handle.startsWith("delivery:")
+          ? 2
+          : 3;
+  return handles
+    .map((handle, index) => ({ handle, index, priority: priority(handle) }))
+    .toSorted(
+      (left, right) => left.priority - right.priority || left.index - right.index,
+    )
+    .map(({ handle }) => handle);
+}
+
 export function fitTaskResumeCapsuleStorageBudget(
   capsule: TaskResumeCapsule,
 ): TaskResumeCapsule {
@@ -568,7 +585,7 @@ export function fitTaskResumeCapsuleStorageBudget(
       ? { sourceRelations: capsule.sourceRelations.slice(0, 8) }
       : {}),
     sourceReceiptIds: capsule.sourceReceiptIds.slice(0, 12),
-    handles: capsule.handles.slice(0, 4),
+    handles: prioritizedResumeHandles(capsule.handles).slice(0, 4),
     ...(capsule.completion
       ? {
           completion: {
@@ -650,7 +667,7 @@ export function fitTaskResumeCapsuleStorageBudget(
       ? { sourceRelations: compact.sourceRelations.slice(0, 4) }
       : {}),
     sourceReceiptIds: compact.sourceReceiptIds.slice(0, 8),
-    handles: compact.handles.slice(0, 1),
+    handles: prioritizedResumeHandles(compact.handles).slice(0, 1),
     scope: {
       covered: compact.scope.covered.slice(0, 1),
       remaining: compact.scope.remaining.slice(0, 1),
@@ -674,6 +691,17 @@ export function fitTaskResumeCapsuleStorageBudget(
     validation: _validation,
     ...withoutRehydratableContext
   } = tight;
+  const compactBase =
+    tight.status === "completed"
+      ? (() => {
+          const {
+            changeSurface: _completedChangeSurface,
+            changeInvalidation: _completedChangeInvalidation,
+            ...completedWithoutImmutableDuplicates
+          } = withoutRehydratableContext;
+          return completedWithoutImmutableDuplicates;
+        })()
+      : withoutRehydratableContext;
   const compactPolicy = tight.activePolicy
     ? (() => {
         const {
@@ -686,7 +714,9 @@ export function fitTaskResumeCapsuleStorageBudget(
   const essentialHandle =
     tight.status === "completed"
       ? undefined
-      : capsule.handles.find((handle) => handle.startsWith("delivery:")) ??
+      : capsule.handles.find((handle) => handle.startsWith("continuation:")) ??
+        capsule.handles.find((handle) => handle.startsWith("contract:")) ??
+        capsule.handles.find((handle) => handle.startsWith("delivery:")) ??
         (!tight.changeSurface
           ? (capsule.handles.find((handle) => handle.startsWith("visual:")) ??
             tight.handles[0])
@@ -707,7 +737,7 @@ export function fitTaskResumeCapsuleStorageBudget(
         )
       : undefined;
   return {
-    ...withoutRehydratableContext,
+    ...compactBase,
     objective: {
       ...tight.objective,
       // The immutable objective artifact remains authoritative. A shorter
@@ -753,7 +783,9 @@ export function fitTaskResumeCapsuleStorageBudget(
       : {}),
     ...(compactPolicy ? { activePolicy: compactPolicy } : {}),
     ...(compactVisualReview ? { visualReview: compactVisualReview } : {}),
-    nextSafeAction: "Resume.",
+    nextSafeAction: essentialHandle?.startsWith("continuation:")
+      ? `Expand ${essentialHandle} and continue from its nextSafeAction.`
+      : "Resume.",
   };
 }
 

@@ -55,6 +55,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   if (previousDataHome === undefined) delete process.env.PROJECT_ATLAS_HOME;
   else process.env.PROJECT_ATLAS_HOME = previousDataHome;
   await rm(dataHome, { recursive: true, force: true });
@@ -506,10 +507,13 @@ describe("task checkpoint and resume", () => {
         required: true,
       })),
       sourceReceiptIds: [],
-      handles: Array.from(
-        { length: 12 },
+      handles: [
+        ...Array.from(
+        { length: 7 },
         (_, index) => `code:${"component-".repeat(20)}${index}`,
-      ),
+        ),
+        "continuation:task-budget:0123456789abcdef",
+      ],
       covered: Array.from({ length: 12 }, (_, index) => `covered-${"x".repeat(300)}-${index}`),
       remaining: Array.from({ length: 12 }, (_, index) => `remaining-${"x".repeat(300)}-${index}`),
       budgetChars: 12_000,
@@ -519,9 +523,14 @@ describe("task checkpoint and resume", () => {
     expect(Buffer.byteLength(JSON.stringify(capsule), "utf8")).toBeLessThanOrEqual(
       4_096,
     );
+    expect(capsule.handles).toContain(
+      "continuation:task-budget:0123456789abcdef",
+    );
   });
 
   it("persists an idempotent locked surface and advances lifecycle monotonically", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-locked-surface-"));
     await mkdir(path.join(root, "src"), { recursive: true });
     await writeFile(
@@ -756,11 +765,30 @@ describe("task checkpoint and resume", () => {
       covered: ["outcome"],
       remaining: [],
       budgetChars: 2_400,
+      completion: {
+        result: "partial",
+        summary: `Runtime foundation completed. ${"x".repeat(800)}`,
+        verification: Array.from(
+          { length: 12 },
+          (_, index) => `verification-${index}-${"v".repeat(300)}`,
+        ),
+        files: Array.from(
+          { length: 50 },
+          (_, index) => `src/feature-${index}/${"component-".repeat(12)}.ts`,
+        ),
+        deliveryReceipt: "delivery:task-lock:0123456789abcdef",
+      },
       nextSafeAction: "Task complete.",
       at: "2026-07-31T12:10:00.000Z",
     });
-    expect((await loadTaskResumeCapsule(root, "task-lock"))?.lifecycle.phase).toBe(
-      "completed",
+    const completed = await loadTaskResumeCapsule(root, "task-lock");
+    expect(completed?.lifecycle.phase).toBe("completed");
+    expect(completed?.completion?.deliveryReceipt).toBe(
+      "delivery:task-lock:0123456789abcdef",
+    );
+    expect(completed).not.toHaveProperty("changeSurface");
+    expect(Buffer.byteLength(JSON.stringify(completed), "utf8")).toBeLessThanOrEqual(
+      4_096,
     );
     await rm(root, { recursive: true, force: true });
   });
