@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   edgeId,
@@ -9,6 +8,10 @@ import {
   type FrontendEntity,
   type GraphEdge,
 } from "@component-atlas/core";
+import {
+  createScanSafetySession,
+  type ScanSafetySession,
+} from "@component-atlas/core/scan-safety";
 import { parse as parseAstro } from "@astrojs/compiler";
 import { parse as parseVue } from "@vue/compiler-sfc";
 import fg from "fast-glob";
@@ -70,9 +73,10 @@ async function sourceUnit(
   absolutePath: string,
   rootPath: string,
   framework: Framework,
+  session: ScanSafetySession,
 ): Promise<SourceUnit | undefined> {
   const relativePath = slash(path.relative(rootPath, absolutePath));
-  const source = await readFile(absolutePath, "utf8");
+  const source = await session.readText(absolutePath);
   const extension = path.extname(absolutePath).toLowerCase();
   let script = source;
   let analyzer: SourceUnit["analyzer"] = "typescript-program";
@@ -447,7 +451,9 @@ export async function scanFrontendEntities(
   rootPath: string,
   frameworks: Framework[],
   components: ComponentNode[],
+  scanSafetySession?: ScanSafetySession,
 ): Promise<FrontendSemanticGraph> {
+  const session = scanSafetySession ?? await createScanSafetySession(rootPath);
   const files = await fg(
     [
       "**/*.{ts,tsx,js,jsx,vue,astro}",
@@ -459,25 +465,29 @@ export async function scanFrontendEntities(
       "!**/coverage/**",
       "!**/.component-atlas/**",
     ],
-    { cwd: rootPath, absolute: true, onlyFiles: true, unique: true },
+    {
+      cwd: rootPath,
+      absolute: true,
+      onlyFiles: true,
+      unique: true,
+      followSymbolicLinks: false,
+    },
   );
   const primary = frameworks[0] ?? "vue";
-  const units = (
-    await Promise.all(
-      files.map((file) => {
-        const extension = path.extname(file).toLowerCase();
-        const framework =
-          extension === ".vue"
-            ? "vue"
-            : extension === ".astro"
-              ? "astro"
-              : frameworks.includes("react")
-                ? "react"
-                : primary;
-        return sourceUnit(file, rootPath, framework);
-      }),
-    )
-  ).filter((unit): unit is SourceUnit => Boolean(unit));
+  const units: SourceUnit[] = [];
+  for (const file of await session.files(files)) {
+    const extension = path.extname(file).toLowerCase();
+    const framework =
+      extension === ".vue"
+        ? "vue"
+        : extension === ".astro"
+          ? "astro"
+          : frameworks.includes("react")
+            ? "react"
+            : primary;
+    const unit = await sourceUnit(file, rootPath, framework, session);
+    if (unit) units.push(unit);
+  }
   const program = ts.createProgram({
     rootNames: units
       .filter((unit) => unit.analyzer === "typescript-program")

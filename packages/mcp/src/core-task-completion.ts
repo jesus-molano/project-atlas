@@ -23,6 +23,7 @@ import {
   loadClosedVisualReview,
   loadPassingVisualReview,
 } from "./core-visual-review.js";
+import { assertCoreTaskEvidenceReadyForSuccess } from "./core-task-evidence.js";
 
 export interface CompleteTaskInput {
   result: TaskCompletionResult;
@@ -161,6 +162,14 @@ async function completeTaskUnlocked(
     taskId,
     capsule,
   );
+  if (requestedCompletion.result === "success") {
+    await assertCoreTaskEvidenceReadyForSuccess(
+      rootPath,
+      taskId,
+      capsule,
+      sourceLedger,
+    );
+  }
   const existingIntent = await loadTaskCompletionIntent(rootPath, taskId);
   if (existingIntent) {
     assertTaskCompletionIntentRequest(existingIntent, requestedCompletion);
@@ -345,6 +354,7 @@ async function completeTaskUnlocked(
   ].slice(0, 8);
   await writeTaskCheckpoint(rootPath, {
     taskId,
+    expectedUpdatedAt: capsule.updatedAt,
     status: "completed",
     milestone: "completed",
     objective: objective.text,

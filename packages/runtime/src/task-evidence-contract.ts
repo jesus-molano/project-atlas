@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   mkdir,
   open,
@@ -11,6 +11,21 @@ import path from "node:path";
 import { fitBudgetedResponse } from "@component-atlas/memory";
 import { projectStorageDirectory } from "@component-atlas/store";
 import { canonicalJson } from "./change-surface-fingerprint.js";
+import {
+  checkedRevision,
+  checkedTimestamp,
+  continuationIntegrityPayload,
+  contractIntegrityPayload,
+  digest,
+  normalizeCriteria,
+  normalizeCriterionProgress,
+  normalizeDecisions,
+  normalizedList,
+  normalizedReferences,
+  normalizedText,
+  parseContinuationHandle,
+  parseContractHandle,
+} from "./task-evidence-contract-normalization.js";
 import { resolveProjectIdentity } from "./identity.js";
 import { writeImmutableArtifact } from "./immutable-artifact.js";
 import { computeTaskObjectiveHash } from "./task-objective.js";
@@ -134,6 +149,16 @@ export interface PersistTaskContinuationBundleInput {
   createdAt?: string;
 }
 
+export interface TaskArtifactCheckpointResult<TArtifact, TCheckpoint> {
+  artifact: TArtifact;
+  checkpoint: TCheckpoint;
+}
+
+export interface TaskArtifactCheckpointMetadata {
+  readonly publish: boolean;
+  readonly previousHandle?: string;
+}
+
 export interface TaskAcceptanceState {
   ready: boolean;
   required: number;
@@ -150,181 +175,6 @@ interface LatestArtifactPointer {
   hash: string;
   revision: number;
   updatedAt: string;
-}
-
-function digest(value: unknown): string {
-  return createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
-}
-
-function normalizedText(value: string, maximum: number, label: string): string {
-  const normalized = value.trim().replace(/[\u0000-\u001f]+/gu, " ");
-  if (!normalized || normalized.length > maximum) {
-    throw new Error(`${label} is invalid.`);
-  }
-  return normalized;
-}
-
-function normalizedList(
-  values: string[],
-  maximumItems: number,
-  maximumChars: number,
-  label: string,
-): string[] {
-  if (!Array.isArray(values) || values.length > maximumItems) {
-    throw new Error(`${label} is invalid.`);
-  }
-  return [
-    ...new Set(values.map((value) => normalizedText(value, maximumChars, label))),
-  ];
-}
-
-function normalizedReferences(
-  values: string[],
-  maximumItems: number,
-  label: string,
-): string[] {
-  return normalizedList(values, maximumItems, 320, label);
-}
-
-function checkedTimestamp(value: string, label: string): string {
-  if (!Number.isFinite(Date.parse(value))) throw new Error(`${label} is invalid.`);
-  return value;
-}
-
-function checkedRevision(value: number): number {
-  if (!Number.isInteger(value) || value < 1 || value > 10_000) {
-    throw new Error("Task artifact revision is invalid.");
-  }
-  return value;
-}
-
-function contractIntegrityPayload(
-  contract: Omit<TaskEvidenceContract, "handle" | "hash" | "createdAt">,
-): Omit<TaskEvidenceContract, "handle" | "hash" | "createdAt"> {
-  return contract;
-}
-
-function continuationIntegrityPayload(
-  bundle: Omit<TaskContinuationBundle, "handle" | "hash" | "createdAt">,
-): Omit<TaskContinuationBundle, "handle" | "hash" | "createdAt"> {
-  return bundle;
-}
-
-function parseContractHandle(handle: string): { taskId: string; prefix: string } {
-  const match = TASK_EVIDENCE_CONTRACT_HANDLE_PATTERN.exec(handle);
-  if (!match) throw new Error("Task evidence contract handle is invalid.");
-  return { taskId: match[1]!, prefix: match[2]! };
-}
-
-function parseContinuationHandle(handle: string): {
-  taskId: string;
-  prefix: string;
-} {
-  const match = TASK_CONTINUATION_HANDLE_PATTERN.exec(handle);
-  if (!match) throw new Error("Task continuation handle is invalid.");
-  return { taskId: match[1]!, prefix: match[2]! };
-}
-
-function normalizeCriteria(criteria: TaskEvidenceCriterion[]): TaskEvidenceCriterion[] {
-  if (!Array.isArray(criteria) || criteria.length === 0 || criteria.length > 64) {
-    throw new Error("A task evidence contract requires 1 to 64 criteria.");
-  }
-  const normalized = criteria.map((criterion) => ({
-    id: normalizedText(criterion.id, 120, "Criterion ID"),
-    statement: normalizedText(criterion.statement, 1_000, "Criterion statement"),
-    required: criterion.required === true,
-    sourceRefs: normalizedReferences(
-      criterion.sourceRefs ?? [],
-      16,
-      "Criterion source reference",
-    ),
-  }));
-  if (new Set(normalized.map((criterion) => criterion.id)).size !== normalized.length) {
-    throw new Error("Task evidence criterion IDs must be unique.");
-  }
-  return normalized;
-}
-
-function normalizeDecisions(
-  decisions: TaskEvidenceDecision[],
-): TaskEvidenceDecision[] {
-  if (!Array.isArray(decisions) || decisions.length > 64) {
-    throw new Error("A task evidence contract supports at most 64 decisions.");
-  }
-  const normalized = decisions.map((decision) => {
-    if (!(["open", "resolved", "deferred"] as const).includes(decision.status)) {
-      throw new Error("Task evidence decision status is invalid.");
-    }
-    if (decision.status === "resolved" && !decision.answer?.trim()) {
-      throw new Error("A resolved task decision requires an answer.");
-    }
-    if (decision.status === "open" && decision.answer !== undefined) {
-      throw new Error("An open task decision cannot contain an answer.");
-    }
-    return {
-      id: normalizedText(decision.id, 120, "Decision ID"),
-      question: normalizedText(decision.question, 1_000, "Decision question"),
-      status: decision.status,
-      ...(decision.answer !== undefined
-        ? { answer: normalizedText(decision.answer, 2_000, "Decision answer") }
-        : {}),
-      sourceRefs: normalizedReferences(
-        decision.sourceRefs ?? [],
-        16,
-        "Decision source reference",
-      ),
-    };
-  });
-  if (new Set(normalized.map((decision) => decision.id)).size !== normalized.length) {
-    throw new Error("Task evidence decision IDs must be unique.");
-  }
-  return normalized;
-}
-
-function normalizeCriterionProgress(
-  progress: TaskCriterionProgress[],
-): TaskCriterionProgress[] {
-  if (!Array.isArray(progress) || progress.length === 0 || progress.length > 64) {
-    throw new Error("Task continuation criterion progress is invalid.");
-  }
-  const normalized = progress.map((criterion) => {
-    if (
-      !(["pending", "satisfied", "blocked", "deferred"] as const).includes(
-        criterion.status,
-      )
-    ) {
-      throw new Error("Task continuation criterion status is invalid.");
-    }
-    const evidenceRefs = normalizedReferences(
-      criterion.evidenceRefs ?? [],
-      24,
-      "Criterion evidence reference",
-    );
-    const validationRefs = normalizedReferences(
-      criterion.validationRefs ?? [],
-      16,
-      "Criterion validation reference",
-    );
-    if (criterion.status === "satisfied" && evidenceRefs.length === 0 && validationRefs.length === 0) {
-      throw new Error("A satisfied criterion requires evidence or validation.");
-    }
-    return {
-      criterionId: normalizedText(criterion.criterionId, 120, "Criterion progress ID"),
-      status: criterion.status,
-      evidenceRefs,
-      validationRefs,
-      ...(criterion.note !== undefined
-        ? { note: normalizedText(criterion.note, 1_000, "Criterion progress note") }
-        : {}),
-    };
-  });
-  if (
-    new Set(normalized.map((criterion) => criterion.criterionId)).size !==
-    normalized.length
-  ) {
-    throw new Error("Task continuation criterion IDs must be unique.");
-  }
-  return normalized;
 }
 
 function assertArtifactBudget(value: unknown, maximum: number, label: string): void {
@@ -636,6 +486,68 @@ async function readLatestPointer(
   }
 }
 
+function sameLatestPointer(
+  left: LatestArtifactPointer | undefined,
+  right: LatestArtifactPointer | undefined,
+): boolean {
+  return canonicalJson(left ?? null) === canonicalJson(right ?? null);
+}
+
+async function assertLatestPointerUnchanged(
+  rootPath: string,
+  kind: "evidence-contracts" | "continuations",
+  taskId: string,
+  expected: LatestArtifactPointer | undefined,
+): Promise<void> {
+  const current = await readLatestPointer(rootPath, kind, taskId);
+  if (!sameLatestPointer(current, expected)) {
+    throw new Error(
+      "Latest task evidence changed during its capsule checkpoint; retry from the new latest revision.",
+    );
+  }
+}
+
+function contractPointer(contract: TaskEvidenceContract): LatestArtifactPointer {
+  return {
+    schemaVersion: 1,
+    taskId: contract.taskId,
+    handle: contract.handle,
+    hash: contract.hash,
+    revision: contract.revision,
+    updatedAt: contract.createdAt,
+  };
+}
+
+function continuationPointer(
+  bundle: TaskContinuationBundle,
+): LatestArtifactPointer {
+  return {
+    schemaVersion: 1,
+    taskId: bundle.taskId,
+    handle: bundle.handle,
+    hash: bundle.hash,
+    revision: bundle.revision,
+    updatedAt: bundle.createdAt,
+  };
+}
+
+interface PreparedTaskArtifact<TArtifact> {
+  artifact: TArtifact;
+  previousPointer: LatestArtifactPointer | undefined;
+  publish: boolean;
+}
+
+function checkpointMetadata(
+  prepared: PreparedTaskArtifact<unknown>,
+): TaskArtifactCheckpointMetadata {
+  return Object.freeze({
+    publish: prepared.publish,
+    ...(prepared.publish && prepared.previousPointer
+      ? { previousHandle: prepared.previousPointer.handle }
+      : {}),
+  });
+}
+
 function normalizedContractSemanticInput(input: PersistTaskEvidenceContractInput) {
   return {
     objective: normalizedText(input.objective, 6_000, "Task objective"),
@@ -674,11 +586,16 @@ function contractSemanticArtifact(contract: TaskEvidenceContract) {
   };
 }
 
-async function persistTaskEvidenceContractUnlocked(
+async function prepareTaskEvidenceContractUnlocked(
   rootPath: string,
   input: PersistTaskEvidenceContractInput,
-): Promise<TaskEvidenceContract> {
+): Promise<PreparedTaskArtifact<TaskEvidenceContract>> {
   if (!TASK_ID_PATTERN.test(input.taskId)) throw new Error("Task ID is invalid.");
+  const previousPointer = await readLatestPointer(
+    rootPath,
+    "evidence-contracts",
+    input.taskId,
+  );
   const semantic = normalizedContractSemanticInput(input);
   if (
     !DIGEST_PATTERN.test(semantic.objectiveHash) ||
@@ -691,7 +608,7 @@ async function persistTaskEvidenceContractUnlocked(
     latest &&
     canonicalJson(contractSemanticArtifact(latest)) === canonicalJson(semantic)
   ) {
-    return latest;
+    return { artifact: latest, previousPointer, publish: false };
   }
   if (latest && input.previousHandle !== latest.handle) {
     throw new Error("A changed task evidence contract must reference its latest revision.");
@@ -726,18 +643,22 @@ async function persistTaskEvidenceContractUnlocked(
     `${canonicalJson(contract)}\n`,
     "A task evidence contract is immutable; create a new revision for changed evidence.",
   );
+  return { artifact: contract, previousPointer, publish: true };
+}
+
+async function publishPreparedTaskEvidenceContract(
+  rootPath: string,
+  prepared: PreparedTaskArtifact<TaskEvidenceContract>,
+): Promise<void> {
+  if (!prepared.publish) return;
   await writeLatestPointer(
-    await latestPointerPath(rootPath, "evidence-contracts", input.taskId),
-    {
-      schemaVersion: 1,
-      taskId: input.taskId,
-      handle: contract.handle,
-      hash: contract.hash,
-      revision: contract.revision,
-      updatedAt: contract.createdAt,
-    },
+    await latestPointerPath(
+      rootPath,
+      "evidence-contracts",
+      prepared.artifact.taskId,
+    ),
+    contractPointer(prepared.artifact),
   );
-  return contract;
 }
 
 export async function persistTaskEvidenceContract(
@@ -745,9 +666,48 @@ export async function persistTaskEvidenceContract(
   input: PersistTaskEvidenceContractInput,
 ): Promise<TaskEvidenceContract> {
   if (!TASK_ID_PATTERN.test(input.taskId)) throw new Error("Task ID is invalid.");
-  return withTaskArtifactWriteLock(rootPath, input.taskId, () =>
-    persistTaskEvidenceContractUnlocked(rootPath, input),
-  );
+  return withTaskArtifactWriteLock(rootPath, input.taskId, async () => {
+    const prepared = await prepareTaskEvidenceContractUnlocked(rootPath, input);
+    await assertLatestPointerUnchanged(
+      rootPath,
+      "evidence-contracts",
+      input.taskId,
+      prepared.previousPointer,
+    );
+    await publishPreparedTaskEvidenceContract(rootPath, prepared);
+    return prepared.artifact;
+  });
+}
+
+/**
+ * Keeps one per-task evidence lock while an immutable contract and its capsule
+ * projection are prepared. The latest pointer is published only after the
+ * checkpoint callback succeeds and the prior latest revision is revalidated.
+ */
+export async function persistTaskEvidenceContractWithCheckpoint<TCheckpoint>(
+  rootPath: string,
+  input: PersistTaskEvidenceContractInput,
+  checkpoint: (
+    contract: TaskEvidenceContract,
+    metadata: TaskArtifactCheckpointMetadata,
+  ) => Promise<TCheckpoint>,
+): Promise<TaskArtifactCheckpointResult<TaskEvidenceContract, TCheckpoint>> {
+  if (!TASK_ID_PATTERN.test(input.taskId)) throw new Error("Task ID is invalid.");
+  return withTaskArtifactWriteLock(rootPath, input.taskId, async () => {
+    const prepared = await prepareTaskEvidenceContractUnlocked(rootPath, input);
+    const checkpointResult = await checkpoint(
+      prepared.artifact,
+      checkpointMetadata(prepared),
+    );
+    await assertLatestPointerUnchanged(
+      rootPath,
+      "evidence-contracts",
+      input.taskId,
+      prepared.previousPointer,
+    );
+    await publishPreparedTaskEvidenceContract(rootPath, prepared);
+    return { artifact: prepared.artifact, checkpoint: checkpointResult };
+  });
 }
 
 export async function loadTaskEvidenceContract(
@@ -851,14 +811,19 @@ function continuationSemanticArtifact(bundle: TaskContinuationBundle) {
   };
 }
 
-async function persistTaskContinuationBundleUnlocked(
+async function prepareTaskContinuationBundleUnlocked(
   rootPath: string,
   input: PersistTaskContinuationBundleInput,
-): Promise<TaskContinuationBundle> {
+): Promise<PreparedTaskArtifact<TaskContinuationBundle>> {
   if (!TASK_ID_PATTERN.test(input.taskId)) throw new Error("Task ID is invalid.");
-  const contract = await loadTaskEvidenceContract(rootPath, input.contractHandle);
-  if (contract.taskId !== input.taskId) {
-    throw new Error("Task continuation contract belongs to a different task.");
+  const previousPointer = await readLatestPointer(
+    rootPath,
+    "continuations",
+    input.taskId,
+  );
+  const contract = await loadLatestTaskEvidenceContract(rootPath, input.taskId);
+  if (!contract || contract.handle !== input.contractHandle) {
+    throw new Error("Task continuation must reference the latest evidence contract.");
   }
   const semantic = normalizedContinuationSemanticInput(input);
   const latest = await loadLatestTaskContinuationBundle(rootPath, input.taskId);
@@ -867,7 +832,7 @@ async function persistTaskContinuationBundleUnlocked(
     canonicalJson(continuationSemanticArtifact(latest)) ===
       canonicalJson(semantic)
   ) {
-    return latest;
+    return { artifact: latest, previousPointer, publish: false };
   }
   if (latest && input.previousHandle !== latest.handle) {
     throw new Error("A changed task continuation must reference its latest revision.");
@@ -924,18 +889,22 @@ async function persistTaskContinuationBundleUnlocked(
     `${canonicalJson(bundle)}\n`,
     "A task continuation bundle is immutable; create a new revision for changed progress.",
   );
+  return { artifact: bundle, previousPointer, publish: true };
+}
+
+async function publishPreparedTaskContinuationBundle(
+  rootPath: string,
+  prepared: PreparedTaskArtifact<TaskContinuationBundle>,
+): Promise<void> {
+  if (!prepared.publish) return;
   await writeLatestPointer(
-    await latestPointerPath(rootPath, "continuations", input.taskId),
-    {
-      schemaVersion: 1,
-      taskId: input.taskId,
-      handle: bundle.handle,
-      hash: bundle.hash,
-      revision: bundle.revision,
-      updatedAt: bundle.createdAt,
-    },
+    await latestPointerPath(
+      rootPath,
+      "continuations",
+      prepared.artifact.taskId,
+    ),
+    continuationPointer(prepared.artifact),
   );
-  return bundle;
 }
 
 export async function persistTaskContinuationBundle(
@@ -943,9 +912,44 @@ export async function persistTaskContinuationBundle(
   input: PersistTaskContinuationBundleInput,
 ): Promise<TaskContinuationBundle> {
   if (!TASK_ID_PATTERN.test(input.taskId)) throw new Error("Task ID is invalid.");
-  return withTaskArtifactWriteLock(rootPath, input.taskId, () =>
-    persistTaskContinuationBundleUnlocked(rootPath, input),
-  );
+  return withTaskArtifactWriteLock(rootPath, input.taskId, async () => {
+    const prepared = await prepareTaskContinuationBundleUnlocked(rootPath, input);
+    await assertLatestPointerUnchanged(
+      rootPath,
+      "continuations",
+      input.taskId,
+      prepared.previousPointer,
+    );
+    await publishPreparedTaskContinuationBundle(rootPath, prepared);
+    return prepared.artifact;
+  });
+}
+
+/** Publishes continuation latest only after its capsule checkpoint succeeds. */
+export async function persistTaskContinuationBundleWithCheckpoint<TCheckpoint>(
+  rootPath: string,
+  input: PersistTaskContinuationBundleInput,
+  checkpoint: (
+    bundle: TaskContinuationBundle,
+    metadata: TaskArtifactCheckpointMetadata,
+  ) => Promise<TCheckpoint>,
+): Promise<TaskArtifactCheckpointResult<TaskContinuationBundle, TCheckpoint>> {
+  if (!TASK_ID_PATTERN.test(input.taskId)) throw new Error("Task ID is invalid.");
+  return withTaskArtifactWriteLock(rootPath, input.taskId, async () => {
+    const prepared = await prepareTaskContinuationBundleUnlocked(rootPath, input);
+    const checkpointResult = await checkpoint(
+      prepared.artifact,
+      checkpointMetadata(prepared),
+    );
+    await assertLatestPointerUnchanged(
+      rootPath,
+      "continuations",
+      input.taskId,
+      prepared.previousPointer,
+    );
+    await publishPreparedTaskContinuationBundle(rootPath, prepared);
+    return { artifact: prepared.artifact, checkpoint: checkpointResult };
+  });
 }
 
 export async function loadTaskContinuationBundle(
@@ -1036,6 +1040,10 @@ export async function loadLatestTaskContinuationBundle(
     throw new Error("Latest task continuation pointer is stale or invalid.");
   }
   await assertContinuationContract(rootPath, bundle);
+  const latestContract = await loadLatestTaskEvidenceContract(rootPath, taskId);
+  if (!latestContract || latestContract.handle !== bundle.contract.handle) {
+    return undefined;
+  }
   return bundle;
 }
 

@@ -343,6 +343,46 @@ describe("core source evidence", () => {
     ).rejects.toThrow(/2 MB task evidence budget/i);
   });
 
+  it("binds normalized Figma revision and observed node scope into its receipt", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-core-figma-identity-"));
+    roots.push(root);
+    await execFileAsync("git", ["init"], { cwd: root });
+    const reference =
+      "https://www.figma.com/design/AbC123/Checkout?node-id=1-2";
+    const supplied = [
+      {
+        reference,
+        kind: "figma" as const,
+        state: "confirmed" as const,
+        authority_role: "visual" as const,
+        primary_adapter: "figma-remote-connector",
+        fallback: "deny" as const,
+        evidence: {
+          adapter: "figma-remote-connector" as const,
+          route: "figma-remote:get_design_context",
+          operation: "get_design_context",
+          observed_at: "2026-08-23T10:00:00.000Z",
+          freshness: "current" as const,
+          figma_version: "v42",
+          figma_last_modified: "2026-08-23T09:55:00+00:00",
+          figma_scope_node_id: "1-2",
+        },
+      },
+    ];
+    const decisions = normalizedSources("Implement checkout", [], supplied);
+    const [receiptId] = await bindSourceEvidence(root, decisions, supplied, []);
+
+    await expect(loadPersistedSourceReceipt(root, receiptId!)).resolves.toMatchObject({
+      resolved: {
+        fileKey: "AbC123",
+        nodeId: "1:2",
+        version: "v42",
+        lastModified: "2026-08-23T09:55:00.000Z",
+      },
+      scope: { kind: "selection", id: "1:2" },
+    });
+  });
+
   it("validates the full evidence batch before writing a Figma mapping", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-core-figma-batch-"));
     roots.push(root);

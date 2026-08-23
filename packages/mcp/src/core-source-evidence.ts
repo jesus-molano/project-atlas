@@ -109,6 +109,14 @@ function safeSourceLocator(maximum: number) {
     });
 }
 
+function normalizedFigmaNodeId(value: string): string {
+  const normalized = value.trim().replace(/^(\d+)-(\d+)$/u, "$1:$2");
+  if (!/^[A-Za-z0-9_.:-]{1,240}$/u.test(normalized)) {
+    throw new Error("Figma scope node ID is invalid.");
+  }
+  return normalized;
+}
+
 export const sourceKind = z.enum([
   "jira",
   "confluence",
@@ -183,8 +191,8 @@ const sourceEvidenceInput = z.object({
     .optional(),
   figma_format: z.enum(["auto", "figma-mcp-xml", "figma-rest"]).optional(),
   figma_file_name: z.string().max(240).optional(),
-  figma_version: z.string().max(240).optional(),
-  figma_last_modified: z.string().max(100).optional(),
+  figma_version: z.string().min(1).max(240).optional(),
+  figma_last_modified: z.string().datetime().optional(),
   figma_scope_node_id: z.string().max(240).optional(),
   figma_scope_page_id: z.string().max(240).optional(),
   figma_scope_page_name: z.string().max(240).optional(),
@@ -517,17 +525,50 @@ export async function bindSourceEvidenceBundle(
         resolved.operationId = source.evidence.openapi_operation.operation_id;
       }
     }
-    if (decision.kind === "figma" && source.evidence.figma_version) {
-      resolved.version = source.evidence.figma_version;
+    if (decision.kind === "figma") {
+      if (source.evidence.figma_version) {
+        resolved.version = source.evidence.figma_version;
+      }
+      if (source.evidence.figma_last_modified) {
+        resolved.lastModified = new Date(
+          source.evidence.figma_last_modified,
+        ).toISOString();
+      }
+    }
+    const figmaScopeNodeId =
+      decision.kind === "figma" && source.evidence.figma_scope_node_id
+        ? normalizedFigmaNodeId(source.evidence.figma_scope_node_id)
+        : undefined;
+    if (
+      figmaScopeNodeId &&
+      source.evidence.scope &&
+      (!["node", "selection"].includes(source.evidence.scope.kind) ||
+        normalizedFigmaNodeId(source.evidence.scope.id) !== figmaScopeNodeId)
+    ) {
+      throw new Error(
+        "Figma scope must match the exact figma_scope_node_id observation.",
+      );
     }
     const scope = source.evidence.scope
       ? {
           kind: source.evidence.scope.kind,
-          id: source.evidence.scope.id,
+          id:
+            figmaScopeNodeId &&
+            ["node", "selection"].includes(source.evidence.scope.kind)
+              ? figmaScopeNodeId
+              : source.evidence.scope.id,
           ...(source.evidence.scope.parent_id
             ? { parentId: source.evidence.scope.parent_id }
             : {}),
         }
+      : figmaScopeNodeId
+        ? {
+            kind: "selection" as const,
+            id: figmaScopeNodeId,
+            ...(requested.nodeId && requested.nodeId !== figmaScopeNodeId
+              ? { parentId: requested.nodeId }
+              : {}),
+          }
       : source.evidence.openapi_operation
         ? {
             kind: "operation" as const,

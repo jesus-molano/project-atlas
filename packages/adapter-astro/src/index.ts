@@ -1,4 +1,3 @@
-import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "@astrojs/compiler";
 import {
@@ -15,6 +14,7 @@ import {
   type FrameworkAdapter,
   type ScanOptions,
 } from "@component-atlas/core";
+import { createScanSafetySession, type ScanSafetySession } from "@component-atlas/core/scan-safety";
 import fg from "fast-glob";
 import ts from "typescript";
 
@@ -89,19 +89,11 @@ function propsFromFrontmatter(frontmatter: string, fileName: string): ComponentP
   });
 }
 
-async function exists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function resolveSourceImport(
   specifier: string,
   fromFile: string,
   rootPath: string,
+  session: ScanSafetySession,
 ): Promise<string | undefined> {
   const bases: string[] = [];
   if (specifier.startsWith(".")) {
@@ -119,7 +111,12 @@ async function resolveSourceImport(
     ),
   ]);
   for (const candidate of candidates) {
-    if (await exists(candidate)) return path.resolve(candidate);
+    try {
+      await session.readText(candidate);
+      return path.resolve(candidate);
+    } catch {
+      // Continue through deterministic local candidates.
+    }
   }
   return undefined;
 }
@@ -128,6 +125,7 @@ async function importsFromFrontmatter(
   frontmatter: string,
   sourcePath: string,
   rootPath: string,
+  session: ScanSafetySession,
 ): Promise<ComponentImportBinding[]> {
   const source = ts.createSourceFile(
     sourcePath,
@@ -142,7 +140,7 @@ async function importsFromFrontmatter(
       continue;
     }
     const specifier = statement.moduleSpecifier.text;
-    const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath);
+    const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath, session);
     const clause = statement.importClause;
     if (clause?.name) {
       bindings.push({
@@ -261,11 +259,13 @@ export class AstroAdapter implements FrameworkAdapter {
 
   async scanDetailed(options: ScanOptions): Promise<AdapterScanResult> {
     const rootPath = path.resolve(options.rootPath);
+    const session = options.scanSafetySession ?? await createScanSafetySession(rootPath);
     const files = await fg(options.include ?? SOURCE_PATTERNS, {
       cwd: rootPath,
       absolute: true,
       onlyFiles: true,
       unique: true,
+      followSymbolicLinks: false,
       ignore: ["**/node_modules/**", "**/.astro/**", ...(options.exclude ?? [])],
     });
     const components: ComponentNode[] = [];
@@ -273,10 +273,10 @@ export class AstroAdapter implements FrameworkAdapter {
     let parsedFiles = 0;
     let skippedFiles = 0;
     let errorFiles = 0;
-    for (const sourcePath of files.sort()) {
+    for (const sourcePath of await session.files(files)) {
       const relativePath = slash(path.relative(rootPath, sourcePath));
       try {
-        const source = await readFile(sourcePath, "utf8");
+        const source = await session.readText(sourcePath);
         const extension = path.extname(sourcePath).toLowerCase();
         const page = /^src\/pages\//u.test(relativePath);
         const layout = /^src\/layouts\//u.test(relativePath);
@@ -323,7 +323,7 @@ export class AstroAdapter implements FrameworkAdapter {
         const parsed = await parse(source, { position: true });
         const root = parsed.ast as AstroNode;
         const frontmatter = frontmatterNode(root);
-        const bindings = await importsFromFrontmatter(frontmatter, sourcePath, rootPath);
+        const bindings = await importsFromFrontmatter(frontmatter, sourcePath, rootPath, session);
         const facts = templateFacts(root);
         const parseDiagnostics = parsed.diagnostics ?? [];
         const scriptDiagnostics = frontmatterDiagnosticMessages(

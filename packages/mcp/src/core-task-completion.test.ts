@@ -6,13 +6,17 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
+  computeTaskObjectiveHash,
   loadTaskFinalReceipt,
   loadTaskResumeCapsule,
+  persistTaskContinuationBundle,
+  persistTaskEvidenceContract,
   pruneExpiredTaskState,
   writeTaskCheckpoint,
 } from "@component-atlas/runtime";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setTaskCompletionFaultInjectorForTests } from "./core-task-completion.js";
+import { sourceLedgerFingerprint } from "./core-tool-helpers.js";
 import { createMcpServer } from "./index.js";
 
 const run = promisify(execFile);
@@ -77,6 +81,101 @@ async function withCoreClient<T>(runClient: (client: Client) => Promise<T>) {
 }
 
 describe("core task completion", () => {
+  it("blocks successful closeout until required evidence criteria are satisfied", async () => {
+    const root = await createGitRoot();
+    const taskId = "task-pending-acceptance";
+    const objective = "Implement and verify durable task acceptance.";
+    await writeTaskCheckpoint(root, {
+      taskId,
+      milestone: "source-resolved",
+      objective,
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      handles: [],
+      covered: ["objective"],
+      remaining: ["implementation"],
+      budgetChars: 2_400,
+      nextSafeAction: "Record acceptance criteria.",
+    });
+    const contract = await persistTaskEvidenceContract(root, {
+      taskId,
+      objective,
+      objectiveHash: computeTaskObjectiveHash(objective),
+      sourceLedgerHash: sourceLedgerFingerprint([], [], []),
+      criteria: [
+        {
+          id: "verified",
+          statement: "The implementation is verified.",
+          required: true,
+          sourceRefs: [],
+        },
+      ],
+    });
+    const continuation = await persistTaskContinuationBundle(root, {
+      taskId,
+      contractHandle: contract.handle,
+      criteria: [
+        {
+          criterionId: "verified",
+          status: "pending",
+          evidenceRefs: [],
+          validationRefs: [],
+        },
+      ],
+      nextSafeAction: "Implement and validate the criterion.",
+    });
+    await writeTaskCheckpoint(root, {
+      taskId,
+      milestone: "batch-completed",
+      objective,
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      handles: [continuation.handle, contract.handle],
+      covered: ["acceptance contract"],
+      remaining: ["implementation", "validation"],
+      budgetChars: 2_400,
+      nextSafeAction: continuation.nextSafeAction,
+    });
+
+    await withCoreClient(async (client) => {
+      const success = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: root,
+          task_id: taskId,
+          action: "complete",
+          result: "success",
+          summary: "Do not accept this incomplete task.",
+          verification: ["No valid evidence exists."],
+          files: [],
+        },
+      });
+      expect(success.isError).toBe(true);
+      expect(JSON.stringify(success.content)).toMatch(/acceptance is incomplete/iu);
+
+      const partial = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: root,
+          task_id: taskId,
+          action: "complete",
+          result: "partial",
+          summary: "Acceptance remains pending.",
+          verification: ["Pending criterion recorded durably."],
+          files: [],
+        },
+      });
+      expect(partial.isError, JSON.stringify(partial.content)).not.toBe(true);
+      expect(partial.structuredContent).toMatchObject({
+        status: "completed",
+        ready: false,
+        result: "partial",
+      });
+    });
+  });
+
   it("reconciles a post-checkpoint interruption and archives partial closeout idempotently", async () => {
     const root = await createGitRoot();
     const objectiveSentinel = "FULL_OBJECTIVE_TAIL_MUST_SURVIVE";

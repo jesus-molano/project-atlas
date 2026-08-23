@@ -13,9 +13,16 @@ import {
   loadTaskContinuationBundle,
   loadTaskEvidenceContract,
   persistTaskContinuationBundle,
+  persistTaskContinuationBundleWithCheckpoint,
   persistTaskEvidenceContract,
+  persistTaskEvidenceContractWithCheckpoint,
   taskAcceptanceState,
 } from "./task-evidence-contract.js";
+import { recoverTaskResumeState } from "./task-recovery.js";
+import {
+  loadTaskResumeCapsule,
+  writeTaskCheckpoint,
+} from "./task-state.js";
 
 const roots: string[] = [];
 let previousAtlasHome: string | undefined;
@@ -75,6 +82,28 @@ function contractInput() {
     contextHandles: ["code:checkout-form", "design:FileKey::12:34"],
     createdAt: "2026-08-23T10:00:00.000Z",
   };
+}
+
+async function checkpoint(
+  root: string,
+  taskId: string,
+  objective: string,
+  handles: string[],
+  nextSafeAction: string,
+) {
+  return writeTaskCheckpoint(root, {
+    taskId,
+    milestone: "decision-confirmed",
+    objective,
+    objectiveApproved: true,
+    decisions: [],
+    sourceReceiptIds: [],
+    handles,
+    covered: ["Source intake"],
+    remaining: ["Implementation", "Validation"],
+    budgetChars: 2_400,
+    nextSafeAction,
+  });
 }
 
 describe("task evidence contract", () => {
@@ -178,6 +207,80 @@ describe("task evidence contract", () => {
     await expect(loadLatestTaskEvidenceContract(root, first.taskId)).resolves.toEqual(
       fulfilled[0]!.value,
     );
+  });
+
+  it("keeps the evidence lock through the capsule checkpoint and publishes one coherent revision", async () => {
+    const root = await repository();
+    let releaseCheckpoint!: () => void;
+    let checkpointStarted!: () => void;
+    const release = new Promise<void>((resolve) => {
+      releaseCheckpoint = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      checkpointStarted = resolve;
+    });
+
+    const transaction = persistTaskEvidenceContractWithCheckpoint(
+      root,
+      contractInput(),
+      async (contract) => {
+        checkpointStarted();
+        await release;
+        return checkpoint(
+          root,
+          contract.taskId,
+          contract.objective,
+          [contract.handle],
+          "Checkpoint criterion progress against the latest contract.",
+        );
+      },
+    );
+    await started;
+
+    await expect(
+      persistTaskEvidenceContractWithCheckpoint(
+        root,
+        {
+          ...contractInput(),
+          constraints: ["A concurrent writer must not replace the transaction."],
+        },
+        async () => "unexpected",
+      ),
+    ).rejects.toThrow(/locked by another writer/iu);
+
+    releaseCheckpoint();
+    const saved = await transaction;
+    const capsule = await loadTaskResumeCapsule(root, saved.artifact.taskId);
+    expect(saved.checkpoint.handles).toContain(saved.artifact.handle);
+    expect(capsule?.handles).toContain(saved.artifact.handle);
+    await expect(
+      loadLatestTaskEvidenceContract(root, saved.artifact.taskId),
+    ).resolves.toEqual(saved.artifact);
+  });
+
+  it("marks a semantically identical contract checkpoint as a non-publishing retry", async () => {
+    const root = await repository();
+    const first = await persistTaskEvidenceContract(root, contractInput());
+    let receivedMetadata:
+      | { readonly publish: boolean; readonly previousHandle?: string }
+      | undefined;
+
+    const retry = await persistTaskEvidenceContractWithCheckpoint(
+      root,
+      {
+        ...contractInput(),
+        createdAt: "2026-08-23T11:00:00.000Z",
+      },
+      async (contract, metadata) => {
+        receivedMetadata = metadata;
+        return contract.handle;
+      },
+    );
+
+    expect(retry.artifact).toEqual(first);
+    expect(retry.checkpoint).toBe(first.handle);
+    expect(receivedMetadata).toEqual({ publish: false });
+    expect(Object.isFrozen(receivedMetadata)).toBe(true);
   });
 });
 
@@ -290,6 +393,32 @@ describe("task continuation bundle", () => {
     ).rejects.toThrow(/requires evidence/iu);
   });
 
+  it("marks a semantically identical continuation checkpoint as a non-publishing retry", async () => {
+    const root = await repository();
+    const contract = await persistTaskEvidenceContract(root, contractInput());
+    const input = {
+      taskId: contract.taskId,
+      contractHandle: contract.handle,
+      criteria: contract.criteria.map((criterion) => ({
+        criterionId: criterion.id,
+        status: "pending" as const,
+        evidenceRefs: [],
+        validationRefs: [],
+      })),
+      nextSafeAction: "Implement the approved contract.",
+    };
+    const first = await persistTaskContinuationBundle(root, input);
+    const retry = await persistTaskContinuationBundleWithCheckpoint(
+      root,
+      input,
+      async (_continuation, metadata) => metadata,
+    );
+
+    expect(retry.artifact).toEqual(first);
+    expect(retry.checkpoint).toEqual({ publish: false });
+    expect(Object.isFrozen(retry.checkpoint)).toBe(true);
+  });
+
   it("refuses to resume a continuation whose immutable contract is missing", async () => {
     const root = await repository();
     const contract = await persistTaskEvidenceContract(root, contractInput());
@@ -323,5 +452,123 @@ describe("task continuation bundle", () => {
     await expect(
       loadLatestTaskContinuationBundle(root, contract.taskId),
     ).rejects.toThrow();
+  });
+
+  it("does not activate a continuation when its capsule checkpoint callback fails", async () => {
+    const root = await repository();
+    const contract = await persistTaskEvidenceContract(root, contractInput());
+    await checkpoint(
+      root,
+      contract.taskId,
+      contract.objective,
+      [contract.handle],
+      "Checkpoint criterion progress.",
+    );
+    let stagedHandle: string | undefined;
+
+    await expect(
+      persistTaskContinuationBundleWithCheckpoint(
+        root,
+        {
+          taskId: contract.taskId,
+          contractHandle: contract.handle,
+          criteria: contract.criteria.map((criterion) => ({
+            criterionId: criterion.id,
+            status: "pending" as const,
+            evidenceRefs: [],
+            validationRefs: [],
+          })),
+          nextSafeAction: "Implement from staged progress.",
+        },
+        async (continuation) => {
+          stagedHandle = continuation.handle;
+          await checkpoint(
+            root,
+            contract.taskId,
+            contract.objective,
+            [continuation.handle, contract.handle],
+            continuation.nextSafeAction,
+          );
+          throw new Error("simulated failure after capsule publication");
+        },
+      ),
+    ).rejects.toThrow(/simulated failure/iu);
+
+    expect(stagedHandle).toBeDefined();
+    await expect(
+      loadTaskContinuationBundle(root, stagedHandle!),
+    ).resolves.toMatchObject({ handle: stagedHandle });
+    await expect(
+      loadLatestTaskContinuationBundle(root, contract.taskId),
+    ).resolves.toBeUndefined();
+    await expect(recoverTaskResumeState(root)).resolves.toMatchObject({
+      status: "ready",
+      candidates: [
+        {
+          taskId: contract.taskId,
+          nextSafeAction:
+            "Reconcile the task capsule with the latest durable evidence before resuming implementation.",
+        },
+      ],
+      capsule: {
+        handles: [contract.handle],
+      },
+    });
+    const recovered = await recoverTaskResumeState(root);
+    expect(recovered).not.toHaveProperty("continuation");
+    if (recovered.status === "ready") {
+      expect(recovered.capsule.handles).not.toContain(stagedHandle);
+    }
+  });
+
+  it("retires latest continuation progress when the evidence contract changes", async () => {
+    const root = await repository();
+    const firstContract = await persistTaskEvidenceContract(root, contractInput());
+    const firstContinuation = await persistTaskContinuationBundle(root, {
+      taskId: firstContract.taskId,
+      contractHandle: firstContract.handle,
+      criteria: firstContract.criteria.map((criterion) => ({
+        criterionId: criterion.id,
+        status: "pending" as const,
+        evidenceRefs: [],
+        validationRefs: [],
+      })),
+      nextSafeAction: "Implement the first contract.",
+    });
+    const secondContract = await persistTaskEvidenceContract(root, {
+      ...contractInput(),
+      previousHandle: firstContract.handle,
+      constraints: ["Use the existing checkout API and preserve idempotency."],
+    });
+
+    await expect(
+      loadLatestTaskContinuationBundle(root, firstContract.taskId),
+    ).resolves.toBeUndefined();
+    await expect(
+      persistTaskContinuationBundle(root, {
+        taskId: firstContract.taskId,
+        contractHandle: firstContract.handle,
+        previousHandle: firstContinuation.handle,
+        criteria: firstContinuation.criteria,
+        nextSafeAction: "Continue obsolete progress.",
+      }),
+    ).rejects.toThrow(/latest evidence contract/iu);
+
+    const replacement = await persistTaskContinuationBundle(root, {
+      taskId: secondContract.taskId,
+      contractHandle: secondContract.handle,
+      criteria: secondContract.criteria.map((criterion) => ({
+        criterionId: criterion.id,
+        status: "pending" as const,
+        evidenceRefs: [],
+        validationRefs: [],
+      })),
+      nextSafeAction: "Implement the revised contract.",
+    });
+    expect(replacement).toMatchObject({
+      revision: 1,
+      contract: { handle: secondContract.handle },
+    });
+    expect(replacement.previousHandle).toBeUndefined();
   });
 });

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   SOURCE_RECEIPT_SCHEMA_VERSION,
@@ -8,6 +7,10 @@ import {
   type DesignToken,
   type ProjectThemeFingerprint,
 } from "@component-atlas/core";
+import {
+  createScanSafetySession,
+  type ScanSafetySession,
+} from "@component-atlas/core/scan-safety";
 import type { DesignFileIndex } from "@component-atlas/design";
 import fg from "fast-glob";
 
@@ -32,7 +35,9 @@ export async function buildThemeFingerprint(
   rootPath: string,
   components: ComponentNode[],
   tokens: DesignToken[],
+  scanSafetySession?: ScanSafetySession,
 ): Promise<ProjectThemeFingerprint> {
+  const session = scanSafetySession ?? await createScanSafetySession(rootPath);
   const files = await fg(
     [
       "**/*.{css,scss,sass,less}",
@@ -44,11 +49,18 @@ export async function buildThemeFingerprint(
       "!**/coverage/**",
       "!**/.component-atlas/**",
     ],
-    { cwd: rootPath, absolute: true, onlyFiles: true, unique: true },
+    {
+      cwd: rootPath,
+      absolute: true,
+      onlyFiles: true,
+      unique: true,
+      followSymbolicLinks: false,
+    },
   );
-  const loaded = await Promise.all(
-    files.map(async (file) => ({ file, source: await readFile(file, "utf8") })),
-  );
+  const loaded: Array<{ file: string; source: string }> = [];
+  for (const file of await session.files(files)) {
+    loaded.push({ file, source: await session.readText(file) });
+  }
   const styleSources = loaded.map((item) => item.source);
   const tokenValues = (kind: DesignToken["kind"]) =>
     tokens.filter((token) => token.kind === kind).map((token) => token.value);

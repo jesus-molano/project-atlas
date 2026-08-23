@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   baseParse,
@@ -26,6 +25,7 @@ import {
   type FrameworkAdapter,
   type ScanOptions,
 } from "@component-atlas/core";
+import { createScanSafetySession, type ScanSafetySession } from "@component-atlas/core/scan-safety";
 import {
   collectTestFacts,
   importBindings,
@@ -758,7 +758,7 @@ function fileRoutePath(relativePath: string, directory: "pages" | "layouts"): st
   return route === "" ? "/" : route;
 }
 
-async function vueRouterRoutes(rootPath: string): Promise<Map<string, string>> {
+async function vueRouterRoutes(rootPath: string, session: ScanSafetySession): Promise<Map<string, string>> {
   const files = await fg(
     [
       "router/**/*.{ts,js}",
@@ -770,12 +770,13 @@ async function vueRouterRoutes(rootPath: string): Promise<Map<string, string>> {
       absolute: true,
       onlyFiles: true,
       unique: true,
+      followSymbolicLinks: false,
       ignore: ["**/node_modules/**"],
     },
   );
   const routes = new Map<string, string>();
-  for (const filePath of files) {
-    const text = await readFile(filePath, "utf8");
+  for (const filePath of await session.files(files)) {
+    const text = await session.readText(filePath);
     const source = ts.createSourceFile(
       filePath,
       text,
@@ -795,6 +796,7 @@ async function vueRouterRoutes(rootPath: string): Promise<Map<string, string>> {
         statement.moduleSpecifier.text,
         filePath,
         rootPath,
+        session,
       );
       if (!resolvedPath) continue;
       const clause = statement.importClause;
@@ -828,13 +830,17 @@ async function vueRouterRoutes(rootPath: string): Promise<Map<string, string>> {
   return routes;
 }
 
-async function isNuxtProject(rootPath: string, options: ScanOptions): Promise<boolean> {
+async function isNuxtProject(
+  rootPath: string,
+  options: ScanOptions,
+  session: ScanSafetySession,
+): Promise<boolean> {
   if (options.packageProfile) {
     return options.packageProfile.metaFramework === "nuxt";
   }
   try {
     const manifest = JSON.parse(
-      await readFile(path.join(rootPath, "package.json"), "utf8"),
+      await session.readText(path.join(rootPath, "package.json")),
     ) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
@@ -854,11 +860,13 @@ export class VueAdapter implements FrameworkAdapter {
 
   async scanDetailed(options: ScanOptions): Promise<AdapterScanResult> {
     const rootPath = path.resolve(options.rootPath);
-    const nuxt = await isNuxtProject(rootPath, options);
+    const session = options.scanSafetySession ?? await createScanSafetySession(rootPath);
+    const nuxt = await isNuxtProject(rootPath, options, session);
     const files = await fg(options.include ?? SOURCE_PATTERNS, {
       cwd: rootPath,
       absolute: true,
       onlyFiles: true,
+      followSymbolicLinks: false,
       ignore: [
         "**/node_modules/**",
         "**/.nuxt/**",
@@ -870,20 +878,21 @@ export class VueAdapter implements FrameworkAdapter {
       await fg(TEST_PATTERNS, {
         cwd: rootPath,
         onlyFiles: true,
+        followSymbolicLinks: false,
         ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**"],
       })
     ).map(slash);
-    const testFacts = await collectTestFacts(rootPath, testPaths);
-    const routerRoutes = nuxt ? new Map<string, string>() : await vueRouterRoutes(rootPath);
+    const testFacts = await collectTestFacts(rootPath, testPaths, session);
+    const routerRoutes = nuxt ? new Map<string, string>() : await vueRouterRoutes(rootPath, session);
     const diagnostics: AdapterScanResult["coverage"]["diagnostics"] = [];
     const components: ComponentNode[] = [];
     let parsedFiles = 0;
     let skippedFiles = 0;
     let errorFiles = 0;
 
-    for (const sourcePath of files.sort()) {
+    for (const sourcePath of await session.files(files)) {
       try {
-        const source = await readFile(sourcePath, "utf8");
+        const source = await session.readText(sourcePath);
         const relativePath = slash(path.relative(rootPath, sourcePath));
         const parsed = parseSfc(source, { filename: sourcePath });
         const supportedScriptLanguages = new Set(["js", "jsx", "ts", "tsx"]);
@@ -949,18 +958,19 @@ export class VueAdapter implements FrameworkAdapter {
           combinedScript,
           `${sourcePath}.ts`,
           rootPath,
+          session,
         );
         const normalFacts = parseScript(
           normalScript,
           normalScriptPath,
           externalDeclarations,
-          await importBindings(normalScript, normalScriptPath, rootPath),
+          await importBindings(normalScript, normalScriptPath, rootPath, session),
         );
         const setupFacts = parseScript(
           setupScript,
           setupScriptPath,
           externalDeclarations,
-          await importBindings(setupScript, setupScriptPath, rootPath),
+          await importBindings(setupScript, setupScriptPath, rootPath, session),
         );
         const scriptFacts = mergeScriptFacts(normalFacts, setupFacts);
         const templateFacts = parseTemplate(

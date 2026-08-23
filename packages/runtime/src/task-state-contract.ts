@@ -14,6 +14,7 @@ import {
   isLockedChangeSurface,
   type LockedChangeSurface,
 } from "./change-surface-lock.js";
+import { EXPANDABLE_HANDLE_PATTERN } from "./expandable-handle.js";
 import {
   lifecycleForPhase,
   lifecyclePhaseFromLegacy,
@@ -36,6 +37,8 @@ import {
   type TaskGovernance,
 } from "./task-governance.js";
 
+export { EXPANDABLE_HANDLE_PATTERN };
+
 export const TASK_CAPSULE_SCHEMA_VERSION = 4 as const;
 const PREVIOUS_CAPSULE_SCHEMA_VERSION = 3 as const;
 const LEGACY_CAPSULE_SCHEMA_VERSIONS = [1, 2] as const;
@@ -47,8 +50,6 @@ const VISUAL_HANDLE = /^visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}$/u;
 const VISUAL_HASH = /^[a-f0-9]{16,64}$/u;
 const VISUAL_REVIEW_HANDLE =
   /^visual-review:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}$/u;
-export const EXPANDABLE_HANDLE_PATTERN =
-  /^(?:(?:code|design|memory|entity):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|visual-review:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16}|delivery:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|contract:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|continuation:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16})$/u;
 
 export type TaskJournalMilestone =
   | "objective-approved"
@@ -188,6 +189,14 @@ export interface TaskResumeCapsule {
 
 export interface TaskCheckpointInput {
   taskId: string;
+  /**
+   * Optional optimistic-concurrency precondition for a capsule update.
+   *
+   * `null` requires that no capsule exists yet. A timestamp requires the
+   * current capsule to have exactly that `updatedAt` value. Omit it for
+   * compatibility with callers that only need serialized writes.
+   */
+  expectedUpdatedAt?: string | null;
   status?: TaskResumeCapsule["status"];
   milestone: TaskJournalMilestone;
   objective: string;

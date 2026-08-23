@@ -51,6 +51,45 @@ describe("source receipts", () => {
     ).toThrow(/identity/i);
   });
 
+  it("persists normalized Figma revision identity when the observation provides it", () => {
+    const reference =
+      "https://www.figma.com/design/FileKey/Product?node-id=10-20";
+    const requested = sourceIdentityFromReference("figma", reference);
+    const receipt = createSourceReceipt({
+      sourceDecisionId: taskSourceId("figma", reference),
+      provider: "figma",
+      requested,
+      resolved: {
+        ...requested,
+        version: "v42",
+        lastModified: "2026-08-23T09:55:00+00:00",
+      },
+      adapter: "figma-desktop-mcp-local",
+      route: "http://127.0.0.1:3845/mcp",
+      operation: "get_design_context",
+      scope: { kind: "node", id: "10:20", parentId: "FileKey" },
+      observedAt: "2026-08-23T10:00:00.000Z",
+      coverage: "exact",
+      freshness: "current",
+    });
+
+    expect(receipt.resolved).toMatchObject({
+      fileKey: "FileKey",
+      nodeId: "10:20",
+      version: "v42",
+      lastModified: "2026-08-23T09:55:00.000Z",
+    });
+    expect(() =>
+      parseSourceReceipt({
+        ...receipt,
+        resolved: {
+          ...receipt.resolved,
+          lastModified: "2026-08-23T10:55:00.000Z",
+        },
+      }),
+    ).toThrow(/immutable fields/i);
+  });
+
   it("keeps linked Jira or Confluence evidence pending", () => {
     expect(
       derivePendingSecondarySource(

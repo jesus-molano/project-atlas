@@ -17,6 +17,7 @@ import {
   type GitBaselineReference,
   type GitDeltaCaptureLimits,
 } from "./git-delta.js";
+import { EXPANDABLE_HANDLE_PATTERN } from "./expandable-handle.js";
 import { resolveProjectIdentity } from "./identity.js";
 import { writeImmutableArtifact } from "./immutable-artifact.js";
 import { scanProject } from "./scan.js";
@@ -30,8 +31,6 @@ import {
 const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const RECEIPT_ID = SOURCE_RECEIPT_ID_PATTERN;
 const MAX_LOCKED_CHANGE_SURFACE_BYTES = 2_800;
-const EXPANDABLE_HANDLE =
-  /^(?:(?:code|design|memory|entity):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16}|delivery:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16})$/u;
 
 export interface LockedConfirmedOperation {
   method: string;
@@ -156,15 +155,17 @@ export function normalizeLockedChangeIntent(value: string): string {
 
 export function normalizeLockedEvidenceHandles(values: string[] = []): string[] {
   const priority = (handle: string): number =>
-    handle.startsWith("visual:")
+    /^(?:visual|contract):/u.test(handle)
       ? 0
-      : /^(?:figma-asset|manifest|retrieval|design):/u.test(handle)
+      : /^(?:figma-asset|figma-snapshot|manifest|retrieval|design|continuation):/u.test(
+            handle,
+          )
         ? 1
         : handle.startsWith("code:")
           ? 2
           : 3;
   return uniqueShort(
-    values.filter((handle) => EXPANDABLE_HANDLE.test(handle)),
+    values.filter((handle) => EXPANDABLE_HANDLE_PATTERN.test(handle)),
     260,
     128,
   )

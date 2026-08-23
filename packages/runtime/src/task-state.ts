@@ -140,6 +140,63 @@ async function atomicJson(filePath: string, value: unknown): Promise<void> {
   await rename(temporary, filePath);
 }
 
+async function withTaskCheckpointWriteLock<T>(
+  rootPath: string,
+  taskId: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const directory = path.join(await taskStateRoot(rootPath), "capsule-locks");
+  await mkdir(directory, { recursive: true });
+  const target = path.join(
+    directory,
+    taskStateFileName(rootPath, taskId, "json").replace(/\.json$/u, ".lock"),
+  );
+  let lock;
+  try {
+    lock = await open(target, "wx", 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    throw new Error(
+      "Task resume capsule is locked by another writer. Do not remove the lock automatically; inspect ownership before explicit recovery.",
+      { cause: error },
+    );
+  }
+  try {
+    await lock.writeFile(
+      `${JSON.stringify({ schemaVersion: 1, taskId, pid: process.pid, lockedAt: new Date().toISOString() })}\n`,
+      "utf8",
+    );
+    await lock.sync();
+    return await action();
+  } finally {
+    await lock.close();
+    await rm(target, { force: true });
+  }
+}
+
+function assertCheckpointCompareAndSwap(
+  expectedUpdatedAt: string | null | undefined,
+  existingCapsule: TaskResumeCapsule | undefined,
+): void {
+  if (expectedUpdatedAt === undefined) return;
+  if (expectedUpdatedAt === null) {
+    if (existingCapsule) {
+      throw new Error(
+        "Task resume capsule changed since it was read: expected no existing capsule.",
+      );
+    }
+    return;
+  }
+  if (!Number.isFinite(Date.parse(expectedUpdatedAt))) {
+    throw new Error("Task checkpoint expectedUpdatedAt is invalid.");
+  }
+  if (!existingCapsule || existingCapsule.updatedAt !== expectedUpdatedAt) {
+    throw new Error(
+      "Task resume capsule changed since it was read: expected updatedAt does not match the current capsule.",
+    );
+  }
+}
+
 async function gitHead(rootPath: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync(
@@ -317,7 +374,16 @@ export async function writeTaskCheckpoint(
   input: TaskCheckpointInput,
 ): Promise<TaskResumeCapsule> {
   checkedId(input.taskId, TASK_ID, "Task ID");
-  const now = input.at ?? new Date().toISOString();
+  return withTaskCheckpointWriteLock(rootPath, input.taskId, () =>
+    writeTaskCheckpointLocked(rootPath, input),
+  );
+}
+
+async function writeTaskCheckpointLocked(
+  rootPath: string,
+  input: TaskCheckpointInput,
+): Promise<TaskResumeCapsule> {
+  let now = input.at ?? new Date().toISOString();
   const directory = path.join(await taskStateRoot(rootPath), "capsules");
   await mkdir(directory, { recursive: true });
   const filePath = path.join(
@@ -347,6 +413,15 @@ export async function writeTaskCheckpoint(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+  }
+  assertCheckpointCompareAndSwap(input.expectedUpdatedAt, existingCapsule);
+  // `updatedAt` is the public CAS version. Keep it strictly monotonic even
+  // when a deterministic caller retries with the same explicit timestamp.
+  if (
+    existingCapsule &&
+    Date.parse(now) <= Date.parse(existingCapsule.updatedAt)
+  ) {
+    now = new Date(Date.parse(existingCapsule.updatedAt) + 1).toISOString();
   }
   const governance = mergeTaskGovernance(
     existingCapsule?.governance,

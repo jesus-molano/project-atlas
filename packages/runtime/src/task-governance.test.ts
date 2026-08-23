@@ -233,7 +233,10 @@ describe("persisted task governance", () => {
   it("accepts a first classification for legacy state and retains it in final prune", async () => {
     const root = await temporaryRoot("atlas-governance-legacy-");
     const taskId = "task-governance-legacy";
-    await writeTaskCheckpoint(root, checkpoint(taskId));
+    await writeTaskCheckpoint(
+      root,
+      checkpoint(taskId, undefined, { at: "2026-06-30T00:00:00.000Z" }),
+    );
     expect((await loadTaskResumeCapsule(root, taskId))?.governance).toBeUndefined();
     const governance: TaskGovernance = {
       size: "medium",

@@ -1,9 +1,9 @@
-import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   slash,
   type ComponentImportBinding,
 } from "@component-atlas/core";
+import { createScanSafetySession, type ScanSafetySession } from "@component-atlas/core/scan-safety";
 import ts from "typescript";
 
 interface TestFacts {
@@ -58,10 +58,12 @@ export async function resolveSourceImport(
   specifier: string,
   fromFile: string,
   rootPath: string,
+  scanSafetySession?: ScanSafetySession,
 ): Promise<string | undefined> {
+  const session = scanSafetySession ?? await createScanSafetySession(rootPath);
   for (const candidate of sourceCandidates(specifier, fromFile, rootPath)) {
     try {
-      await access(candidate);
+      await session.readText(candidate);
       return candidate;
     } catch {
       // Continue through deterministic local candidates.
@@ -74,6 +76,7 @@ export async function importBindings(
   script: string,
   sourcePath: string,
   rootPath: string,
+  scanSafetySession?: ScanSafetySession,
 ): Promise<ComponentImportBinding[]> {
   if (!script.trim()) return [];
   const source = ts.createSourceFile(
@@ -89,7 +92,7 @@ export async function importBindings(
       continue;
     }
     const specifier = statement.moduleSpecifier.text;
-    const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath);
+    const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath, scanSafetySession);
     const clause = statement.importClause;
     if (clause?.name) {
       bindings.push({
@@ -133,7 +136,9 @@ export async function importedTypeDeclarations(
   script: string,
   sourcePath: string,
   rootPath: string,
+  scanSafetySession?: ScanSafetySession,
 ) {
+  const session = scanSafetySession ?? await createScanSafetySession(rootPath);
   const source = ts.createSourceFile(
     sourcePath,
     script,
@@ -152,11 +157,12 @@ export async function importedTypeDeclarations(
       statement.moduleSpecifier.text,
       sourcePath,
       rootPath,
+      session,
     );
     if (!importedPath || !/\.d?tsx?$/i.test(importedPath)) continue;
     const importedSource = ts.createSourceFile(
       importedPath,
-      await readFile(importedPath, "utf8"),
+      await session.readText(importedPath),
       ts.ScriptTarget.Latest,
       true,
       importedPath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
@@ -191,66 +197,69 @@ export async function importedTypeDeclarations(
 export async function collectTestFacts(
   rootPath: string,
   testPaths: string[],
+  scanSafetySession?: ScanSafetySession,
 ): Promise<TestFacts[]> {
-  return Promise.all(
-    testPaths.map(async (testPath) => {
-      const absolutePath = path.resolve(rootPath, testPath);
-      const sourceText = await readFile(absolutePath, "utf8");
-      const source = ts.createSourceFile(
-        absolutePath,
-        sourceText,
-        ts.ScriptTarget.Latest,
-        true,
-        /\.tsx$/i.test(testPath) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-      );
-      const resolvedImports = new Set<string>();
-      const importedNames = new Set<string>();
-      const mountedNames = new Set<string>();
+  const session = scanSafetySession ?? await createScanSafetySession(rootPath);
+  const facts: TestFacts[] = [];
+  for (const testPath of [...testPaths].sort((left, right) => left.localeCompare(right))) {
+    const absolutePath = path.resolve(rootPath, testPath);
+    const sourceText = await session.readText(absolutePath);
+    const source = ts.createSourceFile(
+      absolutePath,
+      sourceText,
+      ts.ScriptTarget.Latest,
+      true,
+      /\.tsx$/i.test(testPath) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const resolvedImports = new Set<string>();
+    const importedNames = new Set<string>();
+    const mountedNames = new Set<string>();
 
-      for (const statement of source.statements) {
-        if (!ts.isImportDeclaration(statement)) continue;
-        const clause = statement.importClause;
-        if (clause?.name) importedNames.add(clause.name.text);
-        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-          for (const binding of clause.namedBindings.elements) {
-            importedNames.add(binding.name.text);
-          }
-        }
-        if (ts.isStringLiteral(statement.moduleSpecifier)) {
-          const imported = await resolveSourceImport(
-            statement.moduleSpecifier.text,
-            absolutePath,
-            rootPath,
-          );
-          if (imported?.toLowerCase().endsWith(".vue")) {
-            resolvedImports.add(slash(path.relative(rootPath, imported)).toLowerCase());
-          }
+    for (const statement of source.statements) {
+      if (!ts.isImportDeclaration(statement)) continue;
+      const clause = statement.importClause;
+      if (clause?.name) importedNames.add(clause.name.text);
+      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const binding of clause.namedBindings.elements) {
+          importedNames.add(binding.name.text);
         }
       }
-
-      const visit = (node: ts.Node): void => {
-        if (
-          ts.isCallExpression(node) &&
-          ts.isIdentifier(node.expression) &&
-          /^(?:mount|mountSuspended|shallowMount|render)$/i.test(
-            node.expression.text,
-          )
-        ) {
-          const target = node.arguments[0];
-          if (target && ts.isIdentifier(target)) mountedNames.add(target.text);
+      if (ts.isStringLiteral(statement.moduleSpecifier)) {
+        const imported = await resolveSourceImport(
+          statement.moduleSpecifier.text,
+          absolutePath,
+          rootPath,
+          session,
+        );
+        if (imported?.toLowerCase().endsWith(".vue")) {
+          resolvedImports.add(slash(path.relative(rootPath, imported)).toLowerCase());
         }
-        ts.forEachChild(node, visit);
-      };
-      visit(source);
+      }
+    }
 
-      return {
-        path: slash(testPath),
-        resolvedImports,
-        importedNames,
-        mountedNames,
-      };
-    }),
-  );
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        /^(?:mount|mountSuspended|shallowMount|render)$/i.test(
+          node.expression.text,
+        )
+      ) {
+        const target = node.arguments[0];
+        if (target && ts.isIdentifier(target)) mountedNames.add(target.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+
+    facts.push({
+      path: slash(testPath),
+      resolvedImports,
+      importedNames,
+      mountedNames,
+    });
+  }
+  return facts;
 }
 
 export function testsFor(

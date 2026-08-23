@@ -4,6 +4,7 @@ import {
 } from "@component-atlas/core";
 import {
   expandSourceReceipt,
+  expandFigmaSnapshot,
   expandTaskContinuationBundle,
   expandTaskEvidenceContract,
   expandTaskCompletionReceipt,
@@ -33,7 +34,7 @@ export function registerCoreExpandContext(server: McpServer): void {
     "atlas_expand_context",
     {
       description:
-        "Expand one code, design, Figma asset, source, memory or delivery handle under a hard budget.",
+        "Expand one code, design, Figma snapshot/asset, source, memory or delivery handle under a hard budget.",
       inputSchema: {
         root_path: z.string(),
         handle: z.string().min(1).max(320),
@@ -102,6 +103,15 @@ export function registerCoreExpandContext(server: McpServer): void {
             budget,
           ),
         );
+      }
+      if (handle.startsWith("figma-snapshot:")) {
+        if (!task_id) {
+          throw new Error(
+            "Expanding a Figma snapshot requires its exact task_id binding.",
+          );
+        }
+        await assertTaskBoundHandle(root_path, task_id, handle);
+        return text(await expandFigmaSnapshot(root_path, handle, budget));
       }
       if (handle.startsWith("visual-review:")) {
         if (!task_id) {
@@ -233,7 +243,7 @@ export function registerCoreExpandContext(server: McpServer): void {
         );
       }
       throw new Error(
-        "Use a code:, entity:, design:, contract:, continuation:, figma-asset:, visual:, visual-review:, delivery:, memory:, retrieval:, manifest: or receipt-* handle.",
+        "Use a code:, entity:, design:, contract:, continuation:, figma-snapshot:, figma-asset:, visual:, visual-review:, delivery:, memory:, retrieval:, manifest: or receipt-* handle.",
       );
     },
   );

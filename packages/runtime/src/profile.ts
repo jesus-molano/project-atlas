@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import path from "node:path";
 import fg from "fast-glob";
 import YAML from "yaml";
@@ -10,6 +10,10 @@ import {
   type ProjectProfile,
   type RouterMode,
 } from "@component-atlas/core";
+import {
+  createScanSafetySession,
+  type ScanSafetySession,
+} from "@component-atlas/core/scan-safety";
 
 interface PackageManifest {
   name?: string;
@@ -29,10 +33,10 @@ async function exists(filePath: string): Promise<boolean> {
   }
 }
 
-async function readManifest(rootPath: string): Promise<PackageManifest> {
+async function readManifest(rootPath: string, session: ScanSafetySession): Promise<PackageManifest> {
   try {
     return JSON.parse(
-      await readFile(path.join(rootPath, "package.json"), "utf8"),
+      await session.readText(path.join(rootPath, "package.json")),
     ) as PackageManifest;
   } catch {
     return {};
@@ -44,12 +48,12 @@ function workspacePatterns(manifest: PackageManifest): string[] {
   return manifest.workspaces?.packages ?? [];
 }
 
-async function packageRoots(rootPath: string, manifest: PackageManifest): Promise<string[]> {
+async function packageRoots(rootPath: string, manifest: PackageManifest, session: ScanSafetySession): Promise<string[]> {
   const patterns = new Set(workspacePatterns(manifest));
   const pnpmWorkspace = path.join(rootPath, "pnpm-workspace.yaml");
   if (await exists(pnpmWorkspace)) {
     try {
-      const parsed = YAML.parse(await readFile(pnpmWorkspace, "utf8")) as {
+      const parsed = YAML.parse(await session.readText(pnpmWorkspace)) as {
         packages?: unknown;
       };
       if (Array.isArray(parsed.packages)) {
@@ -69,13 +73,14 @@ async function packageRoots(rootPath: string, manifest: PackageManifest): Promis
           absolute: true,
           onlyFiles: true,
           unique: true,
+          followSymbolicLinks: false,
           ignore: ["**/node_modules/**", "**/.git/**"],
         },
       )
     : [];
   return [
     rootPath,
-    ...manifests.map((filePath) => path.dirname(filePath)),
+    ...(await session.files(manifests)).map((filePath) => path.dirname(filePath)),
   ].filter(
     (candidate, index, collection) =>
       collection.findIndex(
@@ -153,8 +158,9 @@ async function routerMode(
 async function packageProfile(
   projectRoot: string,
   packageRoot: string,
+  session: ScanSafetySession,
 ): Promise<ProjectPackageProfile | undefined> {
-  const manifest = await readManifest(packageRoot);
+  const manifest = await readManifest(packageRoot, session);
   const dependencies = dependencyMap(manifest);
   const metaFramework = await configMetaFramework(packageRoot, dependencies);
   const frameworks: Framework[] = [];
@@ -216,13 +222,19 @@ async function packageProfile(
   };
 }
 
-export async function detectProjectProfile(rootPath: string): Promise<ProjectProfile> {
+export async function detectProjectProfile(
+  rootPath: string,
+  scanSafetySession?: ScanSafetySession,
+): Promise<ProjectProfile> {
   const resolvedRoot = path.resolve(rootPath);
-  const manifest = await readManifest(resolvedRoot);
-  const roots = await packageRoots(resolvedRoot, manifest);
-  const packages = (
-    await Promise.all(roots.map((candidate) => packageProfile(resolvedRoot, candidate)))
-  ).filter((profile): profile is ProjectPackageProfile => Boolean(profile));
+  const session = scanSafetySession ?? await createScanSafetySession(resolvedRoot);
+  const manifest = await readManifest(resolvedRoot, session);
+  const roots = await packageRoots(resolvedRoot, manifest, session);
+  const packages: ProjectPackageProfile[] = [];
+  for (const candidate of roots.sort((left, right) => left.localeCompare(right))) {
+    const profile = await packageProfile(resolvedRoot, candidate, session);
+    if (profile) packages.push(profile);
+  }
   if (packages.length === 0) {
     throw new Error(
       `Could not detect Astro, Vue/Nuxt, or React/Next in ${resolvedRoot}.`,

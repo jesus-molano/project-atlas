@@ -3,16 +3,11 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import {
-  createSourceReceipt,
-  sourceIdentityFromReference,
-  taskSourceRelationId,
-  taskSourceId,
-  type TaskSourceDecision,
-} from "@component-atlas/core";
+import { taskSourceRelationId, taskSourceId, type TaskSourceDecision } from "@component-atlas/core";
 import { projectStorageDirectory } from "@component-atlas/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveProjectIdentity } from "./identity.js";
+import { taskStateFileName } from "./task-state-paths.js";
 import {
   isLockedChangeSurface,
   lockedChangeSurfaceArtifactPath,
@@ -20,15 +15,12 @@ import {
 import { compareGitDelta } from "./git-delta.js";
 import {
   loadConfirmedTaskSourceDecision,
-  loadPersistedSourceReceipt,
   loadTaskFinalReceipt,
   loadTaskSourceLedger,
   loadTaskResumeCapsule,
   loadTaskResumeTransport,
   lockTaskChangeSurface,
   pruneExpiredTaskState,
-  persistSourceReceipts,
-  taskContextResumeHandles,
   writeTaskCheckpoint,
 } from "./task-state.js";
 
@@ -62,76 +54,6 @@ afterEach(async () => {
 });
 
 describe("task checkpoint and resume", () => {
-  it("keeps persisted source receipts immutable and gives changed evidence a new ID", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-receipt-once-"));
-    const reference = "APP-42";
-    const identity = sourceIdentityFromReference("jira", reference);
-    const receipt = createSourceReceipt({
-      sourceDecisionId: taskSourceId("jira", reference),
-      provider: "jira",
-      requested: identity,
-      resolved: identity,
-      adapter: "atlassian-rovo",
-      route: "jira",
-      operation: "read-issue",
-      scope: { kind: "issue", id: reference },
-      observedAt: "2026-07-31T10:00:00.000Z",
-      coverage: "exact",
-      freshness: "current",
-    });
-    await persistSourceReceipts(root, [receipt]);
-    expect(() =>
-      createSourceReceipt({
-        ...receipt,
-        freshness: "stale",
-      }),
-    ).toThrow(/immutable/iu);
-    const changed = createSourceReceipt({
-      ...receipt,
-      id: undefined,
-      freshness: "stale",
-    });
-    expect(changed.id).not.toBe(receipt.id);
-    await expect(persistSourceReceipts(root, [changed])).resolves.toBeUndefined();
-    await expect(
-      loadPersistedSourceReceipt(root, receipt.id),
-    ).resolves.toMatchObject({ freshness: "current" });
-    await rm(root, { recursive: true, force: true });
-  });
-
-  it("does not treat an absent change surface as a valid lock", () => {
-    expect(isLockedChangeSurface(undefined)).toBe(false);
-  });
-
-  it("derives only compact, unique and explicitly expandable context handles", () => {
-    expect(
-      taskContextResumeHandles({
-        selections: [
-          "design:FileKey::12:34",
-          "visual:vd-task-42:0123456789abcdef",
-          "visual:vd-task-42:0123456789abcdef",
-          "figma-asset:task-42:0123456789abcdef01234567",
-          "delivery:task-42:0123456789abcdef",
-          "entity:component:checkout-form",
-          "visual:not-expandable",
-          "invalid",
-        ],
-        code: [{ id: "checkout-form" }, { id: "checkout-form" }],
-        memory: [{ id: "contract-rule" }],
-        design: { candidates: [{ id: "12:34" }] },
-      }),
-    ).toEqual([
-      "design:FileKey::12:34",
-      "visual:vd-task-42:0123456789abcdef",
-      "figma-asset:task-42:0123456789abcdef01234567",
-      "delivery:task-42:0123456789abcdef",
-      "entity:component:checkout-form",
-      "code:checkout-form",
-      "memory:contract-rule",
-      "design:12:34",
-    ]);
-  });
-
   it("rehydrates only the bounded capsule and never expands handles implicitly", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "atlas-capsule-"));
     await writeTaskCheckpoint(root, {
@@ -213,6 +135,129 @@ describe("task checkpoint and resume", () => {
     expect(transport?.body).toContain("nextSafeAction");
     expect(transport?.fallbackAvailable).toBe(true);
     expect(transport).not.toHaveProperty("fallbackJson");
+  });
+
+  it("serializes concurrent checkpoints and rejects a stale compare-and-swap", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-capsule-cas-"));
+    const initial = await writeTaskCheckpoint(root, {
+      taskId: "task-cas",
+      expectedUpdatedAt: null,
+      milestone: "objective-approved",
+      objective: "Keep the task capsule current",
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      handles: ["code:checkout-form"],
+      covered: ["intake"],
+      remaining: ["implementation"],
+      budgetChars: 800,
+      nextSafeAction: "Implement the approved task.",
+      at: "2026-08-23T10:00:00.000Z",
+    });
+    const observedUpdatedAt = initial.updatedAt;
+    const input = {
+      taskId: "task-cas",
+      expectedUpdatedAt: observedUpdatedAt,
+      milestone: "batch-completed" as const,
+      objective: "Keep the task capsule current",
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      budgetChars: 800,
+    };
+    const [first, second] = await Promise.allSettled([
+      writeTaskCheckpoint(root, {
+        ...input,
+        handles: ["code:checkout-form", "memory:first-writer"],
+        covered: ["intake", "first writer"],
+        remaining: ["validation"],
+        nextSafeAction: "Validate the first writer result.",
+        at: "2026-08-23T10:01:00.000Z",
+      }),
+      writeTaskCheckpoint(root, {
+        ...input,
+        handles: ["code:checkout-form", "memory:second-writer"],
+        covered: ["intake", "second writer"],
+        remaining: ["delivery"],
+        nextSafeAction: "Deliver the second writer result.",
+        at: "2026-08-23T10:02:00.000Z",
+      }),
+    ]);
+    const fulfilled = [first, second].filter(
+      (result): result is PromiseFulfilledResult<Awaited<typeof initial>> =>
+        result.status === "fulfilled",
+    );
+    const rejected = [first, second].filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(String(rejected[0]!.reason)).toMatch(/locked by another writer/i);
+
+    const stored = await loadTaskResumeCapsule(root, "task-cas");
+    expect(stored).toMatchObject({ updatedAt: fulfilled[0]!.value.updatedAt });
+    expect(stored?.handles).toEqual(fulfilled[0]!.value.handles);
+    expect(stored?.scope).toEqual(fulfilled[0]!.value.scope);
+
+    await expect(
+      writeTaskCheckpoint(root, {
+        ...input,
+        handles: ["code:checkout-form", "memory:stale-writer"],
+        covered: ["intake", "stale writer"],
+        remaining: ["delivery"],
+        nextSafeAction: "This stale write must not replace the winner.",
+        at: "2026-08-23T10:03:00.000Z",
+      }),
+    ).rejects.toThrow(/changed since it was read/i);
+    await expect(
+      writeTaskCheckpoint(root, {
+        ...input,
+        expectedUpdatedAt: stored!.updatedAt,
+        handles: ["code:checkout-form", "memory:retry"],
+        covered: ["intake", "retry"],
+        remaining: ["validation"],
+        nextSafeAction: "Validate the retried checkpoint.",
+        at: "2026-08-23T10:04:00.000Z",
+      }),
+    ).resolves.toMatchObject({
+      updatedAt: "2026-08-23T10:04:00.000Z",
+      handles: ["code:checkout-form", "memory:retry"],
+    });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("leaves a pre-existing checkpoint lock for explicit recovery", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-capsule-lock-"));
+    const identity = await resolveProjectIdentity(root);
+    const lockPath = path.join(
+      projectStorageDirectory(identity.logicalId),
+      "task-state",
+      "capsule-locks",
+      taskStateFileName(root, "task-locked", "json").replace(/\.json$/u, ".lock"),
+    );
+    await mkdir(path.dirname(lockPath), { recursive: true });
+    await writeFile(lockPath, "manual recovery required\n", "utf8");
+
+    await expect(
+      writeTaskCheckpoint(root, {
+        taskId: "task-locked",
+        expectedUpdatedAt: null,
+        milestone: "objective-approved",
+        objective: "Do not remove an unknown lock",
+        objectiveApproved: true,
+        decisions: [],
+        sourceReceiptIds: [],
+        handles: [],
+        covered: ["intake"],
+        remaining: ["implementation"],
+        budgetChars: 800,
+        nextSafeAction: "Recover the lock explicitly.",
+      }),
+    ).rejects.toThrow(/locked by another writer/i);
+    await expect(readFile(lockPath, "utf8")).resolves.toBe(
+      "manual recovery required\n",
+    );
+    await rm(root, { recursive: true, force: true });
   });
 
   it("never uses a colon-bearing task ID as a filesystem name", async () => {

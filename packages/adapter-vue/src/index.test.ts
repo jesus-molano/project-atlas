@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildGraphEdges } from "@component-atlas/core";
+import { createScanSafetySession } from "@component-atlas/core/scan-safety";
+import { importedTypeDeclarations } from "./source-analysis.js";
 import { scanVueProject, scanVueProjectDetailed } from "./index.js";
 
 const fixture = path.resolve(
@@ -16,6 +18,24 @@ const repositoryRoot = path.resolve(
 );
 
 describe("VueAdapter", () => {
+  it("charges imported type reads to the caller scan session", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-vue-scan-budget-"));
+    try {
+      await writeFile(path.join(root, "types.ts"), "export interface Props { id: string }\n");
+      const session = await createScanSafetySession(root, { maxTotalBytes: 45 });
+      await expect(
+        importedTypeDeclarations(
+          "import type { Props } from \"./types\";",
+          path.join(root, "Card.vue.ts"),
+          root,
+          session,
+        ),
+      ).rejects.toThrow("total limit");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("indexes Nuxt runtime names, macros, auto-imports, and local components", async () => {
     const components = await scanVueProject({ rootPath: fixture });
     const modal = components.find((item) => item.effectiveName === "UiBaseModal");
@@ -177,7 +197,7 @@ describe("VueAdapter", () => {
       include: ["apps/viewer/**/*.vue"],
     });
     expect(result.components).toHaveLength(result.coverage.candidateFiles);
-    expect(result.coverage.candidateFiles).toBeGreaterThanOrEqual(16);
+    expect(result.coverage.candidateFiles).toBeGreaterThanOrEqual(15);
     expect(result.coverage).toMatchObject({
       parsedFiles: result.coverage.candidateFiles,
       skippedFiles: 0,

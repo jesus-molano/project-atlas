@@ -286,6 +286,7 @@ export async function attachVisualReview(
     receipt.cleanup.state === "clean";
   const saved = await writeTaskCheckpoint(rootPath, {
     taskId,
+    expectedUpdatedAt: capsule.updatedAt,
     milestone:
       capsule.lifecycle.phase === "validated"
         ? "change-validated"

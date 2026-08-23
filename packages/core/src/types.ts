@@ -1,3 +1,4 @@
+import type { ScanSafetySession } from "./scan-safety.js";
 import type { AtlasProvenance } from "./task-intake.js";
 
 export const GRAPH_SCHEMA_VERSION = 5 as const;
@@ -769,6 +770,8 @@ export interface ScanOptions {
   include?: string[];
   exclude?: string[];
   packageProfile?: ProjectPackageProfile;
+  /** Internal shared scan budget. Adapter consumers normally omit this. */
+  scanSafetySession?: ScanSafetySession;
 }
 
 export interface AdapterScanResult {

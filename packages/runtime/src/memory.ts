@@ -12,7 +12,9 @@ import {
 } from "@component-atlas/core";
 import {
   designIndexSummary,
+  parseFigmaReference,
   rankDesignCandidates,
+  resolveExplicitDesignTarget,
 } from "@component-atlas/design";
 import {
   MEMORY_SCHEMA_VERSION,
@@ -629,6 +631,7 @@ export async function checkBeforeChange(
   options: {
     files?: string[];
     budgetChars?: number;
+    confirmedFigmaReferences?: string[];
   } = {},
 ) {
   const graph = await loadProjectGraph(rootPath);
@@ -668,15 +671,40 @@ export async function checkBeforeChange(
           ]
         : findingsForMemory(relevantRanked);
     const indexes = store.listDesignIndexes(graph.project.id);
-    const designResult =
-      indexes.length === 1
-        ? rankDesignCandidates(indexes[0]!, intent, {
-            limit: 3,
-            codeSignals: searchComponentContext(graph, intent, 3).map(
-              (candidate) => candidate.component.name,
-            ),
-          })
+    const confirmedFigmaTargets = [
+      ...new Map(
+        (options.confirmedFigmaReferences ?? []).flatMap((reference) => {
+          try {
+            const parsed = parseFigmaReference(reference);
+            return parsed.nodeId
+              ? [[`${parsed.fileKey}\0${parsed.nodeId}`, parsed] as const]
+              : [];
+          } catch {
+            return [];
+          }
+        }),
+      ).values(),
+    ];
+    const confirmedTarget =
+      confirmedFigmaTargets.length === 1
+        ? confirmedFigmaTargets[0]
         : undefined;
+    const confirmedIndex = confirmedTarget
+      ? indexes.find((index) => index.file.key === confirmedTarget.fileKey)
+      : undefined;
+    const designResult =
+      confirmedTarget && confirmedIndex
+        ? resolveExplicitDesignTarget(confirmedIndex, confirmedTarget.nodeId!)
+        : confirmedFigmaTargets.length > 0
+          ? undefined
+          : indexes.length === 1
+            ? rankDesignCandidates(indexes[0]!, intent, {
+                limit: 3,
+                codeSignals: searchComponentContext(graph, intent, 3).map(
+                  (candidate) => candidate.component.name,
+                ),
+              })
+            : undefined;
     const designFindings = designResult?.findings ?? [];
     const memoryDecisionGate = memoryGate(memoryFindings);
     const designDecisionGate = designResult?.gate ?? {

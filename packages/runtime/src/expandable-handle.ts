@@ -1,0 +1,2 @@
+export const EXPANDABLE_HANDLE_PATTERN =
+  /^(?:(?:code|design|memory|entity):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|visual-review:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}|figma-snapshot:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16}|delivery:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|contract:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|continuation:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|receipt-(?:[a-f0-9]{16}|[a-f0-9]{64}))$/u;

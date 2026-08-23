@@ -55,6 +55,8 @@ export interface SourceIdentity {
   method?: string;
   path?: string;
   version?: string;
+  /** Provider revision timestamp when supplied by the observation. */
+  lastModified?: string;
 }
 
 export interface SourceReceipt {
@@ -167,7 +169,7 @@ function short(value: string, maximum = MAX_TEXT): string {
 }
 
 function normalizedNodeId(value: string | null | undefined): string | undefined {
-  const normalized = value?.trim().replace("-", ":");
+  const normalized = value?.trim().replace(/^(\d+)-(\d+)$/u, "$1:$2");
   return normalized && NODE_ID.test(normalized) ? normalized : undefined;
 }
 
@@ -278,6 +280,12 @@ export function sourceIdentityMatches(
   if (requested.issueKey && requested.issueKey !== resolved.issueKey) return false;
   if (requested.pageId && requested.pageId !== resolved.pageId) return false;
   if (requested.version && requested.version !== resolved.version) return false;
+  if (
+    requested.lastModified &&
+    requested.lastModified !== resolved.lastModified
+  ) {
+    return false;
+  }
   if (requested.host && requested.host !== resolved.host) return false;
   if (
     !requested.fileKey &&
@@ -315,6 +323,18 @@ function normalizedIdentity(identity: SourceIdentity): SourceIdentity {
     value === undefined ? undefined : short(value, maximum);
   const host = optional(identity.host, 255)?.toLowerCase();
   const method = optional(identity.method, 16)?.toUpperCase();
+  const lastModified = identity.lastModified
+    ? (() => {
+        const value = short(identity.lastModified, 100);
+        const milliseconds = Date.parse(value);
+        if (!Number.isFinite(milliseconds)) {
+          throw new Error(
+            "Source receipt identity lastModified must be a valid date-time.",
+          );
+        }
+        return new Date(milliseconds).toISOString();
+      })()
+    : undefined;
   return {
     provider: identity.provider,
     canonicalId: short(identity.canonicalId),
@@ -330,6 +350,7 @@ function normalizedIdentity(identity: SourceIdentity): SourceIdentity {
     ...(method ? { method } : {}),
     ...(identity.path ? { path: short(identity.path, 500) } : {}),
     ...(identity.version ? { version: short(identity.version, 240) } : {}),
+    ...(lastModified ? { lastModified } : {}),
   };
 }
 
@@ -416,6 +437,7 @@ function canonicalIdentity(identity: SourceIdentity) {
     method: identity.method ?? null,
     path: identity.path ?? null,
     version: identity.version ?? null,
+    ...(identity.lastModified ? { lastModified: identity.lastModified } : {}),
   };
 }
 

@@ -345,6 +345,7 @@ export function registerCoreTools(server: McpServer): void {
         const blocked = assessment.status === "blocked";
         await writeTaskCheckpoint(root_path, {
           taskId: id,
+          expectedUpdatedAt: prior?.updatedAt ?? null,
           status: blocked ? "blocked" : "active",
           milestone: blocked ? "blocked" : "decision-confirmed",
           objective: effectiveObjective,
@@ -406,6 +407,7 @@ export function registerCoreTools(server: McpServer): void {
         );
         await writeTaskCheckpoint(root_path, {
           taskId: id,
+          expectedUpdatedAt: prior?.updatedAt ?? null,
           status: "blocked",
           milestone: "blocked",
           objective: effectiveObjective,
@@ -493,24 +495,18 @@ export function registerCoreTools(server: McpServer): void {
           ...context,
           nextSteps: [...CORE_PREPARE_NEXT_STEPS],
         };
-        const handles = [
-          ...new Set([
-            ...(prior?.changeSurface?.evidence.handles.filter((handle) =>
-              handle.startsWith("visual:"),
-            ) ?? []),
-            ...(prior?.handles.filter((handle) => handle.startsWith("visual:")) ??
-              []),
-            ...(selected_handles ?? []),
-            ...taskContextResumeHandles(coreContext),
-            ...(prior?.changeSurface?.evidence.handles ?? []),
-            ...(prior?.handles ?? []),
-          ]),
-        ].slice(0, 8);
+        const handles = normalizeLockedEvidenceHandles([
+          ...(prior?.changeSurface?.evidence.handles ?? []),
+          ...(prior?.handles ?? []),
+          ...(selected_handles ?? []),
+          ...taskContextResumeHandles(coreContext),
+        ]);
         const sourceReceiptIds = [
           ...new Set([...boundReceiptIds, ...context.sourceReceiptIds]),
         ];
         await writeTaskCheckpoint(root_path, {
           taskId: id,
+          expectedUpdatedAt: prior?.updatedAt ?? null,
           milestone:
             context.sourceReceiptIds.length > 0
               ? "source-resolved"
@@ -563,6 +559,7 @@ export function registerCoreTools(server: McpServer): void {
       } catch (error) {
         await writeTaskCheckpoint(root_path, {
           taskId: id,
+          expectedUpdatedAt: prior?.updatedAt ?? null,
           status: "blocked",
           milestone: "blocked",
           objective: effectiveObjective,
@@ -795,7 +792,16 @@ export function registerCoreTools(server: McpServer): void {
       const preflight = await checkBeforeChange(
         root_path,
         objective.text,
-        { files, budgetChars: 1_600 },
+        {
+          files,
+          budgetChars: 1_600,
+          confirmedFigmaReferences: ledgerDecisions
+            .filter(
+              (source) =>
+                source.state === "confirmed" && source.kind === "figma",
+            )
+            .map((source) => source.reference),
+        },
       );
       const handles = normalizeLockedEvidenceHandles([
         ...new Set([
@@ -871,6 +877,7 @@ export function registerCoreTools(server: McpServer): void {
       ) {
         await writeTaskCheckpoint(root_path, {
           taskId: task_id,
+          expectedUpdatedAt: capsule.updatedAt,
           milestone: "decision-confirmed",
           objective: objective.text,
           objectiveApproved: false,
@@ -909,6 +916,7 @@ export function registerCoreTools(server: McpServer): void {
       if (preflight.gate.status === "blocked") {
         await writeTaskCheckpoint(root_path, {
           taskId: task_id,
+          expectedUpdatedAt: capsule.updatedAt,
           status: "blocked",
           milestone: "blocked",
           objective: objective.text,
@@ -991,6 +999,7 @@ export function registerCoreTools(server: McpServer): void {
       });
       await writeTaskCheckpoint(root_path, {
         taskId: task_id,
+        expectedUpdatedAt: capsule.updatedAt,
         milestone: "batch-completed",
         objective: objective.text,
         objectiveApproved: objective.approved || risk_confirmed === true,
@@ -1075,6 +1084,7 @@ export function registerCoreTools(server: McpServer): void {
       });
       await writeTaskCheckpoint(root_path, {
         taskId: task_id,
+        expectedUpdatedAt: capsule.updatedAt,
         milestone: validation.blocking ? "batch-completed" : "change-validated",
         objective: objective.text,
         objectiveApproved: objective.approved,

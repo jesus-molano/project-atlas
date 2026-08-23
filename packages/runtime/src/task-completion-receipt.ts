@@ -5,6 +5,7 @@ import { fitBudgetedResponse } from "@component-atlas/memory";
 import { projectStorageDirectory } from "@component-atlas/store";
 import { resolveProjectIdentity } from "./identity.js";
 import { writeImmutableArtifact } from "./immutable-artifact.js";
+import { EXPANDABLE_HANDLE_PATTERN as SOURCE_HANDLE } from "./expandable-handle.js";
 import type { GitDeltaEntry } from "./git-delta.js";
 import {
   loadTaskObjectiveArtifact,
@@ -16,8 +17,6 @@ const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const DELIVERY_HANDLE =
   /^delivery:([A-Za-z0-9_.:-]{1,160}):([a-f0-9]{16})$/u;
 const HASH = /^[a-f0-9]{64}$/u;
-const SOURCE_HANDLE =
-  /^(?:(?:code|design|memory|entity):[^\u0000-\u001f]{1,240}|visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}|visual-review:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|figma-asset:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{24}|manifest:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|retrieval:[A-Za-z0-9_.:-]{1,160}:[a-z-]{2,32}:[a-f0-9]{16}|delivery:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}|receipt-(?:[a-f0-9]{16}|[a-f0-9]{64}))$/u;
 const MAX_ARTIFACT_BYTES = 16 * 1024;
 const MAX_SOURCE_HANDLES = 144;
 

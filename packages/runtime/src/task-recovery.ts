@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { projectStorageDirectory } from "@component-atlas/store";
 import {
+  loadLatestTaskEvidenceContract,
   loadLatestTaskContinuationBundle,
   type TaskContinuationBundle,
 } from "./task-evidence-contract.js";
@@ -16,6 +17,8 @@ import {
 import { sameWorkspaceRoot } from "./task-state-paths.js";
 
 const MAX_DISCOVERABLE_CAPSULES = 256;
+const EVIDENCE_RECONCILIATION_ACTION =
+  "Reconcile the task capsule with the latest durable evidence before resuming implementation.";
 
 export interface TaskResumeCandidate {
   taskId: string;
@@ -80,6 +83,74 @@ async function capsuleFiles(
   return files;
 }
 
+async function activatedTaskEvidence(
+  rootPath: string,
+  capsule: TaskResumeCapsule,
+): Promise<{
+  capsule: TaskResumeCapsule;
+  continuation?: TaskContinuationBundle;
+}> {
+  const latestContract = await loadLatestTaskEvidenceContract(
+    rootPath,
+    capsule.taskId,
+  );
+  const latestContinuation = await loadLatestTaskContinuationBundle(
+    rootPath,
+    capsule.taskId,
+  );
+  const contractHandles = capsule.handles.filter((handle) =>
+    handle.startsWith("contract:"),
+  );
+  const continuationHandles = capsule.handles.filter((handle) =>
+    handle.startsWith("continuation:"),
+  );
+  const contractActivated = latestContract
+    ? contractHandles.includes(latestContract.handle)
+    : contractHandles.length === 0;
+  const continuationActivated = latestContinuation
+    ? contractActivated &&
+      continuationHandles.includes(latestContinuation.handle) &&
+      contractHandles.includes(latestContinuation.contract.handle)
+    : continuationHandles.length === 0;
+  const evidenceAligned = contractActivated && continuationActivated;
+  if (evidenceAligned) {
+    return {
+      capsule,
+      ...(latestContinuation ? { continuation: latestContinuation } : {}),
+    };
+  }
+  return {
+    capsule: {
+      ...capsule,
+      handles: [
+        ...capsule.handles.filter(
+          (handle) =>
+            !handle.startsWith("contract:") &&
+            !handle.startsWith("continuation:"),
+        ),
+        ...(latestContract && contractActivated
+          ? [latestContract.handle]
+          : []),
+      ],
+      nextSafeAction: EVIDENCE_RECONCILIATION_ACTION,
+    },
+  };
+}
+
+function resumeCandidate(
+  capsule: TaskResumeCapsule & { status: "active" | "blocked" },
+  continuation?: TaskContinuationBundle,
+): TaskResumeCandidate {
+  return {
+    taskId: capsule.taskId,
+    status: capsule.status,
+    updatedAt: capsule.updatedAt,
+    objective: capsule.objective.text,
+    nextSafeAction: continuation?.nextSafeAction ?? capsule.nextSafeAction,
+    ...(continuation ? { continuationHandle: continuation.handle } : {}),
+  };
+}
+
 async function discoverTaskResumeState(rootPath: string): Promise<{
   candidates: TaskResumeCandidate[];
   capsules: Map<string, TaskResumeCapsule>;
@@ -122,16 +193,14 @@ async function discoverTaskResumeState(rootPath: string): Promise<{
       );
     }
     await resolveTaskObjectiveProjection(rootPath, taskId, capsule.objective);
-    const continuation = await loadLatestTaskContinuationBundle(rootPath, taskId);
-    capsules.set(taskId, capsule);
-    candidates.push({
-      taskId,
-      status: capsule.status,
-      updatedAt: capsule.updatedAt,
-      objective: capsule.objective.text,
-      nextSafeAction: continuation?.nextSafeAction ?? capsule.nextSafeAction,
-      ...(continuation ? { continuationHandle: continuation.handle } : {}),
-    });
+    const activated = await activatedTaskEvidence(rootPath, capsule);
+    capsules.set(taskId, activated.capsule);
+    candidates.push(
+      resumeCandidate(
+        { ...activated.capsule, status: capsule.status },
+        activated.continuation,
+      ),
+    );
   }
   return {
     candidates: candidates.toSorted(
@@ -181,15 +250,24 @@ export async function recoverTaskResumeState(
   const candidate = candidates[0]!;
   const capsule = capsules.get(candidate.taskId);
   if (!capsule) throw new Error("Recovered task capsule is unavailable.");
-  const continuation = await loadLatestTaskContinuationBundle(
-    rootPath,
-    candidate.taskId,
+  const activated = await activatedTaskEvidence(rootPath, capsule);
+  if (activated.capsule.status === "completed") {
+    throw new Error("Recovered task capsule is no longer active.");
+  }
+  const recoveredCandidate = resumeCandidate(
+    {
+      ...activated.capsule,
+      status: activated.capsule.status,
+    },
+    activated.continuation,
   );
   return {
     status: "ready",
     candidateCount: 1,
-    candidates: [candidate],
-    capsule,
-    ...(continuation ? { continuation } : {}),
+    candidates: [recoveredCandidate],
+    capsule: activated.capsule,
+    ...(activated.continuation
+      ? { continuation: activated.continuation }
+      : {}),
   };
 }

@@ -8,6 +8,7 @@ import {
   inspectFigmaDesignNode,
   listFigmaDesignIndexes,
   loadConfirmedTaskSourceDecision,
+  loadFigmaSnapshot,
   loadFigmaAssetMetadata,
   loadPersistedSourceReceipt,
   loadProjectGraph,
@@ -26,6 +27,7 @@ export function taskBoundHandle(handle: string): boolean {
   return (
     handle.startsWith("receipt-") ||
     handle.startsWith("figma-asset:") ||
+    handle.startsWith("figma-snapshot:") ||
     handle.startsWith("visual:") ||
     handle.startsWith("visual-review:") ||
     handle.startsWith("delivery:") ||
@@ -135,6 +137,19 @@ export async function assertTaskBoundHandle(
     );
     return;
   }
+  if (handle.startsWith("figma-snapshot:")) {
+    const snapshot = await loadFigmaSnapshot(rootPath, handle);
+    if (snapshot.taskId !== taskId) {
+      throw new Error(`Figma snapshot ${handle} belongs to a different task.`);
+    }
+    const owned = allowedReceiptIds ?? (await taskReceiptIds(rootPath, taskId));
+    if (snapshot.receiptIds.some((receiptId) => !owned.includes(receiptId))) {
+      throw new Error(
+        `Figma snapshot ${handle} is backed by a receipt outside task ${taskId}.`,
+      );
+    }
+    return;
+  }
   if (handle.startsWith("visual:")) {
     const contract = await loadVisualEvidenceContract(rootPath, handle);
     if (contract.taskId !== taskId) {
@@ -209,18 +224,26 @@ export async function assertSelectableHandles(
   allowedReceiptIds: string[],
   currentGraph?: ComponentGraph,
 ): Promise<void> {
-  const graph = currentGraph ?? (await loadProjectGraph(rootPath));
+  let graph = currentGraph;
+  const requireGraph = async () => {
+    graph ??= await loadProjectGraph(rootPath);
+    return graph;
+  };
   for (const handle of [...new Set(handles)]) {
     if (taskBoundHandle(handle)) {
       await assertTaskBoundHandle(rootPath, taskId, handle, allowedReceiptIds);
       continue;
     }
     if (handle.startsWith("code:")) {
-      buildComponentContext(graph, handle.slice(5));
+      buildComponentContext(await requireGraph(), handle.slice(5));
       continue;
     }
     if (handle.startsWith("entity:")) {
-      if (!graph.entities.some((entity) => entity.id === handle.slice(7))) {
+      if (
+        !(await requireGraph()).entities.some(
+          (entity) => entity.id === handle.slice(7),
+        )
+      ) {
         throw new Error(`Frontend entity handle ${handle} was not found.`);
       }
       continue;

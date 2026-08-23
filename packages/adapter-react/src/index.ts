@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fg from "fast-glob";
 import ts from "typescript";
@@ -15,6 +14,7 @@ import {
   type FrameworkAdapter,
   type ScanOptions,
 } from "@component-atlas/core";
+import { createScanSafetySession, type ScanSafetySession } from "@component-atlas/core/scan-safety";
 
 const SOURCE_PATTERNS = [
   "src/**/*.{tsx,jsx,js}",
@@ -556,10 +556,11 @@ async function resolveSourceImport(
   specifier: string,
   fromFile: string,
   rootPath: string,
+  session: ScanSafetySession,
 ): Promise<string | undefined> {
   for (const candidate of sourceCandidates(specifier, fromFile, rootPath)) {
     try {
-      await readFile(candidate, "utf8");
+      await session.readText(candidate);
       return path.resolve(candidate);
     } catch {
       // Continue through deterministic local candidates.
@@ -590,12 +591,13 @@ async function importBindings(
   source: ts.SourceFile,
   sourcePath: string,
   rootPath: string,
+  session: ScanSafetySession,
 ): Promise<ComponentImportBinding[]> {
   const bindings: ComponentImportBinding[] = [];
   for (const statement of source.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const specifier = statement.moduleSpecifier.text;
-      const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath);
+      const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath, session);
       const clause = statement.importClause;
       if (clause?.name) {
         bindings.push({
@@ -628,7 +630,7 @@ async function importBindings(
       if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
       const specifier = dynamicImportSpecifier(declaration.initializer);
       if (!specifier) continue;
-      const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath);
+      const resolvedPath = await resolveSourceImport(specifier, sourcePath, rootPath, session);
       bindings.push({
         local: declaration.name.text,
         imported: "default",
@@ -644,6 +646,7 @@ async function importBindings(
 async function nextProfile(
   rootPath: string,
   options: ScanOptions,
+  session: ScanSafetySession,
 ): Promise<{ next: boolean; router?: "pages" | "app" | "hybrid" }> {
   if (options.packageProfile) {
     return {
@@ -657,7 +660,7 @@ async function nextProfile(
   }
   try {
     const manifest = JSON.parse(
-      await readFile(path.join(rootPath, "package.json"), "utf8"),
+      await session.readText(path.join(rootPath, "package.json")),
     ) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
@@ -668,11 +671,13 @@ async function nextProfile(
       cwd: rootPath,
       onlyFiles: true,
       unique: true,
+      followSymbolicLinks: false,
     });
     const pageFiles = await fg(["pages/**/*", "src/pages/**/*"], {
       cwd: rootPath,
       onlyFiles: true,
       unique: true,
+      followSymbolicLinks: false,
     });
     return {
       next: true,
@@ -708,12 +713,14 @@ export class ReactAdapter implements FrameworkAdapter {
 
   async scanDetailed(options: ScanOptions): Promise<AdapterScanResult> {
     const rootPath = path.resolve(options.rootPath);
-    const profile = await nextProfile(rootPath, options);
+    const session = options.scanSafetySession ?? await createScanSafetySession(rootPath);
+    const profile = await nextProfile(rootPath, options, session);
     const files = await fg(options.include ?? SOURCE_PATTERNS, {
       cwd: rootPath,
       absolute: true,
       onlyFiles: true,
       unique: true,
+      followSymbolicLinks: false,
       ignore: [...SOURCE_EXCLUDES, ...(options.exclude ?? [])],
     });
     const testPaths = (
@@ -721,6 +728,7 @@ export class ReactAdapter implements FrameworkAdapter {
         cwd: rootPath,
         onlyFiles: true,
         unique: true,
+        followSymbolicLinks: false,
         ignore: ["**/node_modules/**", "**/.next/**"],
       })
     ).map(slash);
@@ -729,9 +737,9 @@ export class ReactAdapter implements FrameworkAdapter {
     let parsedFiles = 0;
     let errorFiles = 0;
 
-    for (const sourcePath of files.sort()) {
+    for (const sourcePath of await session.files(files)) {
       try {
-        const text = await readFile(sourcePath, "utf8");
+        const text = await session.readText(sourcePath);
         const relativePath = slash(path.relative(rootPath, sourcePath));
         const source = ts.createSourceFile(
           sourcePath,
@@ -767,7 +775,7 @@ export class ReactAdapter implements FrameworkAdapter {
             declarations.set(statement.name.text, statement);
           }
         }
-        const bindings = await importBindings(source, sourcePath, rootPath);
+        const bindings = await importBindings(source, sourcePath, rootPath, session);
         const imports = [...new Set(bindings.map((binding) => binding.local))];
         const clientModule = source.statements.some(
           (statement) =>

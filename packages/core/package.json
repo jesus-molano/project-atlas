@@ -22,6 +22,10 @@
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
+    },
+    "./scan-safety": {
+      "types": "./dist/scan-safety.d.ts",
+      "import": "./dist/scan-safety.js"
     }
   },
   "files": ["dist"],

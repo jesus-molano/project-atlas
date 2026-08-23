@@ -15,7 +15,6 @@ import {
   loadTaskFinalReceipt,
   loadTaskSourceLedger,
   loadTaskResumeCapsule,
-  loadTaskResumeTransport,
   persistVisualEvidenceContract,
   proposeMemoryUpdate,
   purgeTaskFigmaAssets,
@@ -41,6 +40,15 @@ import {
   completeTask,
   loadCommittedTaskCompletion,
 } from "./core-task-completion.js";
+import {
+  coreTaskEvidenceInputSchema,
+  handleCoreTaskEvidenceAction,
+} from "./core-task-evidence.js";
+import {
+  coreFigmaSnapshotInputSchema,
+  recordCoreFigmaSnapshot,
+} from "./core-figma-snapshot.js";
+import { resumeCoreTask } from "./core-task-resume.js";
 import {
   attachVisualReview,
   visualReviewInputSchema,
@@ -360,12 +368,15 @@ export function registerCoreLifecycleTools(
     "atlas_task_state",
     {
       description:
-        "Resume or update task state, govern Figma assets, or complete without writing Project Memory.",
+        "Recover or update task evidence, snapshot Figma, govern assets, or complete without writing Project Memory.",
       inputSchema: {
         root_path: z.string(),
-        task_id: taskId,
+        task_id: taskId.optional(),
         action: z.enum([
           "resume",
+          "record-contract",
+          "checkpoint-continuation",
+          "record-figma-snapshot",
           "checkpoint",
           "block",
           "attach-evidence",
@@ -426,6 +437,8 @@ export function registerCoreLifecycleTools(
           })
           .optional(),
         visual_review: visualReviewInputSchema.optional(),
+        ...coreTaskEvidenceInputSchema,
+        ...coreFigmaSnapshotInputSchema,
       },
       annotations: {
         title: "Read or save task state",
@@ -455,49 +468,15 @@ export function registerCoreLifecycleTools(
       destination_path,
       visual_contract,
       visual_review,
+      evidence_contract,
+      continuation,
+      figma_snapshot,
     }) => {
       if (action === "resume") {
-        const transport = await loadTaskResumeTransport(root_path, task_id);
-        if (transport) return text(transport);
-        const finalReceipt = await loadTaskFinalReceipt(root_path, task_id);
-        if (!finalReceipt) {
-          return text({ status: "not-found", taskId: task_id });
-        }
-        return text({
-          status: "completed",
-          taskId: task_id,
-          final: {
-            completedAt: finalReceipt.completedAt,
-            objective: finalReceipt.objective,
-            head: finalReceipt.head,
-            ...(finalReceipt.outcome
-              ? {
-                  result: finalReceipt.outcome.result,
-                  summary: finalReceipt.outcome.summary.slice(0, 500),
-                  verification: finalReceipt.outcome.verification
-                    .slice(0, 4)
-                    .map((item) => item.slice(0, 200)),
-                  files: finalReceipt.outcome.files.slice(0, 8),
-                  omitted: {
-                    verification: Math.max(
-                      0,
-                      finalReceipt.outcome.verification.length - 4,
-                    ),
-                    files: Math.max(0, finalReceipt.outcome.files.length - 8),
-                  },
-                }
-              : {}),
-            ...(finalReceipt.lock ? { lock: finalReceipt.lock } : {}),
-            ...(finalReceipt.validation
-              ? { validation: finalReceipt.validation }
-              : {}),
-          },
-          deliveryReceipt: finalReceipt.deliveryReceipt ?? null,
-          handles: finalReceipt.deliveryReceipt
-            ? [finalReceipt.deliveryReceipt]
-            : [],
-          memory: "not-written",
-        });
+        return text(await resumeCoreTask(root_path, task_id));
+      }
+      if (!task_id) {
+        throw new Error(`${action} requires an exact task_id.`);
       }
       if (action === "complete" && result && summary && verification?.length) {
         const committed = await loadCommittedTaskCompletion(
@@ -511,6 +490,25 @@ export function registerCoreLifecycleTools(
         }
       }
       const capsule = await requireCapsule(root_path, task_id);
+      if (action === "record-figma-snapshot") {
+        return text(
+          await recordCoreFigmaSnapshot({
+            rootPath: root_path,
+            taskId: task_id,
+            capsule,
+            ...(figma_snapshot ? { snapshot: figma_snapshot } : {}),
+          }),
+        );
+      }
+      const taskEvidence = await handleCoreTaskEvidenceAction({
+        rootPath: root_path,
+        taskId: task_id,
+        action,
+        capsule,
+        ...(evidence_contract ? { evidenceContract: evidence_contract } : {}),
+        ...(continuation ? { continuation } : {}),
+      });
+      if (taskEvidence) return text(taskEvidence);
       if (action === "capture-figma-asset") {
         if (!source_receipt_id || !asset_url || !scope_node_id) {
           throw new Error(
@@ -592,6 +590,7 @@ export function registerCoreLifecycleTools(
         ].slice(0, 8);
         const saved = await writeTaskCheckpoint(root_path, {
           taskId: task_id,
+          expectedUpdatedAt: capsule.updatedAt,
           status: "active",
           milestone: "source-resolved",
           objective: objective.text,
@@ -779,6 +778,7 @@ export function registerCoreLifecycleTools(
           : undefined;
         const saved = await writeTaskCheckpoint(root_path, {
           taskId: task_id,
+          expectedUpdatedAt: capsule.updatedAt,
           milestone: "source-resolved",
           objective: objective.text,
           objectiveApproved: objective.approved,
@@ -869,6 +869,7 @@ export function registerCoreLifecycleTools(
       );
       const saved = await writeTaskCheckpoint(root_path, {
         taskId: task_id,
+        expectedUpdatedAt: capsule.updatedAt,
         status: blocked ? "blocked" : "active",
         milestone: blocked ? "blocked" : (milestone ?? "batch-completed"),
         objective: objective.text,

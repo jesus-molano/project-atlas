@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -18,6 +18,10 @@ import {
   type ProjectScanState,
   type ScanCoverage,
 } from "@component-atlas/core";
+import {
+  createScanSafetySession,
+  type ScanSafetySession,
+} from "@component-atlas/core/scan-safety";
 import {
   AtlasStore,
   projectStorageDirectory,
@@ -46,10 +50,10 @@ export interface ScanProjectOptions {
   signal?: AbortSignal;
 }
 
-async function packageJson(rootPath: string): Promise<PackageJson> {
+async function packageJson(rootPath: string, session?: ScanSafetySession): Promise<PackageJson> {
   const filePath = path.join(rootPath, "package.json");
   try {
-    return JSON.parse(await readFile(filePath, "utf8")) as PackageJson;
+    return JSON.parse(await (session?.readText(filePath) ?? createScanSafetySession(rootPath).then((value) => value.readText(filePath)))) as PackageJson;
   } catch (error) {
     throw new Error(`Cannot read ${filePath}: ${String(error)}`, {
       cause: error,
@@ -73,7 +77,7 @@ function tokenKind(name: string, value: string): DesignTokenKind {
   return "other";
 }
 
-async function scanDesignTokens(rootPath: string): Promise<DesignToken[]> {
+async function scanDesignTokens(rootPath: string, session: ScanSafetySession): Promise<DesignToken[]> {
   const files = await fg(
     [
       "app/**/*.{css,scss,sass}",
@@ -87,6 +91,7 @@ async function scanDesignTokens(rootPath: string): Promise<DesignToken[]> {
       absolute: true,
       onlyFiles: true,
       unique: true,
+      followSymbolicLinks: false,
       ignore: [
         "**/node_modules/**",
         "**/.nuxt/**",
@@ -96,8 +101,8 @@ async function scanDesignTokens(rootPath: string): Promise<DesignToken[]> {
     },
   );
   const tokens = new Map<string, DesignToken>();
-  for (const filePath of files.sort()) {
-    const source = await readFile(filePath, "utf8");
+  for (const filePath of await session.files(files)) {
+    const source = await session.readText(filePath);
     for (const match of source.matchAll(/--([A-Za-z0-9_-]+)\s*:\s*([^;{}]+);/g)) {
       const name = match[1];
       const value = match[2]?.trim();
@@ -203,11 +208,13 @@ async function scanFileHashes(
   previous?: ProjectScanState,
   currentHead?: string,
   signal?: AbortSignal,
+  session?: ScanSafetySession,
 ): Promise<Record<string, string>> {
   const files = await fg(SCAN_PATTERNS, {
     cwd: rootPath,
     onlyFiles: true,
     unique: true,
+    followSymbolicLinks: false,
     ignore: [
       "**/node_modules/**",
       "**/.nuxt/**",
@@ -276,9 +283,11 @@ async function scanFileHashes(
     }
   }
   const hashes: Record<string, string> = {};
-  for (const relativePath of files.sort()) {
+  const activeSession = session ?? await createScanSafetySession(rootPath);
+  const safeFiles = await activeSession.files(files.map((relativePath) => path.join(rootPath, relativePath)));
+  for (const filePath of safeFiles) {
     throwIfAborted(signal);
-    const normalized = slash(relativePath);
+    const normalized = slash(path.relative(rootPath, filePath));
     const reusable =
       gitChanges && !gitChanges.has(normalized)
         ? previous?.files[normalized]
@@ -286,7 +295,7 @@ async function scanFileHashes(
     hashes[normalized] =
       reusable ??
       createHash("sha256")
-        .update(await readFile(path.join(rootPath, relativePath)))
+        .update(await activeSession.readText(filePath))
         .digest("hex");
   }
   return hashes;
@@ -369,11 +378,13 @@ async function scanComponents(
   rootPath: string,
   packageProfile?: ProjectProfile["packages"][number],
   include?: string[],
+  scanSafetySession?: ScanSafetySession,
 ): Promise<AdapterScanResult> {
   const options = {
     rootPath,
     ...(packageProfile ? { packageProfile } : {}),
     ...(include ? { include } : {}),
+    ...(scanSafetySession ? { scanSafetySession } : {}),
   };
   if (framework === "vue") {
     return import("@component-atlas/adapter-vue").then(
@@ -456,6 +467,7 @@ async function scanProfileComponents(
   profile: ProjectProfile,
   rootPath: string,
   include?: string[],
+  scanSafetySession?: ScanSafetySession,
 ): Promise<AdapterScanResult> {
   const results: Array<{
     result: AdapterScanResult;
@@ -470,6 +482,7 @@ async function scanProfileComponents(
         packageProfile.rootPath,
         packageProfile,
         scopedInclude,
+        scanSafetySession,
       );
       results.push({ result, packageProfile });
     }
@@ -534,11 +547,12 @@ export async function scanProject(
     fresh: true,
   });
   const rootPath = identity.worktreePath;
+  const scanSafetySession = await createScanSafetySession(rootPath);
   throwIfAborted(options.signal);
-  const manifest = await packageJson(rootPath);
+  const manifest = await packageJson(rootPath, scanSafetySession);
   let profile: ProjectProfile;
   try {
-    profile = await detectProjectProfile(rootPath);
+    profile = await detectProjectProfile(rootPath, scanSafetySession);
   } catch (error) {
     if (!options.framework) throw error;
     profile = {
@@ -607,6 +621,7 @@ export async function scanProject(
     previousState,
     identity.head,
     options.signal,
+    scanSafetySession,
   );
   const configHash = configurationFingerprint(files);
   const changedFiles = previousState
@@ -653,7 +668,7 @@ export async function scanProject(
     );
     const existingSources = sourceChanges.filter((file) => files[file]);
     const rescanned = existingSources.length
-      ? await scanProfileComponents(profile, rootPath, existingSources)
+      ? await scanProfileComponents(profile, rootPath, existingSources, scanSafetySession)
       : {
           components: [],
           coverage: mergeCoverage([]),
@@ -666,7 +681,7 @@ export async function scanProject(
       ...rescanned.components,
     ].sort((left, right) => left.id.localeCompare(right.id));
     tokens = changedFiles.some((file) => /\.(?:css|scss|sass)$/i.test(file))
-      ? await scanDesignTokens(rootPath)
+      ? await scanDesignTokens(rootPath, scanSafetySession)
       : previousGraph.tokens;
     const previousCoverage = previousGraph.project.scan?.coverage;
     coverage = previousCoverage
@@ -703,10 +718,10 @@ export async function scanProject(
         };
   } else {
     mode = "full";
-    const scanned = await scanProfileComponents(profile, rootPath);
+    const scanned = await scanProfileComponents(profile, rootPath, undefined, scanSafetySession);
     components = scanned.components;
     coverage = scanned.coverage;
-    tokens = await scanDesignTokens(rootPath);
+    tokens = await scanDesignTokens(rootPath, scanSafetySession);
   }
   throwIfAborted(options.signal);
   const checkedAt = new Date().toISOString();
@@ -746,6 +761,7 @@ export async function scanProject(
     rootPath,
     profile.frameworks,
     components,
+    scanSafetySession,
   );
   graph.entities = semantic.entities;
   graph.edges = [...buildGraphEdges(components), ...semantic.edges].filter(
@@ -756,6 +772,7 @@ export async function scanProject(
     rootPath,
     components,
     tokens,
+    scanSafetySession,
   );
   const nextState: ProjectScanState = {
     schemaVersion: 1,
