@@ -55,7 +55,10 @@ points:
    remain pending until confirmed; irrelevant provider checklists are skipped.
 3. Call `atlas_prepare_task` after preflight. For medium/large work, record an
    immutable evidence contract immediately afterwards. Repeat under the same
-   task ID only for a named evidence invalidation.
+   task ID for one bounded re-ranking when the objective becomes more precise.
+   Further retrieval needs a typed `retrieval_invalidation_reason`. If prepare
+   returns `ready-with-existing-context`, continue to the lock with planned
+   surfaces or `not-applicable`; do not block the task or retrieve again.
 4. Expand one unresolved handle with `atlas_expand_context` if necessary.
 5. For authoritative Figma work, record a semantic task snapshot before
    locking. Bind `fileKey`, `nodeId`, `version` and `lastModified` to the current

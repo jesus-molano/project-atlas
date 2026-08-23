@@ -210,6 +210,62 @@ describe("reuse context", () => {
     ]);
   });
 
+  it("groups broad reuse results by feature before filling duplicate areas", () => {
+    const settings = Array.from({ length: 4 }, (_, index) => {
+      const candidate = component(
+        `BankImportPlanSettings${index}`,
+        "feature",
+        ["income", "expense", "plan"],
+      );
+      candidate.feature = "settings";
+      candidate.relativePath = `src/features/settings/BankImportPlanSettings${index}.vue`;
+      return candidate;
+    });
+    const plan = component("PlanMonthlyIncome", "feature", ["income", "savings"]);
+    plan.feature = "plan";
+    plan.relativePath = "src/features/plan/PlanMonthlyIncome.vue";
+    const expenses = component("RecurringExpenses", "feature", ["expense"]);
+    expenses.feature = "expenses";
+    expenses.relativePath = "src/features/expenses/RecurringExpenses.vue";
+    const components = [...settings, plan, expenses];
+    const graph: ComponentGraph = {
+      schemaVersion: GRAPH_SCHEMA_VERSION,
+      project: {
+        id: "broad-fixture",
+        name: "broad-fixture",
+        rootPath: "/fixture",
+        framework: "vue",
+        scannedAt: new Date(0).toISOString(),
+        sourceFiles: components.length,
+      },
+      components,
+      edges: buildGraphEdges(components),
+      tokens: [],
+    };
+
+    const reuse = buildReuseContext(
+      graph,
+      "redesign plan monthly income savings recurring expenses and settings",
+      3,
+    );
+
+    expect(reuse.areas!.slice(0, 3).map((area) => area.id)).toEqual([
+      "plan",
+      "settings",
+      "expenses",
+    ]);
+    expect(reuse.candidates.map((candidate) => candidate.component.owner)).toEqual([
+      "plan",
+      "settings",
+      "expenses",
+    ]);
+    expect(reuse.areas!.find((area) => area.id === "settings")).toMatchObject({
+      id: "settings",
+      candidateCount: 4,
+      topCandidateIds: [settings[0]!.id, settings[1]!.id],
+    });
+  });
+
   it("keeps one login challenge primary and Backoffice reference-only", () => {
     const otp = component("OtpInput", "public", []);
     const login = component(

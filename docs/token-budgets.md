@@ -13,15 +13,18 @@ response has a measured character hard cap.
 - no duplicated full JSON in MCP text and `structuredContent`;
 - Design map/list/candidate queries use the same hard cap and group repeated
   findings before fitting the response;
-- `atlas_prepare_task` returns at most five candidates plus compact findings,
-  receipt IDs, relations and opaque handles for deliberate expansion;
+- `atlas_prepare_task` groups broad code candidates by feature area, returns a
+  compact area summary plus at most five candidates, and keeps full details
+  behind opaque handles for deliberate expansion;
 - `atlas_lock_change_scope` returns one primary component, at most two
   reference-only components, twelve bounded file entries, compact API/impact,
   the persisted reuse decision, and explicit exclusions under a
   2,800-character default;
-- one stable task normally prepares one evidence version and locks one active
-  change surface unless an explicit graph, checkout, objective, scope, or
-  source-ledger invalidation is recorded;
+- one stable task permits an initial reuse retrieval and one bounded re-ranking
+  as its objective becomes precise. A later retrieval requires an explicit
+  graph, scope, source-ledger, or user-requested invalidation; otherwise prepare
+  returns a low-risk continuation using existing context so the lock remains
+  available;
 - ChangeSurface retains at most eight prioritized evidence handles total;
   evidence contracts and visual/Figma evidence precede code/context references, only
   asset metadata enters context, and SVG/binary bodies never do;

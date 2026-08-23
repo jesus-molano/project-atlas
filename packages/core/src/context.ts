@@ -15,6 +15,7 @@ import type {
   ComponentNode,
   ComponentSimilarityContext,
   ReuseContextCandidate,
+  ReuseContextArea,
   ReuseContextBundle,
 } from "./types.js";
 
@@ -259,10 +260,10 @@ export function buildReuseContext(
           !["and", "con", "del", "from", "the", "todo", "touch"].includes(term),
       ),
   );
-  const candidates = searchComponents(
+  const rankedCandidates = searchComponents(
     graph,
     normalizedIntent,
-    Math.min(50, Math.max(candidateLimit * 4, candidateLimit)),
+    50,
   )
     .filter((result) => {
       if (exclusions.length === 0) return true;
@@ -276,15 +277,61 @@ export function buildReuseContext(
         .join(" ")
         .toLowerCase();
       return !exclusions.some((term) => searchable.includes(term));
-    })
-    .slice(0, candidateLimit)
-    .map((result, index) =>
-      candidateContext(graph, result.component, index + 1, result.reasons),
-    );
+    });
+  const areaId = (component: ComponentNode): string => {
+    if (component.feature?.trim()) return component.feature.trim().toLowerCase();
+    const featurePath = component.relativePath
+      .replaceAll("\\", "/")
+      .match(/(?:^|\/)features\/([^/]+)/iu)?.[1];
+    if (featurePath) return featurePath.toLowerCase();
+    return component.visibility === "public" ? "shared" : "unowned";
+  };
+  const areaCandidates = new Map<string, typeof rankedCandidates>();
+  for (const candidate of rankedCandidates) {
+    const id = areaId(candidate.component);
+    const existing = areaCandidates.get(id) ?? [];
+    existing.push(candidate);
+    areaCandidates.set(id, existing);
+  }
+  const areas: ReuseContextArea[] = [...areaCandidates.entries()]
+    .slice(0, 8)
+    .map(([id, matches]) => ({
+      id,
+      candidateCount: matches.length,
+      topCandidateIds: matches.slice(0, 2).map((match) => match.component.id),
+    }));
+  const selected = [] as typeof rankedCandidates;
+  const selectedIds = new Set<string>();
+  const selectedAreas = new Set<string>();
+  for (const candidate of rankedCandidates) {
+    const id = areaId(candidate.component);
+    if (selectedAreas.has(id)) continue;
+    selected.push(candidate);
+    selectedIds.add(candidate.component.id);
+    selectedAreas.add(id);
+    if (selected.length >= candidateLimit) break;
+  }
+  for (const candidate of rankedCandidates) {
+    if (selected.length >= candidateLimit) break;
+    if (selectedIds.has(candidate.component.id)) continue;
+    selected.push(candidate);
+    selectedIds.add(candidate.component.id);
+  }
+  const candidates = selected.map((result, index) =>
+    candidateContext(graph, result.component, index + 1, result.reasons),
+  );
 
   const top = candidates[0];
   const nextActions = top
     ? [
+        ...(areas.length > 1
+          ? [
+              `Compare the leading candidates across ${areas
+                .slice(0, 4)
+                .map((area) => area.id)
+                .join(", ")} before selecting one component.`,
+            ]
+          : []),
         `Inspect ${top.component.name} before creating a new component.`,
         ...(top.component.scope === "feature"
           ? ["Confirm feature ownership before reusing it across boundaries."]
@@ -323,6 +370,7 @@ export function buildReuseContext(
       feature: "Owned by one product area",
       private: "Internal implementation detail",
     },
+    areas,
     candidates,
     nextActions,
   };

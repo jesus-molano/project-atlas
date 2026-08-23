@@ -64,7 +64,9 @@ immutable revision and must name its previous handle.
 
 If preparation returns `needs-confirmation`, no repository scan or connector
 retrieval occurred. Resolve the named decisions and repeat with the same task
-ID. Otherwise repeat only for named graph/objective/source/visual invalidation.
+ID. Atlas allows one reuse rerank; later retrieval needs invalidation.
+On `ready-with-existing-context`, lock scope or choose
+`not-applicable`; never retrieve or block.
 
 Expand only one named unresolved handle.
 

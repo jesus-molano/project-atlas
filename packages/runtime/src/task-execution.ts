@@ -87,6 +87,43 @@ export type TaskRetrievalInvalidationReason =
   | "source-ledger-changed"
   | "user-requested";
 
+const RETRIEVAL_INVALIDATION_REASONS: TaskRetrievalInvalidationReason[] = [
+  "graph-changed",
+  "scope-changed",
+  "source-ledger-changed",
+  "user-requested",
+];
+
+export class TaskRetrievalBudgetExceededError extends Error {
+  readonly kind: TaskRetrievalKind;
+  readonly consumed: number;
+  readonly limit: number;
+  readonly operations: string[];
+  readonly acceptedInvalidationReasons = RETRIEVAL_INVALIDATION_REASONS;
+
+  constructor(input: {
+    kind: TaskRetrievalKind;
+    consumed: number;
+    limit: number;
+    operations: string[];
+  }) {
+    const recovery =
+      input.kind === "reuse"
+        ? " Reuse an existing result or continue to atlas_lock_change_scope with the planned surfaces."
+        : "";
+    super(
+      `Task retrieval budget for ${input.kind} is exhausted (${input.consumed}/${input.limit}). ` +
+        `Consumed operations: ${input.operations.join(", ") || "none"}. ` +
+        `Accepted invalidation reasons: ${RETRIEVAL_INVALIDATION_REASONS.join(", ")}.${recovery}`,
+    );
+    this.name = "TaskRetrievalBudgetExceededError";
+    this.kind = input.kind;
+    this.consumed = input.consumed;
+    this.limit = input.limit;
+    this.operations = input.operations;
+  }
+}
+
 interface TaskRetrievalEntry {
   kind: TaskRetrievalKind;
   key: string;
@@ -153,7 +190,7 @@ export function changeSurfaceRetrievalKey(input: {
 }
 
 const RETRIEVAL_LIMITS: Record<TaskRetrievalKind, number> = {
-  reuse: 1,
+  reuse: 2,
   "change-surface": 1,
   "task-context": 2,
   "figma-metadata": 1,
@@ -386,9 +423,17 @@ export async function claimTaskRetrieval(
       entry.status !== "invalidated",
   ).length;
   if (consumed >= RETRIEVAL_LIMITS[input.kind]) {
-    throw new Error(
-      `Task retrieval budget for ${input.kind} is exhausted. Provide an explicit valid invalidation reason before retrieving again.`,
-    );
+    throw new TaskRetrievalBudgetExceededError({
+      kind: input.kind,
+      consumed,
+      limit: RETRIEVAL_LIMITS[input.kind],
+      operations: ledger.entries
+        .filter(
+          (entry) =>
+            entry.kind === input.kind && entry.status !== "invalidated",
+        )
+        .map((entry) => `${entry.handle}@${entry.completedAt ?? entry.createdAt}`),
+    });
   }
   const handle = `retrieval:${taskId}:${input.kind}:${hash(
     `${key}\0${now}`,

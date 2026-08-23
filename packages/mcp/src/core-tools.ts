@@ -53,6 +53,12 @@ import {
   reconcilePreparedTaskGovernance,
 } from "./core-task-governance.js";
 import {
+  CORE_PREPARE_NEXT_STEPS,
+  completedTaskPrepareResult,
+  continueAfterReuseBudget,
+  explicitlyChangesApiContract,
+} from "./core-prepare-reuse.js";
+import {
   bindSourceEvidenceBundle,
   activeCurrentSourceReceiptIds,
   capsuleDecisions,
@@ -67,36 +73,6 @@ import {
 import { text } from "./shared.js";
 
 const taskId = z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u);
-
-const CORE_PREPARE_NEXT_STEPS = [
-  "Expand only a named unresolved handle with atlas_expand_context.",
-  "Lock the exact change surface with atlas_lock_change_scope before editing.",
-  "Validate with atlas_validate_change, then close technically with atlas_task_state; use atlas_memory only through its separate consent flow.",
-] as const;
-
-function completedTaskPrepareResult(id: string, budgetChars: number) {
-  return text(
-    compact(
-      {
-        taskId: id,
-        status: "completed",
-        terminal: true,
-        repositoryScanned: false,
-        requiresNewTaskId: true,
-        nextAction:
-          "Use atlas_task_state action=resume to inspect this immutable closeout; start follow-up work with a new task_id.",
-      },
-      budgetChars,
-    ),
-  );
-}
-
-function explicitlyChangesApiContract(objective: string): boolean {
-  return /(?:\b(?:change|modify|migrate|replace|update)\b[^.\n]{0,48}\b(?:api contract|openapi schema)\b|\b(?:api contract|openapi schema)\b[^.\n]{0,48}\b(?:change|modify|migrate|replace|update)\b|\b(?:cambiar|modificar|migrar|reemplazar|actualizar)\b[^.\n]{0,48}\b(?:contrato de api|esquema openapi)\b)/iu.test(
-    objective,
-  );
-}
-
 export function registerCoreTools(server: McpServer): void {
   server.registerTool(
     "atlas_prepare_task",
@@ -122,6 +98,9 @@ export function registerCoreTools(server: McpServer): void {
           .max(20)
           .optional(),
         selected_handles: z.array(z.string().max(260)).max(8).optional(),
+        retrieval_invalidation_reason: z.enum([
+          "graph-changed", "scope-changed", "source-ledger-changed", "user-requested",
+        ]).optional(),
         invalidation_reason: z.string().min(1).max(500).optional(),
         budget_chars: z.number().int().min(1_600).max(3_600).optional(),
       },
@@ -142,6 +121,7 @@ export function registerCoreTools(server: McpServer): void {
       source_relations,
       receipt_ids,
       selected_handles,
+      retrieval_invalidation_reason,
       invalidation_reason,
       budget_chars,
     }) => {
@@ -363,9 +343,7 @@ export function registerCoreTools(server: McpServer): void {
           budgetChars: budget,
           nextSafeAction:
             "Confirm, omit, replace or mark only the named pending source/objective decisions, then prepare again.",
-          ...(lockedEvidenceChanged
-            ? { changeInvalidation: { reason: invalidation_reason! } }
-            : {}),
+          ...(lockedEvidenceChanged ? { changeInvalidation: { reason: invalidation_reason! } } : {}),
         });
         return text(
           compact(
@@ -485,6 +463,12 @@ export function registerCoreTools(server: McpServer): void {
               ? { currentOpenApiReceipts }
               : {}),
             ...(selected_handles ? { selectedHandles: selected_handles } : {}),
+            ...(retrieval_invalidation_reason
+              ? {
+                  retrievalInvalidationReason:
+                    retrieval_invalidation_reason,
+                }
+              : {}),
           },
         );
         // Runtime task context is shared with the explicitly retained legacy
@@ -557,6 +541,22 @@ export function registerCoreTools(server: McpServer): void {
           ),
         );
       } catch (error) {
+        const continuation = await continueAfterReuseBudget({
+          rootPath: root_path, error, budget, taskId: id,
+          ...(prior ? { prior } : {}),
+          objective: effectiveObjective, objectiveApproved: approved,
+          ...(checkpointObjectiveReference
+            ? { objectiveReference: checkpointObjectiveReference }
+            : {}),
+          decisions, sourceRelations: relations,
+          sourceReceiptIds: boundReceiptIds,
+          ...(selected_handles ? { selectedHandles: selected_handles } : {}),
+          governance,
+          ...(lockedEvidenceChanged
+            ? { changeInvalidation: { reason: invalidation_reason! } }
+            : {}),
+        });
+        if (continuation) return continuation;
         await writeTaskCheckpoint(root_path, {
           taskId: id,
           expectedUpdatedAt: prior?.updatedAt ?? null,

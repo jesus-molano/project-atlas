@@ -110,25 +110,33 @@ describe("task execution manifest and retrieval budget", () => {
     ).rejects.toThrow(/different task/i);
   });
 
-  it("requires an explicit invalidation before a second reuse computation", async () => {
+  it("allows one reuse rerank, then reports consumed operations and recovery", async () => {
     const first = await claimTaskRetrieval(rootPath, {
       taskId: "task-42",
       kind: "reuse",
       key: "first graph",
     });
     await completeTaskRetrieval(rootPath, first.handle, { candidates: [] });
+    const reranked = await claimTaskRetrieval(rootPath, {
+      taskId: "task-42",
+      kind: "reuse",
+      key: "refined scope",
+    });
+    expect(reranked.status).toBe("granted");
     await expect(
       claimTaskRetrieval(rootPath, {
         taskId: "task-42",
         kind: "reuse",
-        key: "second graph",
+        key: "third scope",
       }),
-    ).rejects.toThrow(/budget.*exhausted/i);
+    ).rejects.toThrow(
+      /reuse.*2\/2.*retrieval:task-42:reuse:.*scope-changed.*continue to atlas_lock_change_scope/iu,
+    );
     const invalidated = await claimTaskRetrieval(rootPath, {
       taskId: "task-42",
       kind: "reuse",
-      key: "second graph",
-      invalidationReason: "graph-changed",
+      key: "third scope",
+      invalidationReason: "scope-changed",
     });
     expect(invalidated.status).toBe("granted");
   });

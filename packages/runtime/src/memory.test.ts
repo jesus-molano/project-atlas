@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -608,6 +608,34 @@ paths:
     expect(JSON.stringify(context.decisions)).not.toContain(
       "task-unrelated-navigation",
     );
+  });
+
+  it("persists compact feature-grouped reuse results", async () => {
+    const context = await getTaskContext(
+      rootPath,
+      "redesign study search filters and confirmation behavior",
+      {
+        taskId: "task-compact-reuse",
+        budgetChars: 3_600,
+        topK: 3,
+      },
+    );
+    const storedFiles = await readdir(dataHome, { recursive: true });
+    const resultPath = storedFiles.find((file) =>
+      file.includes("retrieval-results/") && file.endsWith(".json"),
+    );
+
+    expect(context.reuse).toEqual(
+      expect.objectContaining({ areas: expect.any(Array) }),
+    );
+    expect(context.reuse.areas.length).toBeGreaterThan(0);
+    expect(resultPath).toBeDefined();
+    const result = await readFile(path.join(dataHome, resultPath!), "utf8");
+    expect(Buffer.byteLength(result, "utf8")).toBeLessThan(5_000);
+    expect(JSON.parse(result)).toMatchObject({
+      areas: expect.any(Array),
+      candidates: expect.any(Array),
+    });
   });
 
   it("raises conflicts, stale knowledge, and failed attempts before change", async () => {

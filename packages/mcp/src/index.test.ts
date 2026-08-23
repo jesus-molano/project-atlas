@@ -87,7 +87,7 @@ describe("Project Atlas MCP surface", () => {
         mcpSerializedChars: serialized.length,
         mcpContractHash: createHash("sha256").update(serialized).digest("hex"),
       }).toEqual(DECLARED_CORE_MCP_CONTRACT_COST);
-      expect(serialized.length).toBeLessThanOrEqual(16_000);
+      expect(serialized.length).toBeLessThanOrEqual(16_200);
       for (const tool of tools.tools) {
         expect(tool.annotations).toMatchObject({
           destructiveHint: false,

@@ -615,6 +615,12 @@ export interface ReuseContextCandidate {
   tests: string[];
 }
 
+export interface ReuseContextArea {
+  id: string;
+  candidateCount: number;
+  topCandidateIds: string[];
+}
+
 export interface ReuseContextBundle {
   schemaVersion: 1;
   intent: string;
@@ -631,6 +637,7 @@ export interface ReuseContextBundle {
     internal: number;
   };
   scopeLegend: Record<ComponentVisibility, string>;
+  areas?: ReuseContextArea[];
   candidates: ReuseContextCandidate[];
   nextActions: string[];
 }

@@ -44,6 +44,43 @@ import {
   findingsForMemory,
 } from "./memory.js";
 
+function compactTaskReuseContext(
+  reuse: ReturnType<typeof buildReuseContext>,
+): ReturnType<typeof buildReuseContext> {
+  const candidates = reuse.candidates.map((candidate) => ({
+    rank: candidate.rank,
+    component: candidate.component,
+    match: candidate.match,
+    impact: {
+      directConsumers: candidate.impact.directConsumers,
+      transitiveConsumers: candidate.impact.transitiveConsumers,
+      direct: [],
+    },
+    api: { props: [], totalProps: 0, events: [], totalEvents: 0, slots: [], models: [] },
+    relations: { renders: [], renderedBy: [], similar: [] },
+    tests: [],
+  }));
+  const areas = reuse.areas ?? [
+    ...new Map(
+      candidates.map((candidate) => {
+        const id = candidate.component.owner ?? "unowned";
+        const matching = candidates.filter(
+          (item) => (item.component.owner ?? "unowned") === id,
+        );
+        return [
+          id,
+          {
+            id,
+            candidateCount: matching.length,
+            topCandidateIds: matching.slice(0, 3).map((item) => item.component.id),
+          },
+        ];
+      }),
+    ).values(),
+  ];
+  return { ...reuse, areas, candidates };
+}
+
 export async function getTaskContext(
   rootPath: string,
   task: string,
@@ -136,16 +173,18 @@ export async function getTaskContext(
           : {}),
       });
       if (claim.status === "cached") {
-        reuse = (await loadTaskRetrievalResult(
-          rootPath,
-          claim.handle,
-        )) as ReturnType<typeof buildReuseContext>;
+        reuse = compactTaskReuseContext(
+          (await loadTaskRetrievalResult(
+            rootPath,
+            claim.handle,
+          )) as ReturnType<typeof buildReuseContext>,
+        );
       } else {
-        reuse = buildReuseContext(graph, task, topK);
+        reuse = compactTaskReuseContext(buildReuseContext(graph, task, topK));
         await completeTaskRetrieval(rootPath, claim.handle, reuse);
       }
     } else {
-      reuse = buildReuseContext(graph, task, topK);
+      reuse = compactTaskReuseContext(buildReuseContext(graph, task, topK));
     }
     const indexes = store.listDesignIndexes(graph.project.id);
     const designAllowed =
@@ -602,6 +641,7 @@ export async function getTaskContext(
         ? { decisions: relevantDecisions }
         : {}),
       selections: selectedHandles,
+      reuse: { areas: reuse.areas ?? [] },
       code: codeCandidates,
       semantic: {
         entities: semanticEntities.map((entity) => ({
@@ -703,6 +743,7 @@ export async function getTaskContext(
             memory: payload.memory,
             ...(payload.decisions ? { decisions: payload.decisions } : {}),
             selections: payload.selections,
+            reuse: payload.reuse,
             code: payload.code,
             ...(payload.semantic.entities.length > 0 ||
             payload.semantic.relations.length > 0
@@ -744,6 +785,8 @@ export async function getTaskContext(
         "questions",
         "decisions",
         "selections",
+        "reuse",
+        "areas",
         "sourceReceiptIds",
         "sourceWarnings",
         "operationIndex",

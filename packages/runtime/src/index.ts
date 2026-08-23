@@ -404,6 +404,7 @@ export {
   type TaskRetrievalClaim,
   type TaskRetrievalInvalidationReason,
   type TaskRetrievalKind,
+  TaskRetrievalBudgetExceededError,
 } from "./task-execution.js";
 
 export interface RecordDecisionInput {
