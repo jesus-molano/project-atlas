@@ -886,7 +886,9 @@ export function registerCoreLifecycleTools(
         nextSafeAction:
           next_action ??
           (blocked
-            ? "Resolve the named blocker before implementation."
+            ? capsule.changeInvalidation?.relockRequired
+              ? `Resolve the named blocker, then retry atlas_lock_change_scope with invalidation_reason matching: ${capsule.changeInvalidation.reason}`
+              : "Resolve the named blocker before implementation."
             : capsule.nextSafeAction),
       });
       return text({

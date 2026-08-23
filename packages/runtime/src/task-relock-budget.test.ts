@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -206,4 +206,151 @@ it("persists a relock invalidation when the full ChangeSurface approaches the ca
   });
   expect(rescoped.changeSurface).toEqual(relocked);
   expect(rescoped.changeInvalidation).toBeUndefined();
+  const serializedRelockedCapsule = await readFile(capsulePath, "utf8");
+  const persistedRelockedCapsule = JSON.parse(serializedRelockedCapsule);
+  expect(Buffer.byteLength(serializedRelockedCapsule, "utf8")).toBeLessThanOrEqual(
+    4_096,
+  );
+  expect(persistedRelockedCapsule).toMatchObject({
+    changeSurfaceArtifact: {
+      lockId: relocked.lockId,
+      integrityHash: relocked.integrityHash,
+      revision: relocked.revision,
+    },
+  });
+  expect(persistedRelockedCapsule).not.toHaveProperty("changeSurface");
+  await expect(loadTaskResumeCapsule(root, taskId)).resolves.toMatchObject({
+    changeSurface: { lockId: relocked.lockId, revision: relocked.revision },
+  });
+  await writeFile(
+    capsulePath,
+    JSON.stringify({ ...persistedRelockedCapsule, changeSurface: lock }),
+    "utf8",
+  );
+  await expect(loadTaskResumeCapsule(root, taskId)).rejects.toThrow(
+    /capsule is invalid/iu,
+  );
+});
+
+it("locks a one-file batch when immutable evidence exceeds the former capsule limit", async () => {
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      name: "one-file-relock-budget",
+      dependencies: { react: "^19.0.0" },
+    }),
+    "utf8",
+  );
+  await run("git", ["init"], { cwd: root, windowsHide: true });
+  await run("git", ["add", "."], { cwd: root, windowsHide: true });
+  await run(
+    "git",
+    [
+      "-c",
+      "user.name=Atlas Test",
+      "-c",
+      "user.email=atlas@example.invalid",
+      "commit",
+      "-m",
+      "fixture",
+    ],
+    { cwd: root, windowsHide: true },
+  );
+
+  const lock = await lockTaskChangeSurface(root, {
+    taskId: "task-one-file-large-evidence",
+    intent:
+      "Update the service worker after a graph change while preserving the existing product behavior and validation contract.",
+    primary: {
+      kind: "non-component",
+      surfaceKind: "service-worker",
+      id: "pwa-service-worker",
+      path: "src/pwa/sw.ts",
+    },
+    allowedFiles: ["src/pwa/sw.ts"],
+    exclusions: ["src/features/**", "tests/**"],
+    reuseDecision: {
+      decision: "not-applicable",
+      rationale:
+        "The existing service-worker module is the only implementation surface in this batch.",
+    },
+    handles: Array.from(
+      { length: 8 },
+      (_, index) => `code:${index}-${"e".repeat(220)}`,
+    ),
+  });
+
+  expect(lock.allowedFiles).toEqual(["src/pwa/sw.ts"]);
+  expect(Buffer.byteLength(JSON.stringify(lock), "utf8")).toBeGreaterThan(2_800);
+  expect(Buffer.byteLength(JSON.stringify(lock), "utf8")).toBeLessThanOrEqual(
+    12_000,
+  );
+});
+
+it("rejects an artifact above 12 KB with field diagnostics and no partial write", async () => {
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      name: "oversized-lock-artifact",
+      dependencies: { react: "^19.0.0" },
+    }),
+    "utf8",
+  );
+  await run("git", ["init"], { cwd: root, windowsHide: true });
+  await run("git", ["add", "."], { cwd: root, windowsHide: true });
+  await run(
+    "git",
+    [
+      "-c",
+      "user.name=Atlas Test",
+      "-c",
+      "user.email=atlas@example.invalid",
+      "commit",
+      "-m",
+      "fixture",
+    ],
+    { cwd: root, windowsHide: true },
+  );
+
+  await expect(
+    lockTaskChangeSurface(root, {
+      taskId: "task-oversized-lock-artifact",
+      intent: "Update one API integration file.",
+      primary: {
+        kind: "non-component",
+        surfaceKind: "api-client",
+        id: "api-client",
+        path: "src/api/client.ts",
+      },
+      allowedFiles: ["src/api/client.ts"],
+      reuseDecision: {
+        decision: "not-applicable",
+        rationale: "The existing API client owns this bounded change.",
+      },
+      sourceLedger: {
+        openApiAuthority: true,
+        confirmedOperations: Array.from({ length: 48 }, (_, index) => ({
+          method: "GET",
+          path: `/operation-${index}/${"long-segment-".repeat(24)}`,
+          operationId: `readOperation${index}${"Evidence".repeat(12)}`,
+        })),
+      },
+    }),
+  ).rejects.toThrow(
+    /exceeds its 12 KB artifact budget \(largest fields: evidence=\d+/iu,
+  );
+
+  const identity = await resolveProjectIdentity(root);
+  const artifactDirectory = path.join(
+    projectStorageDirectory(identity.logicalId),
+    "task-state",
+    "change-surfaces",
+  );
+  const artifacts = await readdir(artifactDirectory).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    },
+  );
+  expect(artifacts).toEqual([]);
 });

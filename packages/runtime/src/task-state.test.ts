@@ -938,9 +938,9 @@ describe("task checkpoint and resume", () => {
     expect(Buffer.byteLength(JSON.stringify(lock), "utf8")).toBeGreaterThan(1_400);
     expect(Buffer.byteLength(serialized, "utf8")).toBeLessThanOrEqual(4_096);
     const tampered = JSON.parse(serialized) as {
-      changeSurface: { allowedFiles: string[] };
+      changeSurfaceArtifact: { integrityHash: string };
     };
-    tampered.changeSurface.allowedFiles.push("src/Escape.tsx");
+    tampered.changeSurfaceArtifact.integrityHash = "f".repeat(64);
     await writeFile(capsulePath, JSON.stringify(tampered), "utf8");
     await expect(
       loadTaskResumeCapsule(root, "task-integrity"),

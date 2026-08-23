@@ -398,11 +398,30 @@ export async function expandTaskCompletionReceipt(
   options: ExpandTaskCompletionReceiptOptions = {},
 ) {
   const receipt = await loadTaskCompletionReceipt(rootPath, handle, options.taskId);
+  const sourceHandlePriority = (sourceHandle: string): number =>
+    sourceHandle.startsWith("visual:") ||
+    sourceHandle.startsWith("visual-review:")
+      ? 0
+      : sourceHandle.startsWith("receipt-")
+        ? 1
+        : sourceHandle.startsWith("code:")
+          ? 3
+          : 2;
+  const expandedReceipt = {
+    ...receipt,
+    // Budget compaction trims array tails. Keep exact visual authority and
+    // receipts ahead of lower-value code navigation handles in the response.
+    sourceHandles: [...receipt.sourceHandles].sort(
+      (left, right) =>
+        sourceHandlePriority(left) - sourceHandlePriority(right) ||
+        left.localeCompare(right),
+    ),
+  };
   return fitBudgetedResponse(
     {
       schemaVersion: 1,
       status: "complete",
-      receipt,
+      receipt: expandedReceipt,
       nextAction: "Use this immutable receipt as the technical delivery record.",
     },
     {

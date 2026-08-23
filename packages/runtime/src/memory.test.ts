@@ -621,9 +621,13 @@ paths:
       },
     );
     const storedFiles = await readdir(dataHome, { recursive: true });
-    const resultPath = storedFiles.find((file) =>
-      file.includes("retrieval-results/") && file.endsWith(".json"),
-    );
+    const resultPath = storedFiles.find((file) => {
+      const portablePath = file.replaceAll("\\", "/");
+      return (
+        portablePath.includes("retrieval-results/") &&
+        portablePath.endsWith(".json")
+      );
+    });
 
     expect(context.reuse).toEqual(
       expect.objectContaining({ areas: expect.any(Array) }),

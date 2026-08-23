@@ -30,7 +30,10 @@ import {
 
 const TASK_ID = /^[A-Za-z0-9_.:-]{1,160}$/u;
 const RECEIPT_ID = SOURCE_RECEIPT_ID_PATTERN;
-const MAX_LOCKED_CHANGE_SURFACE_BYTES = 2_800;
+// ChangeSurface is a durable immutable artifact. The 4 KB resume capsule stores
+// only its integrity-bound reference, so the artifact needs its own bounded
+// budget instead of competing with resume state.
+export const MAX_LOCKED_CHANGE_SURFACE_ARTIFACT_BYTES = 12_000;
 
 export interface LockedConfirmedOperation {
   method: string;
@@ -188,7 +191,7 @@ export function normalizeLockedEvidenceHandles(values: string[] = []): string[] 
   const priority = (handle: string): number =>
     /^(?:visual|contract):/u.test(handle)
       ? 0
-      : /^(?:figma-asset|figma-snapshot|manifest|retrieval|design|continuation):/u.test(
+      : /^(?:figma-asset|figma-snapshot|manifest|retrieval|continuation):/u.test(
             handle,
           )
         ? 1
@@ -483,7 +486,7 @@ export function isLockedChangeSurface(
             value.supersedes !== undefined &&
             value.invalidationReason !== undefined)) &&
         Buffer.byteLength(JSON.stringify(value), "utf8") <=
-          MAX_LOCKED_CHANGE_SURFACE_BYTES,
+          MAX_LOCKED_CHANGE_SURFACE_ARTIFACT_BYTES,
     );
   } catch {
     return false;
@@ -942,9 +945,18 @@ export async function createLockedChangeSurface(
     integrityHash,
   };
   const lockedBytes = Buffer.byteLength(JSON.stringify(locked), "utf8");
-  if (lockedBytes > MAX_LOCKED_CHANGE_SURFACE_BYTES) {
+  if (lockedBytes > MAX_LOCKED_CHANGE_SURFACE_ARTIFACT_BYTES) {
+    const largestFields = Object.entries(locked)
+      .map(([key, value]) => [
+        key,
+        Buffer.byteLength(JSON.stringify(value), "utf8"),
+      ] as const)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+      .map(([key, bytes]) => `${key}=${bytes}`)
+      .join(", ");
     throw new Error(
-      `Locked change surface uses ${lockedBytes} bytes and exceeds its 2.8 KB capsule budget; narrow the allowed files or evidence set.`,
+      `Locked change surface artifact uses ${lockedBytes} bytes and exceeds its 12 KB artifact budget (largest fields: ${largestFields}). Reduce allowedFiles/referenceFiles/exclusions, evidence handles, or confirmed operations; the 4 KB resume capsule stores only an artifact reference.`,
     );
   }
   if (!isLockedChangeSurface(locked)) {

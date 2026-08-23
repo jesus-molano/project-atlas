@@ -158,7 +158,8 @@ The compact ChangeSurface stores at most eight evidence handles total,
 prioritizing the exact `visual:` contract and Figma assets over code/context
 references. A common Jira-sized task can therefore freeze one visual contract
 plus several individual assets, including an asset captured during an explicit
-relock window, while remaining inside the 2.8 KB lock and 4 KB capsule limits.
+relock window. The complete lock remains inside its 12 KB immutable-artifact
+limit, while the active capsule carries only its reference inside 4 KB.
 Larger export sets or unusually long task identities still require an explicit
 batch (or a future content-addressed asset-manifest handle) rather than silent
 evidence loss.

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
+  encodeResumeCapsule,
   loadLatestTaskContinuationBundle,
   loadLatestTaskEvidenceContract,
   loadTaskResumeCapsule,
@@ -560,9 +561,7 @@ describe("core task evidence lifecycle", () => {
       expect(revisedReady?.changeSurface?.evidence.handles).not.toContain(
         snapshotHandle,
       );
-      expect(Buffer.byteLength(JSON.stringify(revisedReady), "utf8")).toBeLessThanOrEqual(
-        4_096,
-      );
+      expect(encodeResumeCapsule(revisedReady!).bytes).toBeLessThanOrEqual(4_096);
       await expect(
         assertCoreTaskEvidenceReadyForSuccess(
           root,

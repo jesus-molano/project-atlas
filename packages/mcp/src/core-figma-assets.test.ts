@@ -18,6 +18,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   captureFigmaAsset,
+  encodeResumeCapsule,
   loadFigmaAssetMetadata,
   loadTaskResumeCapsule,
   materializeFigmaAsset,
@@ -534,8 +535,9 @@ describe("core Figma asset lifecycle", () => {
     expect(Buffer.byteLength(JSON.stringify(firstLock), "utf8")).toBeLessThanOrEqual(
       2_800,
     );
-    expect(Buffer.byteLength(JSON.stringify(firstLockedCapsule), "utf8"))
-      .toBeLessThanOrEqual(4_096);
+    expect(encodeResumeCapsule(firstLockedCapsule!).bytes).toBeLessThanOrEqual(
+      4_096,
+    );
 
     await withClient(createMcpServer("core"), async (client) => {
       const crossedTask = await client.callTool({
@@ -685,8 +687,9 @@ describe("core Figma asset lifecycle", () => {
     expect(Buffer.byteLength(JSON.stringify(relock), "utf8")).toBeLessThanOrEqual(
       2_800,
     );
-    expect(Buffer.byteLength(JSON.stringify(relockedCapsule), "utf8"))
-      .toBeLessThanOrEqual(4_096);
+    expect(encodeResumeCapsule(relockedCapsule!).bytes).toBeLessThanOrEqual(
+      4_096,
+    );
 
     await withClient(createMcpServer("core"), async (client) => {
       const materialized = await client.callTool({

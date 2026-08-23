@@ -606,8 +606,23 @@ function compactResumeHandles(
 }
 
 export function fitTaskResumeCapsuleStorageBudget(
-  capsule: TaskResumeCapsule,
+  inputCapsule: TaskResumeCapsule,
 ): TaskResumeCapsule {
+  const fullChangeSurface = inputCapsule.changeSurface;
+  const capsule =
+    inputCapsule.status !== "completed" && fullChangeSurface
+      ? (() => {
+          const {
+            changeSurface: _immutableChangeSurface,
+            ...withoutImmutableChangeSurface
+          } = inputCapsule;
+          return {
+            ...withoutImmutableChangeSurface,
+            changeSurfaceArtifact:
+              lockedChangeSurfaceArtifactReference(fullChangeSurface),
+          };
+        })()
+      : inputCapsule;
   if (Buffer.byteLength(JSON.stringify(capsule), "utf8") <= MAX_TASK_CAPSULE_BYTES) {
     return capsule;
   }
@@ -726,8 +741,9 @@ export function fitTaskResumeCapsuleStorageBudget(
 
   // Decisions, relations and receipt history remain authoritative in the
   // task ledger; ChangeSurface and visual evidence remain in immutable
-  // artifacts. This last projection only runs when their duplicate capsule
-  // summaries would otherwise breach the hard transport budget. Receipt-backed
+  // artifacts. Active ChangeSurfaces were projected to integrity-bound artifact
+  // references before the first budget check. This last projection removes
+  // other rehydratable summaries only when needed. Receipt-backed
   // visual reviews become a lossless v3 pointer to their immutable receipt.
   // Governance is authoritative task state and remains byte-for-byte intact.
   const {
@@ -748,20 +764,6 @@ export function fitTaskResumeCapsuleStorageBudget(
           return completedWithoutImmutableDuplicates;
         })()
       : withoutRehydratableContext;
-  const relockCompactBase =
-    tight.changeInvalidation?.relockRequired && tight.changeSurface
-      ? (() => {
-          const {
-            changeSurface: _pendingChangeSurface,
-            ...withoutDuplicatedChangeSurface
-          } = compactBase as TaskResumeCapsule;
-          return {
-            ...withoutDuplicatedChangeSurface,
-            changeSurfaceArtifact:
-              lockedChangeSurfaceArtifactReference(tight.changeSurface!),
-          };
-        })()
-      : compactBase;
   const compactPolicy = tight.activePolicy
     ? (() => {
         const {
@@ -777,7 +779,7 @@ export function fitTaskResumeCapsuleStorageBudget(
       : capsule.handles.find((handle) => handle.startsWith("continuation:")) ??
         capsule.handles.find((handle) => handle.startsWith("contract:")) ??
         capsule.handles.find((handle) => handle.startsWith("delivery:")) ??
-        (!tight.changeSurface
+        (!(tight.changeSurface || tight.changeSurfaceArtifact)
           ? (capsule.handles.find((handle) => handle.startsWith("visual:")) ??
             tight.handles[0])
           : undefined);
@@ -790,10 +792,10 @@ export function fitTaskResumeCapsuleStorageBudget(
         }
       : tight.visualReview;
   const pendingRelockEvidenceHandle =
-    capsule.changeInvalidation?.relockRequired && capsule.changeSurface
+    capsule.changeInvalidation?.relockRequired && fullChangeSurface
       ? capsule.handles.find(
           (handle) =>
-            !capsule.changeSurface!.evidence.handles.includes(handle),
+            !fullChangeSurface.evidence.handles.includes(handle),
         )
       : undefined;
   const requiredHandles = requiredActiveResumeHandles(capsule);
@@ -810,7 +812,7 @@ export function fitTaskResumeCapsuleStorageBudget(
         ? [essentialHandle]
         : [];
   return {
-    ...relockCompactBase,
+    ...compactBase,
     objective: {
       ...tight.objective,
       // The immutable objective artifact remains authoritative. A shorter
@@ -860,9 +862,7 @@ export function fitTaskResumeCapsuleStorageBudget(
       : {}),
     ...(compactPolicy ? { activePolicy: compactPolicy } : {}),
     ...(compactVisualReview ? { visualReview: compactVisualReview } : {}),
-    nextSafeAction: essentialHandle?.startsWith("continuation:")
-      ? `Expand ${essentialHandle} and continue from its nextSafeAction.`
-      : "Resume.",
+    nextSafeAction: shortTaskText(tight.nextSafeAction, 140),
   };
 }
 
@@ -870,9 +870,19 @@ export function validateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
   if (!value || typeof value !== "object") {
     throw new Error("Task resume capsule is invalid.");
   }
-  const capsule = fitTaskResumeCapsuleStorageBudget(
-    migrateTaskResumeCapsule(value),
-  );
+  const migratedCapsule = migrateTaskResumeCapsule(value);
+  // Validate an embedded legacy/full lock before projecting it to its compact
+  // reference. Otherwise a malformed full lock could hide behind valid-looking
+  // lockId and integrityHash fields during compaction.
+  if (
+    (migratedCapsule.changeSurface !== undefined &&
+      !isLockedChangeSurface(migratedCapsule.changeSurface)) ||
+    (migratedCapsule.changeSurface !== undefined &&
+      migratedCapsule.changeSurfaceArtifact !== undefined)
+  ) {
+    throw new Error("Task resume capsule is invalid.");
+  }
+  const capsule = fitTaskResumeCapsuleStorageBudget(migratedCapsule);
   if (
     capsule.schemaVersion !== TASK_CAPSULE_SCHEMA_VERSION ||
     !TASK_ID_PATTERN.test(capsule.taskId) ||
@@ -897,8 +907,6 @@ export function validateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
       !isLockedChangeSurfaceArtifactReference(capsule.changeSurfaceArtifact)) ||
     (capsule.changeSurface !== undefined &&
       capsule.changeSurfaceArtifact !== undefined) ||
-    (capsule.changeSurfaceArtifact !== undefined &&
-      !capsule.changeInvalidation?.relockRequired) ||
     !validChangeInvalidation(
       capsule.changeInvalidation,
       capsule.changeSurface ?? capsule.changeSurfaceArtifact,

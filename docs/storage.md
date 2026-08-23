@@ -83,7 +83,10 @@ Figma asset, or source-dependent implementation.
 ChangeSurface v2 locks are write-once artifacts under
 `task-state/change-surfaces/<sha256>.json`. Each artifact binds the logical
 project checkout, task ID, normalized scope, Git baseline, and integrity hash.
-Capsule pruning never deletes these locks. Completion intents and delivery
+Active capsules store only the lock ID, revision, and integrity hash; resume
+rehydrates the complete lock from its artifact. The artifact has a separate
+12 KB bound and does not consume the 4 KB resume-capsule budget. Capsule pruning
+never deletes these locks. Completion intents and delivery
 receipts use the same durable separation so identical retries can reconcile
 after interruption while conflicting completion payloads are rejected. The
 intent freezes result/summary/verification plus HEAD, lock/delta, source
