@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -8,10 +7,6 @@ import {
   canonicalFilesystemPath,
   filesystemPathKey,
 } from "@component-atlas/runtime";
-import {
-  branchNameFromParts,
-  type BranchPrefix,
-} from "../../shared/branch-conventions";
 
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_OUTPUT_LIMIT = 2 * 1024 * 1024;
@@ -45,24 +40,6 @@ export interface ProjectRepositoryState {
   branches: ProjectLocalBranch[];
   worktrees: ProjectWorktree[];
   checkedAt: string;
-}
-
-export interface WorktreeCreationPreview {
-  creationMode: "existing-branch" | "new-branch";
-  branch: string;
-  head: string;
-  shortHead: string;
-  logicalProjectPath: string;
-  logicalProjectName: string;
-  sourceWorktreePath: string;
-  worktreePath: string;
-  worktreeName: string;
-  hasProjectManifest: boolean;
-  branchType?: BranchPrefix;
-  branchNameInput?: string;
-  baseBranch?: string;
-  baseHead?: string;
-  baseShortHead?: string;
 }
 
 interface PorcelainWorktree {
@@ -104,7 +81,7 @@ function git(
     throw createError({
       statusCode: 409,
       statusMessage:
-        stderr || "Git could not complete the requested worktree operation.",
+        stderr || "Git could not inspect repository worktrees.",
     });
   }
 }
@@ -250,41 +227,6 @@ function worktreeGitState(
   };
 }
 
-function worktreePathSlug(branch: string): string {
-  const readable = branch
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^[.-]+|[.-]+$/g, "")
-    .slice(0, 52)
-    .replace(/[. ]+$/g, "");
-  const digest = createHash("sha256").update(branch).digest("hex").slice(0, 6);
-  return `${readable || "branch"}-${digest}`;
-}
-
-function proposedWorktreePath(
-  repository: ProjectRepositoryState,
-  branch: string,
-): string {
-  const parent = path.dirname(repository.logicalProjectPath);
-  const project = path.basename(repository.logicalProjectPath);
-  const base = path.join(parent, `${project}--${worktreePathSlug(branch)}`);
-  const occupied = new Set(
-    repository.worktrees.map((worktree) => filesystemPathKey(worktree.path)),
-  );
-  for (let suffix = 1; suffix <= 100; suffix += 1) {
-    const candidate = suffix === 1 ? base : `${base}-${suffix}`;
-    if (!existsSync(candidate) && !occupied.has(filesystemPathKey(candidate))) {
-      return candidate;
-    }
-  }
-  throw createError({
-    statusCode: 409,
-    statusMessage:
-      "Atlas could not find a safe sibling folder for this worktree.",
-  });
-}
-
 export function projectRepositoryStateForRoot(
   inputRootPath: string,
 ): ProjectRepositoryState | undefined {
@@ -376,244 +318,4 @@ export function projectRepositoryStateForRoot(
     worktrees,
     checkedAt: new Date().toISOString(),
   };
-}
-
-export function previewProjectWorktree(
-  rootPath: string,
-  branchName: string,
-): WorktreeCreationPreview {
-  const repository = projectRepositoryStateForRoot(rootPath);
-  if (!repository) {
-    throw createError({
-      statusCode: 422,
-      statusMessage: "The active project is not a Git worktree.",
-    });
-  }
-  const branch = repository.branches.find(
-    (candidate) => candidate.name === branchName,
-  );
-  if (!branch) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: "That local branch no longer exists.",
-    });
-  }
-  if (branch.worktree) {
-    throw createError({
-      statusCode: 409,
-      statusMessage:
-        "That branch already has a worktree. Review and open its existing checkout instead.",
-    });
-  }
-  if (!branch.hasProjectManifest) {
-    throw createError({
-      statusCode: 422,
-      statusMessage:
-        "That branch does not contain package.json and cannot be opened as an Atlas frontend project.",
-    });
-  }
-  const worktreePath = proposedWorktreePath(repository, branch.name);
-  return {
-    creationMode: "existing-branch",
-    branch: branch.name,
-    head: branch.head,
-    shortHead: branch.shortHead,
-    logicalProjectPath: repository.logicalProjectPath,
-    logicalProjectName: repository.logicalProjectName,
-    sourceWorktreePath: repository.activeRoot,
-    worktreePath,
-    worktreeName: path.basename(worktreePath),
-    hasProjectManifest: branch.hasProjectManifest,
-  };
-}
-
-export function previewNewProjectBranchWorktree(
-  rootPath: string,
-  branchType: BranchPrefix,
-  branchNameInput: string,
-  baseBranchName: string,
-): WorktreeCreationPreview {
-  const repository = projectRepositoryStateForRoot(rootPath);
-  if (!repository) {
-    throw createError({
-      statusCode: 422,
-      statusMessage: "The active project is not a Git worktree.",
-    });
-  }
-  let branch: string;
-  try {
-    branch = branchNameFromParts(branchType, branchNameInput);
-  } catch {
-    throw createError({
-      statusCode: 400,
-      statusMessage: "Branch name is invalid.",
-    });
-  }
-  if (repository.branches.some((candidate) => candidate.name === branch)) {
-    throw createError({
-      statusCode: 409,
-      statusMessage:
-        "That local branch already exists. Open its worktree or choose another name.",
-    });
-  }
-  const baseBranch = repository.branches.find(
-    (candidate) => candidate.name === baseBranchName,
-  );
-  if (!baseBranch) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: "That base branch no longer exists.",
-    });
-  }
-  if (!baseBranch.hasProjectManifest) {
-    throw createError({
-      statusCode: 422,
-      statusMessage:
-        "That base branch does not contain package.json and cannot start an Atlas frontend project.",
-    });
-  }
-  const source = repository.worktrees.find((worktree) => worktree.isCurrent);
-  if (!source) {
-    throw createError({
-      statusCode: 422,
-      statusMessage:
-        "Atlas could not identify the active checkout that must remain unchanged.",
-    });
-  }
-  const worktreePath = proposedWorktreePath(repository, branch);
-  return {
-    creationMode: "new-branch",
-    branch,
-    head: baseBranch.head,
-    shortHead: baseBranch.shortHead,
-    branchType,
-    branchNameInput: branchNameInput.trim(),
-    baseBranch: baseBranch.name,
-    baseHead: baseBranch.head,
-    baseShortHead: baseBranch.shortHead,
-    logicalProjectPath: repository.logicalProjectPath,
-    logicalProjectName: repository.logicalProjectName,
-    sourceWorktreePath: repository.activeRoot,
-    worktreePath,
-    worktreeName: path.basename(worktreePath),
-    hasProjectManifest: true,
-  };
-}
-
-export function createProjectWorktree(
-  rootPath: string,
-  input: {
-    branch: string;
-    expectedHead: string;
-    worktreePath: string;
-  },
-): ProjectWorktree {
-  const preview = previewProjectWorktree(rootPath, input.branch);
-  if (preview.head !== input.expectedHead) {
-    throw createError({
-      statusCode: 409,
-      statusMessage:
-        "The branch moved after the preview. Review the destination again before creating a worktree.",
-    });
-  }
-  if (
-    filesystemPathKey(preview.worktreePath) !==
-    filesystemPathKey(input.worktreePath)
-  ) {
-    throw createError({
-      statusCode: 409,
-      statusMessage:
-        "The proposed worktree destination changed. Review it again before creating anything.",
-    });
-  }
-  git(rootPath, [
-    "worktree",
-    "add",
-    "--checkout",
-    preview.worktreePath,
-    preview.branch,
-  ]);
-  const repository = projectRepositoryStateForRoot(preview.worktreePath);
-  const created = repository?.worktrees.find(
-    (worktree) =>
-      filesystemPathKey(worktree.path) ===
-      filesystemPathKey(preview.worktreePath),
-  );
-  if (!created) {
-    throw createError({
-      statusCode: 500,
-      statusMessage:
-        "Git created the destination, but Atlas could not verify the new worktree.",
-    });
-  }
-  return created;
-}
-
-export function createNewProjectBranchWorktree(
-  rootPath: string,
-  input: {
-    branchType: BranchPrefix;
-    branchNameInput: string;
-    baseBranch: string;
-    expectedBaseHead: string;
-    sourceWorktreePath: string;
-    worktreePath: string;
-  },
-): ProjectWorktree {
-  const preview = previewNewProjectBranchWorktree(
-    rootPath,
-    input.branchType,
-    input.branchNameInput,
-    input.baseBranch,
-  );
-  if (preview.baseHead !== input.expectedBaseHead) {
-    throw createError({
-      statusCode: 409,
-      statusMessage:
-        "The base branch moved after the preview. Review the new branch again before creating anything.",
-    });
-  }
-  if (
-    filesystemPathKey(preview.sourceWorktreePath) !==
-    filesystemPathKey(input.sourceWorktreePath)
-  ) {
-    throw createError({
-      statusCode: 409,
-      statusMessage:
-        "The active checkout changed after the preview. Review the new branch again.",
-    });
-  }
-  if (
-    filesystemPathKey(preview.worktreePath) !==
-    filesystemPathKey(input.worktreePath)
-  ) {
-    throw createError({
-      statusCode: 409,
-      statusMessage:
-        "The proposed worktree destination changed. Review it again before creating anything.",
-    });
-  }
-  git(rootPath, [
-    "worktree",
-    "add",
-    "--checkout",
-    "-b",
-    preview.branch,
-    preview.worktreePath,
-    preview.baseHead!,
-  ]);
-  const repository = projectRepositoryStateForRoot(preview.worktreePath);
-  const created = repository?.worktrees.find(
-    (worktree) =>
-      filesystemPathKey(worktree.path) ===
-      filesystemPathKey(preview.worktreePath),
-  );
-  if (!created) {
-    throw createError({
-      statusCode: 500,
-      statusMessage:
-        "Git created the destination, but Atlas could not verify the new worktree.",
-    });
-  }
-  return created;
 }

@@ -512,26 +512,6 @@
     flex-wrap: wrap;
   }
 
-  .new-branch-toggle {
-    width: 100%;
-    text-align: left;
-  }
-
-  .new-branch-form {
-    grid-template-columns: 76px minmax(0, 1fr);
-  }
-
-  .new-branch-form > code,
-  .new-branch-form > button,
-  .new-branch-form > small {
-    grid-column: 1 / -1;
-    grid-row: auto;
-  }
-
-  .new-branch-form > button {
-    width: 100%;
-  }
-
   .repository-branch-list .branch-action {
     grid-column: 1 / -1;
     width: 100%;

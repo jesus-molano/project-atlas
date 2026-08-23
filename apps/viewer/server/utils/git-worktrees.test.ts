@@ -4,13 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { filesystemPathsEquivalent } from "@component-atlas/runtime";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  createNewProjectBranchWorktree,
-  createProjectWorktree,
-  previewNewProjectBranchWorktree,
-  previewProjectWorktree,
-  projectRepositoryStateForRoot,
-} from "./git-worktrees";
+import { projectRepositoryStateForRoot } from "./git-worktrees";
 
 const temporaryRoots: string[] = [];
 
@@ -91,119 +85,5 @@ describe("Git branch and worktree inventory", () => {
       hasProjectManifest: true,
     });
     expect(repository?.branches[2]?.worktree).toBeUndefined();
-  }, 15_000);
-
-  it("previews and creates a sibling worktree without switching the source checkout", async () => {
-    const { rootPath } = await fixtureRepository();
-    const branch = "feature/a-very-long-local-branch-name";
-    const preview = previewProjectWorktree(rootPath, branch);
-
-    expect(preview.branch).toBe(branch);
-    expect(preview.worktreePath).toContain(
-      "very-long-project-name--feature-a-very-long-local-branch-name",
-    );
-    expect(run(rootPath, ["branch", "--show-current"])).toBe("main");
-
-    const created = createProjectWorktree(rootPath, {
-      branch,
-      expectedHead: preview.head,
-      worktreePath: preview.worktreePath,
-    });
-
-    expect(created).toMatchObject({
-      path: preview.worktreePath,
-      branch,
-      isCurrent: true,
-      available: true,
-    });
-    expect(run(rootPath, ["branch", "--show-current"])).toBe("main");
-    expect(run(preview.worktreePath, ["branch", "--show-current"])).toBe(
-      branch,
-    );
-  }, 15_000);
-
-  it("creates a convention-prefixed branch in a separate worktree", async () => {
-    const { rootPath, releasePath } = await fixtureRepository();
-    run(releasePath, ["add", "README.md"]);
-    run(releasePath, ["commit", "-m", "release base"]);
-    const releaseHead = run(releasePath, ["rev-parse", "HEAD"]);
-    const mainHead = run(rootPath, ["rev-parse", "HEAD"]);
-    const preview = previewNewProjectBranchWorktree(
-      rootPath,
-      "fix",
-      "Selector focus state",
-      "release",
-    );
-
-    expect(preview).toMatchObject({
-      creationMode: "new-branch",
-      branch: "fix/selector-focus-state",
-      baseBranch: "release",
-      baseHead: releaseHead,
-      branchType: "fix",
-    });
-    expect(preview.baseHead).not.toBe(mainHead);
-
-    const created = createNewProjectBranchWorktree(rootPath, {
-      branchType: "fix",
-      branchNameInput: "Selector focus state",
-      baseBranch: "release",
-      expectedBaseHead: preview.baseHead!,
-      sourceWorktreePath: preview.sourceWorktreePath,
-      worktreePath: preview.worktreePath,
-    });
-
-    expect(created).toMatchObject({
-      branch: "fix/selector-focus-state",
-      path: preview.worktreePath,
-      isCurrent: true,
-    });
-    expect(run(rootPath, ["branch", "--show-current"])).toBe("main");
-    expect(run(preview.worktreePath, ["branch", "--show-current"])).toBe(
-      "fix/selector-focus-state",
-    );
-    expect(run(preview.worktreePath, ["rev-parse", "HEAD"])).toBe(releaseHead);
-  }, 15_000);
-
-  it("rejects confirmation after the selected base branch moves", async () => {
-    const { rootPath, releasePath } = await fixtureRepository();
-    const preview = previewNewProjectBranchWorktree(
-      rootPath,
-      "feat",
-      "Explicit stale base",
-      "release",
-    );
-    run(releasePath, ["add", "README.md"]);
-    run(releasePath, ["commit", "-m", "move release base"]);
-
-    expect(() =>
-      createNewProjectBranchWorktree(rootPath, {
-        branchType: "feat",
-        branchNameInput: "Explicit stale base",
-        baseBranch: "release",
-        expectedBaseHead: preview.baseHead!,
-        sourceWorktreePath: preview.sourceWorktreePath,
-        worktreePath: preview.worktreePath,
-      }),
-    ).toThrow("base branch moved after the preview");
-    expect(run(rootPath, ["branch", "--list", preview.branch])).toBe("");
-    expect(run(rootPath, ["branch", "--show-current"])).toBe("main");
-  }, 15_000);
-
-  it("rejects stale confirmations before creating anything", async () => {
-    const { rootPath } = await fixtureRepository();
-    const preview = previewProjectWorktree(
-      rootPath,
-      "feature/a-very-long-local-branch-name",
-    );
-
-    expect(() =>
-      createProjectWorktree(rootPath, {
-        branch: preview.branch,
-        expectedHead: "0".repeat(40),
-        worktreePath: preview.worktreePath,
-      }),
-    ).toThrow("branch moved after the preview");
-    expect(run(rootPath, ["branch", "--show-current"])).toBe("main");
   }, 15_000);
 });

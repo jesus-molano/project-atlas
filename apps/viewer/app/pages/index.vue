@@ -9,7 +9,6 @@ const {
   runtimeMessage,
   statusLabel,
   t,
-  BRANCH_PREFIXES,
   branchAction,
   localizeSourceHealth,
   overview,
@@ -32,13 +31,6 @@ const {
   recentCleanupConfirmationOpen,
   projectPickerMessage,
   projectPreview,
-  worktreePreview,
-  worktreePreviewPendingBranch,
-  newBranchFormOpen,
-  newBranchType,
-  newBranchName,
-  newBranchBase,
-  newBranchPreviewPending,
   folderPickerPending,
   folderDropActive,
   launcherBrowse,
@@ -64,8 +56,6 @@ const {
   resultGroups,
   attentionQueue,
   statusSummary,
-  selectedNewBranchBase,
-  proposedNewBranchName,
   unavailableRecentProjectActionLabel,
   selectSection,
   selectSearchResult,
@@ -77,12 +67,7 @@ const {
   requestUnavailableRecentCleanup,
   cleanUnavailableRecentProjects,
   cancelProjectPreview,
-  cancelWorktreePreview,
-  toggleNewBranchForm,
   activateProject,
-  reviewNewWorktree,
-  reviewNewBranchWorktree,
-  createAndOpenWorktree,
   browseForProject,
   handleProjectDragLeave,
   handleProjectDrop,
@@ -433,130 +418,7 @@ const {
                     }}
                   </small>
                 </div>
-                <button
-                  type="button"
-                  class="text-button new-branch-toggle"
-                  aria-controls="new-branch-worktree-form"
-                  :aria-expanded="newBranchFormOpen"
-                  @click="toggleNewBranchForm"
-                >
-                  {{
-                    t(
-                      newBranchFormOpen
-                        ? "Cancel new branch"
-                        : "New branch + worktree",
-                    )
-                  }}
-                </button>
               </header>
-              <form
-                v-if="newBranchFormOpen"
-                id="new-branch-worktree-form"
-                class="new-branch-form"
-                @submit.prevent="reviewNewBranchWorktree"
-              >
-                <div class="new-branch-base-field">
-                  <label for="new-branch-base">{{ t("Base branch") }}</label>
-                  <select
-                    id="new-branch-base"
-                    v-model="newBranchBase"
-                    aria-describedby="new-branch-base-summary"
-                    :title="
-                      selectedNewBranchBase
-                        ? `${selectedNewBranchBase.name} · ${selectedNewBranchBase.head}`
-                        : undefined
-                    "
-                    :disabled="newBranchPreviewPending || projectSwitchPending"
-                  >
-                    <option disabled value="">
-                      {{ t("Choose a local branch") }}
-                    </option>
-                    <option
-                      v-for="branch in projects.repository.branches"
-                      :key="branch.name"
-                      :value="branch.name"
-                      :disabled="!branch.hasProjectManifest"
-                    >
-                      {{
-                        branch.hasProjectManifest
-                          ? `${branch.name} · ${branch.shortHead}`
-                          : `${branch.name} · ${t("Unavailable: no package.json")}`
-                      }}
-                    </option>
-                  </select>
-                  <small
-                    id="new-branch-base-summary"
-                    class="new-branch-base-summary"
-                  >
-                    <template v-if="selectedNewBranchBase">
-                      <span>{{ t("Selected base") }}</span>
-                      <strong :title="selectedNewBranchBase.name">
-                        {{ selectedNewBranchBase.name }}
-                      </strong>
-                      <code :title="selectedNewBranchBase.head">
-                        {{ selectedNewBranchBase.shortHead }}
-                      </code>
-                    </template>
-                    <template v-else>
-                      {{ t("Select the local branch that will provide the starting HEAD.") }}
-                    </template>
-                  </small>
-                </div>
-                <div>
-                  <label for="new-branch-type">{{ t("Branch type") }}</label>
-                  <select
-                    id="new-branch-type"
-                    v-model="newBranchType"
-                    :disabled="newBranchPreviewPending || projectSwitchPending"
-                  >
-                    <option
-                      v-for="prefix in BRANCH_PREFIXES"
-                      :key="prefix"
-                      :value="prefix"
-                    >
-                      {{ prefix }}
-                    </option>
-                  </select>
-                </div>
-                <div class="new-branch-name-field">
-                  <label for="new-branch-name">{{ t("Branch name") }}</label>
-                  <input
-                    id="new-branch-name"
-                    v-model="newBranchName"
-                    type="text"
-                    maxlength="120"
-                    autocomplete="off"
-                    :placeholder="t('short-descriptive-name')"
-                    :disabled="newBranchPreviewPending || projectSwitchPending"
-                  >
-                </div>
-                <code :title="proposedNewBranchName">
-                  {{ proposedNewBranchName }}
-                </code>
-                <button
-                  type="submit"
-                  class="secondary-button"
-                  :disabled="
-                    !newBranchName.trim()
-                    || !selectedNewBranchBase?.hasProjectManifest
-                    || newBranchPreviewPending
-                    || projectSwitchPending
-                  "
-                >
-                  {{
-                    newBranchPreviewPending
-                      ? t("Preparing...")
-                      : t("Review branch")
-                  }}
-                </button>
-                <small>
-                  {{
-                    t(
-                      "The new branch starts at the selected local branch HEAD and opens in a separate worktree.",
-                    )
-                  }}
-                </small>
-              </form>
               <ul class="repository-branch-list">
                 <li
                   v-for="branch in projects.repository.branches"
@@ -601,7 +463,6 @@ const {
                       || branchAction(branch) === 'unsupported'
                       || projectSwitchPending
                       || projectInspectPending
-                      || Boolean(worktreePreviewPendingBranch)
                     "
                     :aria-label="
                       t(
@@ -609,33 +470,29 @@ const {
                           ? 'Current checkout: {branch}'
                           : branchAction(branch) === 'open-worktree'
                             ? 'Review worktree for {branch}'
-                            : 'Create worktree for {branch}',
+                            : 'Unavailable checkout: {branch}',
                         { branch: branch.name },
                       )
                     "
                     :title="
                       branchAction(branch) === 'unsupported'
-                        ? t('This branch cannot be opened because it has no package.json.')
+                        ? t(
+                            branch.worktree
+                              ? 'This existing worktree is unavailable.'
+                              : 'This branch has no existing worktree. Create or link it outside Atlas first.',
+                          )
                         : undefined
                     "
-                    @click="
-                      branch.worktree
-                        ? reviewProject(branch.worktree.path)
-                        : reviewNewWorktree(branch.name)
-                    "
+                    @click="branch.worktree && reviewProject(branch.worktree.path)"
                   >
                     {{
-                      worktreePreviewPendingBranch === branch.name
-                        ? t("Preparing...")
-                        : t(
-                            branchAction(branch) === "current"
-                              ? "Current"
-                              : branchAction(branch) === "open-worktree"
-                                ? "Review"
-                                : branchAction(branch) === "unsupported"
-                                  ? "Unavailable"
-                                  : "Create...",
-                          )
+                      t(
+                        branchAction(branch) === "current"
+                          ? "Current"
+                          : branchAction(branch) === "open-worktree"
+                            ? "Review"
+                            : "Unavailable",
+                      )
                     }}
                   </button>
                 </li>
@@ -671,13 +528,6 @@ const {
                 :pending="projectSwitchPending"
                 @cancel="cancelProjectPreview"
                 @confirm="activateProject()"
-              />
-              <WorktreeCreationPreview
-                v-if="worktreePreview"
-                :preview="worktreePreview"
-                :pending="projectSwitchPending"
-                @cancel="cancelWorktreePreview"
-                @confirm="createAndOpenWorktree"
               />
             </section>
             <div class="popover-recents">

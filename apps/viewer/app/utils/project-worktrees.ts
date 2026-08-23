@@ -1,5 +1,3 @@
-import type { BranchPrefix } from "#shared/branch-conventions";
-
 export interface RepositoryWorktree {
   path: string;
   name: string;
@@ -34,38 +32,18 @@ export interface ProjectRepositoryState {
   checkedAt: string;
 }
 
-export interface WorktreeCreationPreview {
-  creationMode: "existing-branch" | "new-branch";
-  branch: string;
-  head: string;
-  shortHead: string;
-  logicalProjectPath: string;
-  logicalProjectName: string;
-  sourceWorktreePath: string;
-  worktreePath: string;
-  worktreeName: string;
-  hasProjectManifest: boolean;
-  branchType?: BranchPrefix;
-  branchNameInput?: string;
-  baseBranch?: string;
-  baseHead?: string;
-  baseShortHead?: string;
-}
-
 export type BranchAction =
   | "current"
   | "open-worktree"
-  | "create-worktree"
   | "unsupported";
 
 export function branchAction(branch: RepositoryBranch): BranchAction {
   if (branch.isCurrent) return "current";
+  if (!branch.hasProjectManifest) return "unsupported";
   if (branch.worktree?.available && !branch.worktree.prunable) {
     return "open-worktree";
   }
-  if (branch.worktree) return "unsupported";
-  if (!branch.hasProjectManifest) return "unsupported";
-  return "create-worktree";
+  return "unsupported";
 }
 
 export function detachedRepositoryWorktrees(
@@ -79,20 +57,5 @@ export function detachedRepositoryWorktrees(
   );
   return repository.worktrees.filter(
     (worktree) => !assigned.has(worktree.path),
-  );
-}
-
-export function defaultNewBranchBase(
-  repository: ProjectRepositoryState | undefined,
-): string {
-  if (!repository) return "";
-  const eligibleBranches = repository.branches.filter(
-    (branch) => branch.hasProjectManifest,
-  );
-  return (
-    eligibleBranches.find((branch) => branch.isCurrent)?.name ??
-    eligibleBranches.find((branch) => branch.worktree?.isPrimary)?.name ??
-    eligibleBranches[0]?.name ??
-    ""
   );
 }

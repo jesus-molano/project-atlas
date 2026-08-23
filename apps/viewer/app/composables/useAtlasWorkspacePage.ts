@@ -27,16 +27,9 @@ import {
 } from "~/utils/folder-picker";
 import {
   branchAction,
-  defaultNewBranchBase,
   detachedRepositoryWorktrees,
   type ProjectRepositoryState,
-  type WorktreeCreationPreview,
 } from "~/utils/project-worktrees";
-import {
-  BRANCH_PREFIXES,
-  branchNameFromParts,
-  type BranchPrefix,
-} from "#shared/branch-conventions";
 
 export async function useAtlasWorkspacePage() {
   type AvailableSection =
@@ -222,13 +215,6 @@ export async function useAtlasWorkspacePage() {
   const recentCleanupConfirmationOpen = ref(false);
   const projectPickerMessage = ref("");
   const projectPreview = ref<ProjectDestinationPreview>();
-  const worktreePreview = ref<WorktreeCreationPreview>();
-  const worktreePreviewPendingBranch = ref("");
-  const newBranchFormOpen = ref(false);
-  const newBranchType = ref<BranchPrefix>("feat");
-  const newBranchName = ref("");
-  const newBranchBase = ref("");
-  const newBranchPreviewPending = ref(false);
   const folderPicker = shallowRef<AtlasDesktopFolderPicker>();
   const folderPickerPending = ref(false);
   const folderDropActive = ref(false);
@@ -545,9 +531,6 @@ export async function useAtlasWorkspacePage() {
   }
 
   watch(projectPath, (value) => {
-    if (value.trim() && worktreePreview.value) {
-      worktreePreview.value = undefined;
-    }
     if (
       projectPreview.value &&
       projectPreview.value.rootPath.toLowerCase() !== value.trim().toLowerCase()
@@ -556,38 +539,14 @@ export async function useAtlasWorkspacePage() {
     }
   });
 
-  watch([newBranchType, newBranchName, newBranchBase], () => {
-    if (worktreePreview.value?.creationMode === "new-branch") {
-      worktreePreview.value = undefined;
-    }
-  });
-
-  const selectedNewBranchBase = computed(() =>
-    projects.value?.repository?.branches.find(
-      (branch) => branch.name === newBranchBase.value,
-    ),
-  );
-
-  const proposedNewBranchName = computed(() => {
-    try {
-      return branchNameFromParts(newBranchType.value, newBranchName.value);
-    } catch {
-      return `${newBranchType.value}/`;
-    }
-  });
-
   function resetSwitchedWorkspace(): void {
     projectPath.value = "";
     projectPreview.value = undefined;
-    worktreePreview.value = undefined;
     projectMenuOpen.value = false;
     activeSection.value = "home";
     selectedComponentId.value = undefined;
     selectedDesignNodeId.value = undefined;
     selectedMemoryItemId.value = undefined;
-    newBranchFormOpen.value = false;
-    newBranchName.value = "";
-    newBranchBase.value = "";
   }
 
   async function reviewProject(rootPath = projectPath.value): Promise<void> {
@@ -597,7 +556,6 @@ export async function useAtlasWorkspacePage() {
     }
     projectInspectPending.value = true;
     projectSwitchError.value = "";
-    worktreePreview.value = undefined;
     try {
       const session = await $fetch<{ token: string }>("/api/session");
       projectPreview.value = await $fetch<ProjectDestinationPreview>(
@@ -677,23 +635,6 @@ export async function useAtlasWorkspacePage() {
     projectPreview.value = undefined;
   }
 
-  function cancelWorktreePreview(): void {
-    worktreePreview.value = undefined;
-  }
-
-  function toggleNewBranchForm(): void {
-    newBranchFormOpen.value = !newBranchFormOpen.value;
-    projectPreview.value = undefined;
-    worktreePreview.value = undefined;
-    projectSwitchError.value = "";
-    if (newBranchFormOpen.value) {
-      newBranchBase.value = defaultNewBranchBase(projects.value?.repository);
-    } else {
-      newBranchName.value = "";
-      newBranchBase.value = "";
-    }
-  }
-
   async function activateProject(
     rootPath = projectPreview.value?.rootPath ?? "",
   ): Promise<void> {
@@ -715,125 +656,6 @@ export async function useAtlasWorkspacePage() {
         caught,
         "Project Atlas could not open that folder.",
       );
-    } finally {
-      projectSwitchPending.value = false;
-    }
-  }
-
-  async function reviewNewWorktree(branch: string): Promise<void> {
-    if (
-      !branch ||
-      worktreePreviewPendingBranch.value ||
-      projectSwitchPending.value ||
-      projectInspectPending.value
-    ) {
-      return;
-    }
-    worktreePreviewPendingBranch.value = branch;
-    projectSwitchError.value = "";
-    projectPreview.value = undefined;
-    try {
-      const session = await $fetch<{ token: string }>("/api/session");
-      worktreePreview.value = await $fetch<WorktreeCreationPreview>(
-        "/api/projects/worktree/preview",
-        {
-          method: "POST",
-          headers: { "x-atlas-session": session.token },
-          body: { branch },
-        },
-      );
-    } catch (caught) {
-      worktreePreview.value = undefined;
-      projectSwitchError.value = uiErrorMessage(
-        caught,
-        "Project Atlas could not prepare that worktree.",
-      );
-    } finally {
-      worktreePreviewPendingBranch.value = "";
-    }
-  }
-
-  async function reviewNewBranchWorktree(): Promise<void> {
-    if (
-      !newBranchName.value.trim() ||
-      !selectedNewBranchBase.value?.hasProjectManifest ||
-      newBranchPreviewPending.value ||
-      projectSwitchPending.value ||
-      projectInspectPending.value
-    ) {
-      return;
-    }
-    newBranchPreviewPending.value = true;
-    projectSwitchError.value = "";
-    projectPreview.value = undefined;
-    worktreePreview.value = undefined;
-    try {
-      const session = await $fetch<{ token: string }>("/api/session");
-      worktreePreview.value = await $fetch<WorktreeCreationPreview>(
-        "/api/projects/branch/preview",
-        {
-          method: "POST",
-          headers: { "x-atlas-session": session.token },
-          body: {
-            branchType: newBranchType.value,
-            branchNameInput: newBranchName.value,
-            baseBranch: newBranchBase.value,
-          },
-        },
-      );
-    } catch (caught) {
-      projectSwitchError.value = uiErrorMessage(
-        caught,
-        "Project Atlas could not prepare that branch.",
-      );
-    } finally {
-      newBranchPreviewPending.value = false;
-    }
-  }
-
-  async function createAndOpenWorktree(): Promise<void> {
-    const preview = worktreePreview.value;
-    if (!preview || projectSwitchPending.value) return;
-    projectSwitchPending.value = true;
-    projectSwitchError.value = "";
-    try {
-      const session = await $fetch<{ token: string }>("/api/session");
-      const request =
-        preview.creationMode === "new-branch"
-          ? {
-              path: "/api/projects/branch/create",
-              body: {
-                branchType: preview.branchType,
-                branchNameInput: preview.branchNameInput,
-                baseBranch: preview.baseBranch,
-                expectedBaseHead: preview.baseHead,
-                sourceWorktreePath: preview.sourceWorktreePath,
-                worktreePath: preview.worktreePath,
-              },
-            }
-          : {
-              path: "/api/projects/worktree/create",
-              body: {
-                branch: preview.branch,
-                expectedHead: preview.head,
-                worktreePath: preview.worktreePath,
-              },
-            };
-      await $fetch(request.path, {
-        method: "POST",
-        headers: { "x-atlas-session": session.token },
-        body: request.body,
-      });
-      resetSwitchedWorkspace();
-      await Promise.all([refreshProjects(), refreshWorkspace()]);
-    } catch (caught) {
-      projectSwitchError.value = uiErrorMessage(
-        caught,
-        preview.creationMode === "new-branch"
-          ? "Project Atlas could not create that branch."
-          : "Project Atlas could not create that worktree.",
-      );
-      await refreshProjects();
     } finally {
       projectSwitchPending.value = false;
     }
@@ -898,7 +720,6 @@ export async function useAtlasWorkspacePage() {
     if (droppedPath) {
       projectPath.value = droppedPath;
       projectPreview.value = undefined;
-      worktreePreview.value = undefined;
       projectSwitchError.value = "";
       return;
     }
@@ -1025,7 +846,6 @@ export async function useAtlasWorkspacePage() {
     runtimeMessage,
     statusLabel,
     t,
-    BRANCH_PREFIXES,
     branchAction,
     localizeSourceHealth,
     overview,
@@ -1048,13 +868,6 @@ export async function useAtlasWorkspacePage() {
     recentCleanupConfirmationOpen,
     projectPickerMessage,
     projectPreview,
-    worktreePreview,
-    worktreePreviewPendingBranch,
-    newBranchFormOpen,
-    newBranchType,
-    newBranchName,
-    newBranchBase,
-    newBranchPreviewPending,
     folderPicker,
     folderPickerPending,
     folderDropActive,
@@ -1083,8 +896,6 @@ export async function useAtlasWorkspacePage() {
     attentionQueue,
     sourceProblems,
     statusSummary,
-    selectedNewBranchBase,
-    proposedNewBranchName,
     unavailableRecentProjectActionLabel,
     selectSection,
     selectSearchResult,
@@ -1098,12 +909,7 @@ export async function useAtlasWorkspacePage() {
     requestUnavailableRecentCleanup,
     cleanUnavailableRecentProjects,
     cancelProjectPreview,
-    cancelWorktreePreview,
-    toggleNewBranchForm,
     activateProject,
-    reviewNewWorktree,
-    reviewNewBranchWorktree,
-    createAndOpenWorktree,
     browseForProject,
     handleProjectDragLeave,
     handleProjectDrop,

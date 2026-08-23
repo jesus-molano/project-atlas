@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readViewerCssSync } from "./viewer-css";
@@ -41,7 +41,7 @@ describe("no-project launcher recovery", () => {
     expect(page).toContain("t(\"Retry workspace\")");
   });
 
-  it("previews a project/worktree/branch destination before activation", () => {
+  it("previews an existing project checkout before activation", () => {
     expect(pageState).toContain("\"/api/projects/inspect\"");
     expect(page).toContain("<ProjectDestinationPreview");
     expect(page).toContain("@confirm=\"activateProject()\"");
@@ -50,6 +50,27 @@ describe("no-project launcher recovery", () => {
     expect(page).toContain(
       "<code :title=\"overview.data.project.rootPath\">",
     );
+  });
+
+  it("keeps checkout selection read-only and exposes no branch/worktree creation routes", () => {
+    expect(pageState).not.toMatch(
+      /\/api\/projects\/(?:branch|worktree)\/(?:preview|create)/,
+    );
+    expect(page).not.toContain("WorktreeCreationPreview");
+    for (const route of [
+      "branch/create.post.ts",
+      "branch/preview.post.ts",
+      "worktree/create.post.ts",
+      "worktree/preview.post.ts",
+    ]) {
+      expect(
+        existsSync(
+          fileURLToPath(
+            new URL(`../apps/viewer/server/api/projects/${route}`, import.meta.url),
+          ),
+        ),
+      ).toBe(false);
+    }
   });
 
   it("bounds long project identity and prevents background double-scroll", () => {

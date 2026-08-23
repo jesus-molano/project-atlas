@@ -316,10 +316,6 @@
   box-shadow: none;
 }
 
-.project-popover .worktree-creation-preview {
-  margin: 14px 0 0;
-}
-
 .destination-repository-summary {
   color: var(--atlas-ink-muted);
   font-weight: 620;
