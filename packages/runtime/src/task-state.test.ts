@@ -786,6 +786,10 @@ describe("task checkpoint and resume", () => {
     expect(completed?.completion?.deliveryReceipt).toBe(
       "delivery:task-lock:0123456789abcdef",
     );
+    expect(completed?.completion?.lock).toEqual({
+      id: relocked.lockId,
+      revision: relocked.revision,
+    });
     expect(completed).not.toHaveProperty("changeSurface");
     expect(Buffer.byteLength(JSON.stringify(completed), "utf8")).toBeLessThanOrEqual(
       4_096,

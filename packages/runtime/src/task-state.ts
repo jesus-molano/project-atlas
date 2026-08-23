@@ -1043,6 +1043,12 @@ export async function pruneExpiredTaskState(
               validatedAt: delivery.completedAt,
             }
           : undefined);
+      const finalLock = capsule.changeSurface
+        ? {
+            id: capsule.changeSurface.lockId,
+            revision: capsule.changeSurface.revision,
+          }
+        : capsule.completion?.lock;
       const finalDirectory = path.join(stateRoot, "final");
       await mkdir(finalDirectory, { recursive: true });
       await atomicJson(
@@ -1068,14 +1074,7 @@ export async function pruneExpiredTaskState(
               deliveryReceipt,
             }
           : {}),
-        ...(capsule.changeSurface
-          ? {
-              lock: {
-                id: capsule.changeSurface.lockId,
-                revision: capsule.changeSurface.revision,
-              },
-            }
-          : {}),
+        ...(finalLock ? { lock: finalLock } : {}),
         ...(finalValidation ? { validation: finalValidation } : {}),
         ...(capsule.visualReview ? { visualReview: capsule.visualReview } : {}),
         ...(capsule.completion ? { outcome: capsule.completion } : {}),

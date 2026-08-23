@@ -116,6 +116,8 @@ export interface TaskCompletionSummary {
   verification: string[];
   files: string[];
   deliveryReceipt?: string;
+  /** Minimal lock identity retained only when the full completed surface is compacted. */
+  lock?: { id: string; revision: number };
 }
 
 export interface TaskResumeCapsule {
@@ -522,7 +524,11 @@ export function validTaskCompletion(
         (value.deliveryReceipt === undefined ||
           /^delivery:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}$/u.test(
             value.deliveryReceipt,
-          ))),
+          )) &&
+        (value.lock === undefined ||
+          (/^[a-f0-9]{24}$/u.test(value.lock.id) &&
+            Number.isInteger(value.lock.revision) &&
+            value.lock.revision > 0))),
   );
 }
 
@@ -778,6 +784,14 @@ export function fitTaskResumeCapsuleStorageBudget(
             files: tight.completion.files
               .slice(0, 8)
               .map((item) => shortTaskText(item, 180)),
+            ...(tight.changeSurface
+              ? {
+                  lock: {
+                    id: tight.changeSurface.lockId,
+                    revision: tight.changeSurface.revision,
+                  },
+                }
+              : {}),
           },
         }
       : {}),
