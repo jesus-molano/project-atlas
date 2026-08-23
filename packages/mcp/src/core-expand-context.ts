@@ -4,6 +4,8 @@ import {
 } from "@component-atlas/core";
 import {
   expandSourceReceipt,
+  expandTaskContinuationBundle,
+  expandTaskEvidenceContract,
   expandTaskCompletionReceipt,
   expandVisualEvidenceContract,
   expandVisualReviewReceipt,
@@ -48,6 +50,19 @@ export function registerCoreExpandContext(server: McpServer): void {
     },
     async ({ root_path, handle, task_id, response_format }) => {
       const budget = response_format === "detailed" ? 3_000 : 1_600;
+      if (handle.startsWith("contract:") || handle.startsWith("continuation:")) {
+        if (!task_id) {
+          throw new Error(
+            "Expanding task evidence requires its exact task_id binding.",
+          );
+        }
+        await assertTaskBoundHandle(root_path, task_id, handle);
+        return text(
+          handle.startsWith("contract:")
+            ? await expandTaskEvidenceContract(root_path, handle, budget)
+            : await expandTaskContinuationBundle(root_path, handle, budget),
+        );
+      }
       if (SOURCE_RECEIPT_ID_PATTERN.test(handle)) {
         if (!task_id) {
           throw new Error(
@@ -218,7 +233,7 @@ export function registerCoreExpandContext(server: McpServer): void {
         );
       }
       throw new Error(
-        "Use a code:, entity:, design:, figma-asset:, visual:, visual-review:, delivery:, memory:, retrieval:, manifest: or receipt-* handle.",
+        "Use a code:, entity:, design:, contract:, continuation:, figma-asset:, visual:, visual-review:, delivery:, memory:, retrieval:, manifest: or receipt-* handle.",
       );
     },
   );

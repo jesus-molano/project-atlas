@@ -12,6 +12,8 @@ import {
   loadPersistedSourceReceipt,
   loadProjectGraph,
   loadTaskCompletionReceipt,
+  loadTaskContinuationBundle,
+  loadTaskEvidenceContract,
   loadTaskExecutionManifest,
   loadTaskResumeCapsule,
   loadTaskRetrievalResult,
@@ -27,6 +29,8 @@ export function taskBoundHandle(handle: string): boolean {
     handle.startsWith("visual:") ||
     handle.startsWith("visual-review:") ||
     handle.startsWith("delivery:") ||
+    handle.startsWith("contract:") ||
+    handle.startsWith("continuation:") ||
     handle.startsWith("retrieval:") ||
     handle.startsWith("manifest:")
   );
@@ -144,6 +148,20 @@ export async function assertTaskBoundHandle(
   }
   if (handle.startsWith("delivery:")) {
     await loadTaskCompletionReceipt(rootPath, handle, taskId);
+    return;
+  }
+  if (handle.startsWith("contract:")) {
+    const contract = await loadTaskEvidenceContract(rootPath, handle);
+    if (contract.taskId !== taskId) {
+      throw new Error(`Task evidence contract ${handle} belongs to a different task.`);
+    }
+    return;
+  }
+  if (handle.startsWith("continuation:")) {
+    const continuation = await loadTaskContinuationBundle(rootPath, handle);
+    if (continuation.taskId !== taskId) {
+      throw new Error(`Task continuation ${handle} belongs to a different task.`);
+    }
     return;
   }
   if (handle.startsWith("retrieval:")) {
