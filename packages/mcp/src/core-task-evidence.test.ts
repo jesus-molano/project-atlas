@@ -394,6 +394,28 @@ describe("core task evidence lifecycle", () => {
 
       const invalidationReason =
         "Freeze the current semantic Figma snapshot into ChangeSurface.";
+      const preparationSource = {
+        ...source,
+        evidence: {
+          ...source.evidence,
+          figma_metadata: {
+            document: {
+              id: "0:0",
+              name: "Dialogs",
+              type: "DOCUMENT",
+              children: [
+                {
+                  id: "39:2731",
+                  name: "Confirmation dialog",
+                  type: "FRAME",
+                  children: [],
+                },
+              ],
+            },
+          },
+          figma_format: "figma-rest",
+        },
+      };
       const prepared = await client.callTool({
         name: "atlas_prepare_task",
         arguments: {
@@ -403,30 +425,7 @@ describe("core task evidence lifecycle", () => {
           objective_confirmed: true,
           invalidation_reason: invalidationReason,
           budget_chars: 3_600,
-          sources: [
-            {
-              ...source,
-              evidence: {
-                ...source.evidence,
-                figma_metadata: {
-                  document: {
-                    id: "0:0",
-                    name: "Dialogs",
-                    type: "DOCUMENT",
-                    children: [
-                      {
-                        id: "39:2731",
-                        name: "Confirmation dialog",
-                        type: "FRAME",
-                        children: [],
-                      },
-                    ],
-                  },
-                },
-                figma_format: "figma-rest",
-              },
-            },
-          ],
+          sources: [preparationSource],
         },
       });
       expect(
@@ -489,6 +488,86 @@ describe("core task evidence lifecycle", () => {
           root,
           taskId,
           ready!,
+          { decisions, relations: [], receiptIds: [receiptId!] },
+        ),
+      ).resolves.toBeUndefined();
+
+      const revisionInvalidationReason =
+        "Replace the frozen Figma snapshot with its current revision.";
+      const revisionPrepared = await client.callTool({
+        name: "atlas_prepare_task",
+        arguments: {
+          root_path: root,
+          task_id: taskId,
+          objective,
+          objective_confirmed: true,
+          invalidation_reason: revisionInvalidationReason,
+          budget_chars: 3_600,
+          sources: [preparationSource],
+        },
+      });
+      expect(
+        revisionPrepared.structuredContent,
+        JSON.stringify(revisionPrepared.content),
+      ).toMatchObject({ status: "relock-required" });
+      const revisedSnapshot = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: root,
+          task_id: taskId,
+          action: "record-figma-snapshot",
+          figma_snapshot: {
+            ...figmaSnapshot,
+            previous_handle: snapshotHandle,
+            content: {
+              ...figmaSnapshot.content,
+              styles: [
+                {
+                  ...figmaSnapshot.content.styles[0],
+                  token_refs: ["color.surface.raised"],
+                },
+              ],
+            },
+          },
+        },
+      });
+      expect(
+        revisedSnapshot.isError,
+        JSON.stringify(revisedSnapshot.content),
+      ).not.toBe(true);
+      const revisedSnapshotHandle = (
+        revisedSnapshot.structuredContent as { snapshot: { handle: string } }
+      ).snapshot.handle;
+      expect(revisedSnapshotHandle).not.toBe(snapshotHandle);
+
+      const revisionRelocked = await client.callTool({
+        name: "atlas_lock_change_scope",
+        arguments: {
+          ...lockArguments,
+          invalidation_reason: revisionInvalidationReason,
+        },
+      });
+      expect(
+        revisionRelocked.isError,
+        JSON.stringify(revisionRelocked.content),
+      ).not.toBe(true);
+      const revisedReady = await loadTaskResumeCapsule(root, taskId);
+      expect(revisedReady?.handles).toContain(revisedSnapshotHandle);
+      expect(revisedReady?.handles).not.toContain(snapshotHandle);
+      expect(revisedReady?.changeSurface?.evidence.handles).toContain(
+        revisedSnapshotHandle,
+      );
+      expect(revisedReady?.changeSurface?.evidence.handles).not.toContain(
+        snapshotHandle,
+      );
+      expect(Buffer.byteLength(JSON.stringify(revisedReady), "utf8")).toBeLessThanOrEqual(
+        4_096,
+      );
+      await expect(
+        assertCoreTaskEvidenceReadyForSuccess(
+          root,
+          taskId,
+          revisedReady!,
           { decisions, relations: [], receiptIds: [receiptId!] },
         ),
       ).resolves.toBeUndefined();

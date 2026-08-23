@@ -701,6 +701,9 @@ export function registerCoreTools(server: McpServer): void {
       const currentVisualHandles = capsule.handles.filter((handle) =>
         handle.startsWith("visual:"),
       );
+      const currentFigmaSnapshotHandles = capsule.handles.filter((handle) =>
+        handle.startsWith("figma-snapshot:"),
+      );
       const visualHandles =
         currentVisualHandles.length > 0
           ? currentVisualHandles
@@ -808,7 +811,9 @@ export function registerCoreTools(server: McpServer): void {
           ...visualHandles,
           ...priorLockedHandles.filter(
             (handle) =>
-              !handle.startsWith("visual:") || visualHandles.includes(handle),
+              (!handle.startsWith("visual:") || visualHandles.includes(handle)) &&
+              (!handle.startsWith("figma-snapshot:") ||
+                currentFigmaSnapshotHandles.length === 0),
           ),
           ...capsule.handles,
         ]),

@@ -563,15 +563,41 @@ function prioritizedResumeHandles(handles: string[]): string[] {
       ? 0
       : handle.startsWith("contract:")
         ? 1
-        : handle.startsWith("delivery:")
+        : handle.startsWith("figma-snapshot:")
           ? 2
-          : 3;
+          : handle.startsWith("delivery:")
+            ? 3
+            : 4;
   return handles
     .map((handle, index) => ({ handle, index, priority: priority(handle) }))
     .toSorted(
       (left, right) => left.priority - right.priority || left.index - right.index,
     )
     .map(({ handle }) => handle);
+}
+
+function requiredActiveResumeHandles(capsule: TaskResumeCapsule): string[] {
+  if (capsule.status === "completed") return [];
+  const first = (prefix: string): string | undefined =>
+    capsule.handles.find((handle) => handle.startsWith(prefix));
+  return [
+    first("continuation:"),
+    first("contract:"),
+    first("figma-snapshot:"),
+  ].filter((handle): handle is string => handle !== undefined);
+}
+
+function compactResumeHandles(
+  capsule: TaskResumeCapsule,
+  maximum: number,
+): string[] {
+  const required = requiredActiveResumeHandles(capsule);
+  return [
+    ...required,
+    ...prioritizedResumeHandles(capsule.handles).filter(
+      (handle) => !required.includes(handle),
+    ),
+  ].slice(0, maximum);
 }
 
 export function fitTaskResumeCapsuleStorageBudget(
@@ -600,7 +626,7 @@ export function fitTaskResumeCapsuleStorageBudget(
       ? { sourceRelations: capsule.sourceRelations.slice(0, 8) }
       : {}),
     sourceReceiptIds: capsule.sourceReceiptIds.slice(0, 12),
-    handles: prioritizedResumeHandles(capsule.handles).slice(0, 4),
+    handles: compactResumeHandles(capsule, 4),
     ...(capsule.completion
       ? {
           completion: {
@@ -682,7 +708,7 @@ export function fitTaskResumeCapsuleStorageBudget(
       ? { sourceRelations: compact.sourceRelations.slice(0, 4) }
       : {}),
     sourceReceiptIds: compact.sourceReceiptIds.slice(0, 8),
-    handles: prioritizedResumeHandles(compact.handles).slice(0, 1),
+    handles: compactResumeHandles(compact, 3),
     scope: {
       covered: compact.scope.covered.slice(0, 1),
       remaining: compact.scope.remaining.slice(0, 1),
@@ -751,6 +777,19 @@ export function fitTaskResumeCapsuleStorageBudget(
             !capsule.changeSurface!.evidence.handles.includes(handle),
         )
       : undefined;
+  const requiredHandles = requiredActiveResumeHandles(capsule);
+  const finalHandles = pendingRelockEvidenceHandle
+    ? [
+        pendingRelockEvidenceHandle,
+        ...requiredHandles.filter(
+          (handle) => handle !== pendingRelockEvidenceHandle,
+        ),
+      ]
+    : requiredHandles.length > 0
+      ? requiredHandles
+      : essentialHandle
+        ? [essentialHandle]
+        : [];
   return {
     ...compactBase,
     objective: {
@@ -773,11 +812,7 @@ export function fitTaskResumeCapsuleStorageBudget(
     decisions: [],
     sourceReceiptIds:
       tight.status === "completed" ? tight.sourceReceiptIds.slice(0, 2) : [],
-    handles: pendingRelockEvidenceHandle
-      ? [pendingRelockEvidenceHandle]
-      : essentialHandle
-        ? [essentialHandle]
-        : [],
+    handles: finalHandles,
     ...(tight.status !== "completed" && tight.validation
       ? { validation: tight.validation }
       : {}),

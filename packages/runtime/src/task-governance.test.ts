@@ -289,7 +289,10 @@ describe("persisted task governance", () => {
       ],
       { cwd: root, windowsHide: true },
     );
-    const taskId = "task-dense-governance";
+    const taskId = "task-dense";
+    const contractHandle = `contract:${taskId}:1111111111111111`;
+    const continuationHandle = `continuation:${taskId}:2222222222222222`;
+    const figmaSnapshotHandle = `figma-snapshot:${taskId}:3333333333333333`;
     const sentinel = "DENSE-OBJECTIVE-TAIL";
     const objectiveText = `${"Detailed visual acceptance criterion. ".repeat(70)}${sentinel}`;
     const objectiveArtifact = await persistTaskObjective(root, {
@@ -339,6 +342,7 @@ describe("persisted task governance", () => {
         decision: "extend",
         rationale: "The existing App owns the visual flow and shared state.",
       },
+      handles: [contractHandle, figmaSnapshotHandle],
     });
     const governance: TaskGovernance = {
       size: "large",
@@ -358,18 +362,18 @@ describe("persisted task governance", () => {
       sourceRelations: relations,
       sourceReceiptIds: receiptIds,
       handles: [
-        "code:react:src/App.tsx:App",
-        "manifest:task-dense-governance:0123456789abcdef",
+        continuationHandle,
+        contractHandle,
+        figmaSnapshotHandle,
       ],
       covered: Array.from({ length: 8 }, (_, index) => `covered-${index}`),
       remaining: Array.from({ length: 8 }, (_, index) => `remaining-${index}`),
       changeSurface: lock,
       visualReview: {
         schemaVersion: 2,
-        receiptHandle:
-          "visual-review:task-dense-governance:aaaaaaaaaaaaaaaa",
+        receiptHandle: `visual-review:${taskId}:aaaaaaaaaaaaaaaa`,
         receiptHash: "a".repeat(64),
-        contractHandle: "visual:vd-task-dense-governance:bbbbbbbbbbbbbbbb",
+        contractHandle: `visual:vd-${taskId}:bbbbbbbbbbbbbbbb`,
         contractHash: "b".repeat(64),
         result: "pass",
         captureCount: 4,
@@ -404,6 +408,13 @@ describe("persisted task governance", () => {
     );
     expect(capsule?.governance).toEqual(governance);
     expect(capsule?.changeSurface?.lockId).toBe(lock.lockId);
+    expect(capsule?.handles).toEqual(
+      expect.arrayContaining([
+        continuationHandle,
+        contractHandle,
+        figmaSnapshotHandle,
+      ]),
+    );
     expect(capsule?.visualReview).toMatchObject({
       schemaVersion: 3,
       receiptHandle: `visual-review:${taskId}:${"a".repeat(16)}`,
