@@ -9,6 +9,7 @@ import {
 import { assertLockedChangeSurfaceArtifact } from "./change-surface-lock.js";
 import { resolveProjectIdentity } from "./identity.js";
 import { resolveTaskObjectiveProjection } from "./task-objective.js";
+import { hydrateTaskResumeCapsule } from "./task-state-hydration.js";
 import { pruneExpiredTaskState } from "./task-state.js";
 import {
   validateTaskResumeCapsule,
@@ -160,8 +161,11 @@ async function discoverTaskResumeState(rootPath: string): Promise<{
   for (const { directory, name } of await capsuleFiles(rootPath)) {
     let capsule: TaskResumeCapsule;
     try {
-      capsule = validateTaskResumeCapsule(
-        JSON.parse(await readFile(path.join(directory, name), "utf8")),
+      capsule = await hydrateTaskResumeCapsule(
+        rootPath,
+        validateTaskResumeCapsule(
+          JSON.parse(await readFile(path.join(directory, name), "utf8")),
+        ),
       );
     } catch (error) {
       throw new Error(

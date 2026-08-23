@@ -953,7 +953,7 @@ function deltaEntries(
     });
   }
   for (const entry of baseline) {
-    if (consumed.has(entry)) continue;
+    if (consumed.has(entry) || entry.untracked) continue;
     result.push({
       path: entry.path,
       ...(entry.previousPath ? { previousPath: entry.previousPath } : {}),
@@ -1033,7 +1033,23 @@ export async function compareGitDelta(
   const rootPath = path.resolve(rootPathInput);
   const stored = await loadGitBaseline(rootPath, baseline);
   const current = await capturedSnapshot(rootPath, stored.head, captureLimits);
-  const lines = comparedLines(stored.lines, current.lines);
+  const currentPaths = new Set(
+    current.entries.flatMap((entry) => [
+      entry.path,
+      ...(entry.previousPath ? [entry.previousPath] : []),
+    ]),
+  );
+  const disappearedBaselineUntracked = new Set(
+    stored.entries
+      .filter((entry) => entry.untracked && !currentPaths.has(entry.path))
+      .map((entry) => entry.path),
+  );
+  const lines = comparedLines(
+    stored.lines.filter(
+      (line) => !disappearedBaselineUntracked.has(line.file),
+    ),
+    current.lines,
+  );
   const entries = attachLineCounts(
     deltaEntries(stored.entries, current.entries),
     lines,

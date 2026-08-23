@@ -54,6 +54,7 @@ import {
   type TaskResumeCapsule,
   type TaskSourceLedger,
 } from "./task-state-contract.js";
+import { hydrateTaskResumeCapsule } from "./task-state-hydration.js";
 import {
   legacyTaskFilePath,
   sameWorkspaceRoot,
@@ -401,8 +402,9 @@ async function writeTaskCheckpointLocked(
   for (const candidate of [filePath, legacyCentral, legacyRepository]) {
     if (!candidate || existingCapsule) continue;
     try {
-      existingCapsule = validateCapsule(
-        JSON.parse(await readFile(candidate, "utf8")),
+      existingCapsule = await hydrateTaskResumeCapsule(
+        rootPath,
+        validateCapsule(JSON.parse(await readFile(candidate, "utf8"))),
       );
       if (!sameWorkspaceRoot(existingCapsule.workspace.rootPath, rootPath)) {
         throw new Error(
@@ -755,7 +757,7 @@ async function writeTaskCheckpointLocked(
     },
     now,
   );
-  return capsule;
+  return hydrateTaskResumeCapsule(rootPath, capsule);
 }
 
 export async function loadTaskResumeCapsule(
@@ -778,8 +780,9 @@ export async function loadTaskResumeCapsule(
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
-      const capsule = validateCapsule(
-        JSON.parse(await readFile(candidate, "utf8")),
+      const capsule = await hydrateTaskResumeCapsule(
+        rootPath,
+        validateCapsule(JSON.parse(await readFile(candidate, "utf8"))),
       );
       if (capsule.taskId !== taskId) {
         throw new Error("Task resume capsule identity is invalid.");
@@ -1071,8 +1074,9 @@ export async function pruneExpiredTaskState(
   for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
     const capsulePath = path.join(capsules, name);
     try {
-      const capsule = validateCapsule(
-        JSON.parse(await readFile(capsulePath, "utf8")),
+      const capsule = await hydrateTaskResumeCapsule(
+        rootPath,
+        validateCapsule(JSON.parse(await readFile(capsulePath, "utf8"))),
       );
       if (!sameWorkspaceRoot(capsule.workspace.rootPath, rootPath)) continue;
       if (capsule.changeSurface) {

@@ -12,7 +12,10 @@ import {
 } from "./auth-mocks.js";
 import {
   isLockedChangeSurface,
+  isLockedChangeSurfaceArtifactReference,
+  lockedChangeSurfaceArtifactReference,
   type LockedChangeSurface,
+  type LockedChangeSurfaceArtifactReference,
 } from "./change-surface-lock.js";
 import { EXPANDABLE_HANDLE_PATTERN } from "./expandable-handle.js";
 import {
@@ -180,6 +183,8 @@ export interface TaskResumeCapsule {
   };
   lifecycle: TaskLifecycle;
   changeSurface?: LockedChangeSurface;
+  /** Compact pointer used only while a relock invalidation is pending. */
+  changeSurfaceArtifact?: LockedChangeSurfaceArtifactReference;
   changeInvalidation?: TaskChangeInvalidation;
   visualReview?: TaskVisualReview;
   validation?: TaskValidationReference;
@@ -403,7 +408,7 @@ export function migrateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
 
 export function validTaskValidation(
   value: TaskValidationReference | undefined,
-  changeSurface: LockedChangeSurface | undefined,
+  changeSurface: Pick<LockedChangeSurface, "lockId"> | undefined,
 ): boolean {
   if (!value) return true;
   return Boolean(
@@ -417,7 +422,7 @@ export function validTaskValidation(
 
 export function validChangeInvalidation(
   value: TaskChangeInvalidation | undefined,
-  changeSurface: LockedChangeSurface | undefined,
+  changeSurface: Pick<LockedChangeSurface, "lockId"> | undefined,
 ): boolean {
   if (!value) return true;
   return Boolean(
@@ -743,6 +748,20 @@ export function fitTaskResumeCapsuleStorageBudget(
           return completedWithoutImmutableDuplicates;
         })()
       : withoutRehydratableContext;
+  const relockCompactBase =
+    tight.changeInvalidation?.relockRequired && tight.changeSurface
+      ? (() => {
+          const {
+            changeSurface: _pendingChangeSurface,
+            ...withoutDuplicatedChangeSurface
+          } = compactBase as TaskResumeCapsule;
+          return {
+            ...withoutDuplicatedChangeSurface,
+            changeSurfaceArtifact:
+              lockedChangeSurfaceArtifactReference(tight.changeSurface!),
+          };
+        })()
+      : compactBase;
   const compactPolicy = tight.activePolicy
     ? (() => {
         const {
@@ -791,7 +810,7 @@ export function fitTaskResumeCapsuleStorageBudget(
         ? [essentialHandle]
         : [];
   return {
-    ...compactBase,
+    ...relockCompactBase,
     objective: {
       ...tight.objective,
       // The immutable objective artifact remains authoritative. A shorter
@@ -874,12 +893,24 @@ export function validateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
       (capsule.lifecycle.phase === "completed")) ||
     (capsule.changeSurface !== undefined &&
       !isLockedChangeSurface(capsule.changeSurface)) ||
-    !validChangeInvalidation(capsule.changeInvalidation, capsule.changeSurface) ||
+    (capsule.changeSurfaceArtifact !== undefined &&
+      !isLockedChangeSurfaceArtifactReference(capsule.changeSurfaceArtifact)) ||
+    (capsule.changeSurface !== undefined &&
+      capsule.changeSurfaceArtifact !== undefined) ||
+    (capsule.changeSurfaceArtifact !== undefined &&
+      !capsule.changeInvalidation?.relockRequired) ||
+    !validChangeInvalidation(
+      capsule.changeInvalidation,
+      capsule.changeSurface ?? capsule.changeSurfaceArtifact,
+    ) ||
     !validTaskVisualReview(capsule.visualReview) ||
     !validTaskCompletion(capsule.completion) ||
     (capsule.completion !== undefined && capsule.status !== "completed") ||
     (capsule.status === "completed" && capsule.changeInvalidation !== undefined) ||
-    !validTaskValidation(capsule.validation, capsule.changeSurface) ||
+    !validTaskValidation(
+      capsule.validation,
+      capsule.changeSurface ?? capsule.changeSurfaceArtifact,
+    ) ||
     !capsule.nextSafeAction
   ) {
     throw new Error("Task resume capsule is invalid.");

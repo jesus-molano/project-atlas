@@ -103,6 +103,37 @@ export interface LockedChangeSurface {
   invalidationReason?: string;
 }
 
+export interface LockedChangeSurfaceArtifactReference {
+  schemaVersion: 1;
+  lockId: string;
+  integrityHash: string;
+  revision: number;
+}
+
+export function lockedChangeSurfaceArtifactReference(
+  lock: LockedChangeSurface,
+): LockedChangeSurfaceArtifactReference {
+  return {
+    schemaVersion: 1,
+    lockId: lock.lockId,
+    integrityHash: lock.integrityHash,
+    revision: lock.revision,
+  };
+}
+
+export function isLockedChangeSurfaceArtifactReference(
+  value: LockedChangeSurfaceArtifactReference | undefined,
+): boolean {
+  return Boolean(
+    value?.schemaVersion === 1 &&
+      /^[a-f0-9]{24}$/u.test(value.lockId) &&
+      /^[a-f0-9]{64}$/u.test(value.integrityHash) &&
+      value.lockId === value.integrityHash.slice(0, 24) &&
+      Number.isInteger(value.revision) &&
+      value.revision > 0,
+  );
+}
+
 export interface LockTaskChangeSurfaceInput {
   taskId: string;
   objective?: TaskObjectiveReference;
@@ -467,9 +498,10 @@ interface LockedChangeSurfaceArtifact {
   lock: LockedChangeSurface;
 }
 
-async function changeSurfaceArtifactLocation(
+async function changeSurfaceArtifactLocationForIdentity(
   rootPath: string,
-  lock: LockedChangeSurface,
+  taskId: string,
+  integrityHash: string,
 ): Promise<{ directory: string; filePath: string; checkoutId: string }> {
   const identity = await resolveProjectIdentity(rootPath);
   const directory = path.join(
@@ -478,13 +510,24 @@ async function changeSurfaceArtifactLocation(
     "change-surfaces",
   );
   const fileName = `${createHash("sha256")
-    .update(`${identity.checkoutId}\0${lock.taskId}\0${lock.integrityHash}`)
+    .update(`${identity.checkoutId}\0${taskId}\0${integrityHash}`)
     .digest("hex")}.json`;
   return {
     directory,
     filePath: path.join(directory, fileName),
     checkoutId: identity.checkoutId,
   };
+}
+
+async function changeSurfaceArtifactLocation(
+  rootPath: string,
+  lock: LockedChangeSurface,
+): Promise<{ directory: string; filePath: string; checkoutId: string }> {
+  return changeSurfaceArtifactLocationForIdentity(
+    rootPath,
+    lock.taskId,
+    lock.integrityHash,
+  );
 }
 
 export async function lockedChangeSurfaceArtifactPath(
@@ -554,6 +597,50 @@ export async function assertLockedChangeSurfaceArtifact(
   if (lock.objective) {
     await loadTaskObjectiveArtifact(rootPath, lock.objective, taskId);
   }
+}
+
+export async function loadLockedChangeSurfaceArtifact(
+  rootPath: string,
+  taskId: string,
+  reference: LockedChangeSurfaceArtifactReference,
+): Promise<LockedChangeSurface> {
+  if (!TASK_ID.test(taskId) || !isLockedChangeSurfaceArtifactReference(reference)) {
+    throw new Error("The ChangeSurface artifact reference is invalid.");
+  }
+  const location = await changeSurfaceArtifactLocationForIdentity(
+    rootPath,
+    taskId,
+    reference.integrityHash,
+  );
+  let artifact: LockedChangeSurfaceArtifact;
+  try {
+    artifact = JSON.parse(
+      await readFile(location.filePath, "utf8"),
+    ) as LockedChangeSurfaceArtifact;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(
+        "The immutable ChangeSurface artifact is missing; explicitly relock the task before continuing.",
+        { cause: error },
+      );
+    }
+    throw new Error("The immutable ChangeSurface artifact is unreadable.", {
+      cause: error,
+    });
+  }
+  if (
+    artifact.schemaVersion !== 1 ||
+    artifact.taskId !== taskId ||
+    artifact.checkoutId !== location.checkoutId ||
+    artifact.integrityHash !== reference.integrityHash ||
+    !isLockedChangeSurface(artifact.lock) ||
+    artifact.lock.lockId !== reference.lockId ||
+    artifact.lock.revision !== reference.revision
+  ) {
+    throw new Error("The ChangeSurface artifact reference does not match its immutable artifact.");
+  }
+  await assertLockedChangeSurfaceArtifact(rootPath, taskId, artifact.lock);
+  return artifact.lock;
 }
 
 function normalizedPrimary(primary: LockedSurfacePrimary): LockedSurfacePrimary {

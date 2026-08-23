@@ -177,6 +177,23 @@ describe("Git task baselines and complete deltas", () => {
     expect(additions).toContain("export const Draft = 2;");
   });
 
+  it("ignores preexisting untracked files that disappear after the baseline", async () => {
+    const root = await fixture();
+    await put(root, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
+    await put(root, "pnpm-workspace.yaml", "packages:\n  - apps/*\n");
+    const baseline = await captureGitBaseline(root, {
+      taskId: "task-untracked-removed",
+    });
+
+    await rm(path.join(root, "pnpm-lock.yaml"));
+    await rm(path.join(root, "pnpm-workspace.yaml"));
+    const delta = await compareGitDelta(root, baseline);
+
+    expect(delta).toMatchObject({ files: 0, additions: 0, deletions: 0 });
+    expect(delta.entries).toEqual([]);
+    expect(delta.lines).toEqual([]);
+  });
+
   it("signals file and line truncation instead of silently claiming completeness", async () => {
     const root = await fixture();
     await put(root, "src/App.tsx", "one\ntwo\nthree\n");
