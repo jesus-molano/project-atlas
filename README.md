@@ -1,15 +1,18 @@
 # Project Atlas
 
-Project Atlas is a Codex-first workflow that gives an agent a compact, reusable
-map of a frontend project before it changes code. It finds existing components,
-design evidence, decisions, risks, and prior outcomes without dumping the whole
-repository or design file into the conversation.
+Project Atlas is a local evidence sidecar for a Codex task. It gives an agent a
+compact, reusable map of a frontend project before it changes code: existing
+components, design evidence, decisions, risks, and prior outcomes, without
+dumping the repository or a Figma file into the conversation. It does not
+schedule work, own agents, or replace the host workflow.
 
 The normal entry point is native Codex. `$frontend-task` can be invoked by name
 or selected automatically for complex frontend implementation with strong
 signals such as multiple material sources, shared/public boundaries, broad
-migrations, or an existing Atlas task. The GUI is an optional control,
-inspection, and traceability surface, not a replacement conversation.
+migrations, or an existing Atlas task. Codex and `frontend-task` plan and
+execute; Orca owns workspaces and any multi-agent orchestration. The GUI is an
+optional local inspection and traceability surface, not a replacement
+conversation.
 
 ## Client support
 
@@ -99,20 +102,34 @@ You do not need to run `scan`, `memory`, `context`, or Figma commands first.
    external links remain `pending` until the user confirms or omits them;
 3. calls `atlas_prepare_task` once for that confirmed evidence version, using
    only sources that are supplied or materially required;
-4. separates task size (`small`, `medium`, `large`) from risk and retrieves a
+4. for medium and large work, records an immutable evidence contract: objective,
+   acceptance criteria, source decisions, constraints, exclusions and bounded
+   recovery handles;
+5. separates task size (`small`, `medium`, `large`) from risk and retrieves a
    bounded set of explainable candidates and opaque handles;
-5. expands only the evidence needed to decide `reuse`, `extend`, `compose`,
+6. expands only the evidence needed to decide `reuse`, `extend`, `compose`,
    `extract-and-reuse`, `create`, or `not-applicable`;
-6. persists that decision and the narrow change surface with
+7. when Figma is authoritative, records a bounded semantic snapshot bound to the
+   confirmed receipt and exact `fileKey`/`nodeId`/`version`/`lastModified`
+   identity before locking; changed evidence uses a linked successor in an
+   explicit relock window;
+8. persists the reuse decision and narrow change surface with
    `atlas_lock_change_scope` before editing;
-7. implements in native Codex and scales planning/review to task size and risk;
-8. runs focused repository checks, attaches any required structured visual
+9. checkpoints an initial immutable continuation against that lock before the
+   first edit, then records linked successors at semantic milestones; exact-
+   checkout recovery without a task ID is permitted only when unambiguous;
+10. implements in native Codex and scales planning/review to task size and risk;
+11. runs focused repository checks, attaches any required structured visual
    review after temporary cleanup, then validates the complete Git delta with
    `atlas_validate_change` and reviews it;
-9. closes the technical task with an immutable `atlas_task_state` technical
+12. technically rejects `success` when durable contract criteria, required
+    decisions, or current validation evidence are incomplete; `frontend-task`
+    separately requires the applicable independent review before requesting
+    that close, while `partial` and `failure` remain honest outcomes;
+13. closes the technical task with an immutable `atlas_task_state` technical
    outcome record, without writing memory; this is not proof of commit, push,
    PR, deployment, or any external delivery;
-10. may review one exact memory proposal; every mutating `atlas_memory` action
+14. may review one exact memory proposal; every mutating `atlas_memory` action
     uses a no-write scope/token call followed by the exact unchanged call only
     after literal user consent. Technical completion never implies it.
 
@@ -133,6 +150,16 @@ The default task package is hard-capped and reports its estimated size,
 truncation state, retrieval hits/misses/retries, and IDs that can be expanded
 deliberately. Source receipts are referenced by immutable ID; receipt bodies,
 full indexes, and source documents stay outside the prompt.
+
+An interrupted task can resume from its task ID. If no ID is available, Atlas
+only recovers the active task for the same exact checkout when there is exactly
+one safe candidate; it asks for selection when there are several. Context
+compaction is not evidence invalidation. A source, checkout, objective, or
+scope change is.
+
+After an approved specification, `to-tickets` may produce an optional human
+delivery backlog with independently reviewable units. It is not an Atlas task
+queue and it does not create agents, terminals, branches, or worktrees.
 
 ## Open the GUI
 
@@ -168,11 +195,8 @@ terminal open and press Ctrl+C there to close Atlas and its viewer process.
 The desktop-shaped local workspace lets you:
 
 - see the exact logical project, checkout/worktree, branch, HEAD, and diff state;
-- list local branches independently of recent projects, open an existing branch
-  worktree, or review and confirm creation of a separate sibling worktree;
-- create a local branch and worktree together from an explicitly selected
-  local base branch plus a reviewed conventional prefix and descriptive name,
-  without switching any existing checkout;
+- list local branches independently of recent projects and open an existing
+  branch worktree without creating or switching one;
 - switch among successfully opened recent projects or choose, drop, or paste
   another repository without restarting the server;
 - search code, design, and memory from one command surface;
@@ -185,7 +209,8 @@ The desktop-shaped local workspace lets you:
 
 Browsing, searching, rescanning, and reviewing local evidence use zero model
 tokens. Model execution and filesystem permissions exist only in native Codex;
-the GUI cannot launch, resume, cancel, or reclassify a task.
+the GUI cannot launch, resume, cancel, reclassify a task, or create branches or
+worktrees.
 
 The loopback browser exposes **Choose folder...** through a narrowly scoped local
 directory dialog on Windows. A packaged desktop host can provide the same action

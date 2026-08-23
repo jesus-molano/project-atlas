@@ -36,6 +36,9 @@ ProjectAtlas/
 │       │   └── local/
 │       ├── task-state/
 │       │   ├── capsules/
+│       │   ├── continuations/
+│       │   ├── evidence-contracts/
+│       │   ├── figma-snapshots/
 │       │   ├── ledgers/
 │       │   ├── journals/
 │       │   ├── manifests/
@@ -65,7 +68,8 @@ projection, so a long confirmed URL is never truncated at the trust boundary
 and later checkpoints do not require the user to repeat it.
 
 `task-state/` also owns Git baselines, immutable final/technical-outcome receipts,
-source receipts, visual contracts/reviews, and the write-once memory-consent
+source receipts, visual contracts/reviews, evidence contracts, continuation
+bundles, semantic Figma snapshots, and the write-once memory-consent
 chain. These durable artifacts are intentionally separate from expiring
 capsules, so completion, visual review, and an approved memory mutation remain
 auditable after resume state is pruned.
@@ -85,6 +89,14 @@ after interruption while conflicting completion payloads are rejected. The
 intent freezes result/summary/verification plus HEAD, lock/delta, source
 receipts, context handles, and the exact visual-review hash; the immutable
 commit makes post-expiry retries independent of the transient capsule.
+
+Evidence contracts and continuation bundles are content-addressed, per-task
+artifacts. A continuation references its contract and, once scope is locked,
+the active ChangeSurface. The latest pointer is published only after its capsule
+checkpoint succeeds. Semantic Figma snapshots retain only bounded
+node/component/style/state/asset-reference metadata and current source receipt
+identity; they reject raw Figma payloads and require a linked successor when
+the observed source changes.
 
 Logical project identity is based on the normalized Git remote, then the Git
 common directory, and finally the canonical path. Worktrees share the logical

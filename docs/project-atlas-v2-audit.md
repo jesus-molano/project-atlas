@@ -7,14 +7,15 @@ supersedes the earlier GUI-runner proposals and dated redesign notes.
 
 Project Atlas is a local evidence system for native Codex, not an agent host.
 Codex owns conversation, planning, permissions, model execution, implementation,
-and task continuation. Atlas owns indexes, bounded source receipts, reusable
-memory, validation, private measurements, and visual review surfaces.
+and task continuation. Orca owns workspaces and multi-agent orchestration.
+Atlas owns indexes, bounded source receipts, reusable memory, validation,
+private measurements, visual review surfaces, and durable task evidence.
 
 The v2 implementation therefore:
 
 - removes the embedded model runner and every GUI execution route;
 - keeps Code Atlas, Design Atlas, Project Memory, Action Center, Health,
-  Settings, project selection, branches, and worktrees;
+  Settings, project selection, and read-only existing-checkout inspection;
 - makes `$frontend-task` selectively automatic for complex implementation,
   keeps `$reuse-first` and `$visual-direction` explicit-only, and progressively
   discloses their references;
@@ -22,11 +23,12 @@ The v2 implementation therefore:
   legacy profile temporarily for measured parity;
 - records exact Codex totals locally when OTel/JSONL provides them and labels
   Atlas attribution and historical records honestly as estimates;
-- activates independent agent review by risk, through native Codex only.
+- records contract/continuation/snapshot evidence for eligible work and applies
+  independent review by risk, through native Codex only.
 
 ## Confirmed cost baseline
 
-The legacy MCP contract contains 34 tools and 34,687 serialized characters.
+The legacy MCP contract contains 34 tools and 34,738 serialized characters.
 The former frontend skill plus mandatory references contained 44,270
 characters. A median pre-task overhead near 20.6k tokens, and observed turns of
 roughly 28k tokens before a complete plan, are therefore plausible.
@@ -41,8 +43,8 @@ Current hard limits:
 | Surface | Limit |
 | --- | ---: |
 | MCP core tool count | 6 |
-| MCP core serialized contract | 16,000 characters |
-| Selected `frontend-task` skill | 8,000 characters |
+| MCP core serialized contract | 15,925 characters (under the 16,000-character cap) |
+| Selected `frontend-task` skill | 10,000 characters maximum |
 | Always-loaded skill references | 0 |
 | Initial Atlas task context | 3,600 characters |
 | Atlas-attributable overhead target | 8k tokens p95 |
@@ -74,8 +76,9 @@ from task context and tool responses.
 - local visual exploration, diagnostics, and private measurements.
 
 The GUI is read/review oriented. Local rescans, index updates, memory decisions,
-and project/worktree management remain permitted product operations; none of
-them starts a model.
+and inspection/opening of existing checkouts remain permitted product
+operations; it does not create branches or worktrees, and none of them starts a
+model.
 
 ## Native daily flow
 
@@ -90,22 +93,32 @@ them starts a model.
    confirmed source must carry its exact current receipt before repository scan.
    It refreshes stale indexes and returns bounded candidates, active receipt/
    relationship IDs, findings, and expandable handles for that evidence version.
-5. Codex expands only unresolved evidence, makes the reuse decision, proposes a
-   size-proportional plan, and calls `atlas_lock_change_scope` with the decision
-   and exclusions before editing.
-6. The same native Codex task remains the sole writer, implements the smallest
+5. For medium/large work, Codex records the immutable evidence contract after
+   preparation: criteria, decisions, constraints, exclusions and bounded
+   handles. It expands only unresolved evidence. Authoritative Figma work first
+   records a receipt-bound semantic snapshot of the exact identity and coverage.
+6. Codex makes the reuse decision, proposes a size-proportional plan, calls
+   `atlas_lock_change_scope`, and checkpoints the initial continuation against
+   that lock before editing. The same native task remains the sole writer,
+   checkpoints later semantic milestones, and implements the smallest
    locked surface, runs size/risk-proportional checks and review, calls
    `atlas_validate_change`, and inspects the complete staged, unstaged,
    untracked, renamed, and deleted task delta. Visual tasks attach a structured
    review bound to the locked visual contract after temporary cleanup.
-7. `atlas_task_state` action `complete` records the technical result and
-   verification without writing Project Memory.
-8. `atlas_memory` may review one exact proposal. Every mutating action first
+7. Changed authoritative Figma identity or required coverage requires a named
+   relock window and a linked successor; raw Figma bodies never enter task evidence.
+8. Before a successful technical close, the contract acceptance criteria,
+   required decisions, current validation evidence and applicable independent
+   review are complete. `atlas_task_state` action `complete` records the
+   technical result and verification without writing Project Memory.
+9. `atlas_memory` may review one exact proposal. Every mutating action first
    returns a no-write, payload-bound consent scope/token and only an unchanged
    second call after matching literal user approval may write. Technical
    completion is never memory consent.
-9. A continuation reuses the same task ID and compact capsule. A different
-   repository or incoherent objective starts a different native task.
+10. A continuation reuses the same task ID and compact capsule. Without an ID,
+    recovery is automatic only for one active task with the same exact checkout;
+    multiple candidates require host selection. A different repository or
+    incoherent objective starts a different native task.
 
 ## Six-tool MCP core
 
@@ -115,7 +128,7 @@ them starts a model.
 | `atlas_expand_context` | Expand one named code/design/memory/receipt handle in concise or detailed form. |
 | `atlas_lock_change_scope` | Persist a versioned Git-baseline lock with reuse/create/not-applicable decision, rationale, primary component/surface, references, exact allowed files, derived APIs/impact and exclusions before editing. |
 | `atlas_validate_change` | Validate the complete staged/unstaged/untracked/deleted/renamed delta against the active lock, project fingerprint, reuse and confirmed API operations; block on contract drift. |
-| `atlas_task_state` | Resume, attach bounded source/visual evidence or a structured visual review, save one semantic checkpoint/blocker, or record an immutable technical outcome with no memory write. It does not prove external delivery. |
+| `atlas_task_state` | Resume, record bounded evidence contracts/continuations/Figma snapshots, attach source/visual evidence or a structured review, save a semantic checkpoint/blocker, or record an immutable technical outcome with no memory write. It does not prove external delivery. |
 | `atlas_memory` | Review one exact proposal, or use a two-call, payload-bound consent receipt to `record-episodic`, `propose-canonical`, `apply-canonical`, or `reject-proposal`. |
 
 The core tools compose existing runtime logic. Administrative scanning, Figma
@@ -180,25 +193,26 @@ monolith exceptions.
 
 ### Recommendation and timing
 
-Independent review provides enough signal for large/high-risk changes and for
-medium shared/API/stateful surfaces when it is evidence-bound. It is not worth
-the duplicated context, latency and false positives on every small change.
-Make it size-and-risk based, not a universal standard and not a GUI option.
+Independent review provides enough signal for medium, large, and high-risk
+changes when it is evidence-bound. It is not worth the duplicated context,
+latency and false positives on every small change. Make it size-and-risk based,
+not a universal standard and not a GUI option.
 
-The v2 MCP and private telemetry foundations must be present before enabling a
-measured rollout. They now provide the required boundary; reviewer activation
-should remain evaluation-gated until real-task success, cost and unsupported-
-finding rates are known. Atlas must never create, route, resume, cancel, or
-grant permissions to a reviewer.
+The v2 MCP and private telemetry foundations now provide the required boundary.
+The size/risk policy enables reviewer use for medium, large, and high-risk work;
+continue measuring real-task success, cost, and unsupported-finding rates and
+revise the thresholds if evidence warrants it. Atlas must never create, route,
+resume, cancel, or grant permissions to a reviewer.
 
 ### Native roles
 
 - The main native Codex task is coordinator and sole writer. It confirms source
   authority, acceptance criteria, reuse, `ChangeSurface`, fallbacks and
   exclusions, then implements after human approval.
-- Optional recovery agents are read-only and used only for measured context
-  pressure or genuinely independent domains. They return evidence handles;
-  they do not own scope or implementation.
+- When the host uses recovery/review agents, they are read-only and used only
+  for measured context pressure or genuinely independent domains. They return
+  evidence handles; Atlas does not create or schedule them, and they do not own
+  scope or implementation.
 - An independent reviewer starts after targeted tests, lint, typecheck and/or
   build. It receives a clean, bounded review contract, can inspect the local
   diff and run tests, but cannot edit.
@@ -211,7 +225,7 @@ grant permissions to a reviewer.
 | Tier | Trigger | Review |
 | --- | --- | --- |
 | Small/low | Localized change, no shared contract/security/a11y-critical path, deterministic checks pass | No agent reviewer; deterministic validation plus human diff review. |
-| Medium | Shared component, stateful UI, API integration, migration of mocks, or meaningful multi-file surface | One correctness/architecture reviewer when that surface warrants independent review. |
+| Medium | Shared component, stateful UI, API integration, migration of mocks, or meaningful multi-file surface | One independent correctness/architecture reviewer. |
 | High | Auth/security, destructive behavior, authoritative API change, broad design-system change, or large `ChangeSurface` | Up to three narrow reviewers: correctness/architecture, UX-a11y-fidelity, security/API. |
 
 Do not create a mega-reviewer. A specialist is activated only when its domain

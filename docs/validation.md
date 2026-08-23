@@ -50,6 +50,26 @@ Legacy ChangeSurface v1 data is never trusted as an implementation lock. Loading
 it preserves intake/source context but returns the task to `prepared`, discards
 derived validation/review/completion state, and requires an explicit v2 relock.
 
+## Durable acceptance evidence
+
+For a task with an evidence contract, `result: success` also requires the
+latest continuation to match that contract and the active ChangeSurface, all
+required criteria to be satisfied, required decisions to be resolved, and the
+current `atlas_validate_change` reference to be attached. Task-owned visual
+handles, including an authoritative Figma semantic snapshot when used, are
+checked before close. This gate does not turn a `partial` or `failure` result
+into an error when those honestly describe the state.
+
+Independent correctness/architecture review is a native `frontend-task` gate,
+not an Atlas task-scheduler receipt. The coordinator must complete and verify
+that review before requesting `success`; Atlas does not create or supervise the
+reviewer.
+
+Evidence contracts, continuations, and Figma snapshots are immutable and
+content-addressed. Recovery without a task ID is allowed only when the current
+checkout exactly matches one safe active task; the host must choose when there
+is ambiguity.
+
 ## Telemetry privacy
 
 The optional receiver binds to `127.0.0.1`. Managed Codex configuration fixes
@@ -80,4 +100,8 @@ platforms. A failed Linux end-to-end run retains its Playwright report and test
 artifacts for seven days when those files exist.
 
 Independent agent review is an additional risk-based evaluator, never a
-replacement for deterministic checks or human merge review.
+replacement for deterministic checks or human merge review. Medium work uses
+one independent read-only review; large/high-risk work uses at least one and
+only the specialists justified by the changed boundary. Small work needs one
+only for a public, security, accessibility, data, or deployment boundary. Fix
+blockers, rerun affected checks, and stop after at most two review passes.

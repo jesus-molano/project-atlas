@@ -1,6 +1,8 @@
 # Architecture
 
-Project Atlas separates deterministic evidence from model execution.
+Project Atlas separates deterministic evidence from model execution. It is a
+local sidecar, not a task orchestrator: Codex and `frontend-task` execute the
+work, while Orca owns workspaces and multi-agent orchestration.
 
 ```mermaid
 flowchart LR
@@ -24,13 +26,15 @@ flowchart LR
 - `design`: design normalization, variables and snapshots;
 - `memory`: memory formats and indexing;
 - `store`: SQLite persistence, evaluations and usage traces;
-- `runtime`: orchestration of deterministic scanners/adapters/receipts;
+- `runtime`: composition of deterministic scanners/adapters/receipts and
+  durable evidence artifacts;
 - `mcp`: core and temporary legacy tool exposure;
 - `cli`: project, storage, telemetry and GUI commands;
 - `apps/viewer`: local evidence/review UI and local API.
 
-There is no agent package. MCP tools call runtime functions; prompts do not
-reimplement scanner, store or adapter logic.
+There is no agent, ticket, scheduler, or worktree-management package. MCP tools
+call runtime functions; prompts do not reimplement scanner, store or adapter
+logic.
 
 ## Profiles
 
@@ -51,6 +55,12 @@ Atlas stores data outside checkouts under the centralized local storage root.
 Logical-project identity and checkout identity are distinct; code graphs and
 local decisions remain checkout-bound, while explicitly approved durable memory
 can be logical-project scoped.
+
+Medium and large tasks add immutable, content-addressed evidence contracts and
+continuation bundles. Exact-checkout recovery may select a task automatically
+only when one safe active candidate exists; otherwise the host must select it.
+Figma semantic snapshots are task-scoped evidence: they retain bounded IDs,
+styles, variants, states and asset references, not raw Figma responses.
 
 ## Trust boundary
 

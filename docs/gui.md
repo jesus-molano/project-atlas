@@ -15,15 +15,17 @@ The GUI is a local evidence and review workspace. It contains no model runner.
 - **Connections** shows source/index health and exact versus estimated usage.
 - **Settings** controls local presentation and private evaluation data.
 
-Project selection, branch/worktree creation, local rescans, receipt review and
-memory decisions remain explicit local operations. They do not call a model.
+Project selection, inspection/opening of existing checkouts, local rescans,
+receipt review and memory decisions remain explicit local operations. The GUI
+does not create branches or worktrees, and none of these operations call a
+model.
 
 ## Model-execution boundary
 
 Native Codex owns task text, planning, permissions, implementation and
-continuation. The GUI exposes no prepare/implement/continue/retry/cancel action,
-no thread state and no Codex adapter health. Removed `/api/agent/runs*` routes
-return 404.
+continuation; Orca owns workspace and multi-agent orchestration. The GUI exposes
+no prepare/implement/continue/retry/cancel action, no thread state and no Codex
+adapter health. Removed `/api/agent/runs*` routes return 404.
 
 ## Privacy
 

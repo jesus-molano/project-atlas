@@ -15,10 +15,10 @@ human decision?” Model execution is deliberately outside the product.
 
 ## Local mutations
 
-The workspace may select projects, create reviewed branch worktrees, refresh
+The workspace may select projects, inspect or open existing checkouts, refresh
 indexes, record Action Center resolutions, approve memory and clear local
-metrics. Each mutation is bound to the local GUI session and the active
-project/checkout. None authorizes model execution.
+metrics. It cannot create branches or worktrees. Each mutation is bound to the
+local GUI session and active project/checkout. None authorizes model execution.
 
 ## Search
 
@@ -30,4 +30,5 @@ a model prompt automatically.
 
 Users start `$frontend-task` in native Codex. Atlas core tools return bounded
 handles and receipts to that task. The GUI can later inspect resulting outcomes
-and memory proposals, but cannot launch or continue the task.
+and memory proposals, but cannot launch or continue the task. Orca, not Atlas,
+owns workspace and multi-agent orchestration.

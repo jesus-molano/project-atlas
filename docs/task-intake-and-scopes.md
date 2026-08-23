@@ -23,21 +23,30 @@ checkout preflight before any deep scan or retrieval.
 5. Call `atlas_prepare_task` once for the confirmed evidence version. It returns
    bounded candidates, findings, receipt IDs, relations, and expandable
    handles, not full source bodies.
-6. Expand only named evidence needed for the decision. Decide `reuse`, `extend`,
+6. For medium/large work, record the immutable task evidence contract: original
+   objective, acceptance criteria, sources, constraints, exclusions and bounded
+   handles. Its successor must link to the prior version.
+7. Expand only named evidence needed for the decision. Decide `reuse`, `extend`,
    `compose`, `extract-and-reuse`, `create`, or `not-applicable` before locking.
-7. Call `atlas_lock_change_scope` with that decision, rationale, exactly one
+8. When Figma is authoritative, record a bounded semantic snapshot bound to the
+   exact receipt and `fileKey`/`nodeId`/`version`/`lastModified` tuple before
+   locking. After a lock, record new evidence only through a named relock window;
+   changed identity or required coverage needs a linked successor.
+9. Call `atlas_lock_change_scope` with that decision, rationale, exactly one
    existing `primary_component` or planned non-component `primary_surface`,
    exact repository-relative allowed files, and explicit exclusions before the
    first edit. API/consumer impact is derived from the graph and authoritative
    receipts; it is not a caller-supplied assertion.
-8. Implement and review in native Codex. Use focused checks for small changes,
-   a reviewed plan and broader applicable checks for medium changes, and staged
-   implementation plus domain-specific independent review for large/high-risk
-   changes.
-9. Run repository validation and `atlas_validate_change`, then close the
+10. Checkpoint the initial continuation against the new lock before the first
+   edit, so criteria and the next safe action survive handoff or compaction.
+11. Implement and review in native Codex. Use focused checks for small changes;
+   medium changes require one independent read-only review; large/high-risk
+   changes require at least one, plus only justified specialists. Checkpoint the
+   continuation at semantic milestones, not every tool call.
+12. Run repository validation and `atlas_validate_change`, then close the
    technical task with `atlas_task_state` action `complete`.
-10. Treat memory as a separate, opt-in flow. Only a literal request authorizes
-    one named `atlas_memory` action and target.
+13. Treat memory as a separate, opt-in flow. Only a literal request authorizes
+   one named `atlas_memory` action and target.
 
 If task-relevant source receipts, checkout identity, graph state, objective, or
 locked scope changes materially, record the named invalidation and rerun
@@ -79,13 +88,15 @@ reported explicitly and can be narrowed or replaced when its operations matter.
 | --- | --- | --- |
 | Logical project | component identities, explicitly approved durable memory, confirmed design metadata | explicit supersession/promotion |
 | Checkout | exact graph, scan state, unmerged validation and local hypotheses | rescan or checkout change |
-| Task | objective, source decisions/receipts, reuse decision, locked surface, semantic checkpoints and technical outcome | compact close/TTL; no transcript and no implicit memory |
+| Task | objective, evidence contract, source decisions/receipts, reuse decision, locked surface, semantic continuations, Figma snapshots and technical outcome | compact close/TTL; no transcript and no implicit memory |
 
 The task capsule is bounded and resumes by task ID through `atlas_task_state`
 action `resume`. It stores an integrity-checked reference to the full immutable
 objective, its compact projection, governance classification, decision/receipt/
 handle IDs, covered and remaining scope, checkout identity, budget, blockers,
-and next safe action. Checkpoints are semantic, not per tool call.
+and next safe action. Without an ID, recovery is allowed only for a unique active
+task with the same exact checkout identity; ambiguity requires selection.
+Checkpoints are semantic, not per tool call.
 
 Component decisions are idempotent by task ID, decision type and surface.
 Superseded decisions remain in history, but only the active relevant decision

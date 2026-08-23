@@ -23,7 +23,7 @@ response has a measured character hard cap.
   change surface unless an explicit graph, checkout, objective, scope, or
   source-ledger invalidation is recorded;
 - ChangeSurface retains at most eight prioritized evidence handles total;
-  visual contracts and Figma assets precede code/context references, only
+  evidence contracts and visual/Figma evidence precede code/context references, only
   asset metadata enters context, and SVG/binary bodies never do;
 - optional delegation admits at most two concurrent read-only jobs, each with
   an 800 to 4,000 character result; combined coordinator injection is capped at
@@ -71,9 +71,10 @@ The serialized response is tested never to exceed `budgetChars`.
    exclusions before editing.
 5. `atlas_validate_change`: compare the local diff with that lock and return
    only evidence-backed findings.
-6. `atlas_task_state`: persist a semantic `checkpoint`, rehydrate via `resume`,
-   or mark technical `complete`; never call it per action or based on a context
-   percentage.
+6. `atlas_task_state`: record the medium/large evidence contract, persist a
+   semantic continuation checkpoint, semantic Figma snapshot, rehydrate via
+   `resume`, or mark technical `complete`; never call it per action or based on
+   a context percentage.
 7. `atlas_memory`: review one exact proposal or perform one consent-bound
    mutation after technical close or an explicit standalone memory request.
 8. CLI/GUI diagnostics or legacy export: only when explicitly requested; they
@@ -95,3 +96,8 @@ shows selected sources, characters/tokens, retrieval telemetry, receipt IDs,
 and a progressively disclosed resume capsule before a handoff is copied to
 Codex. Indexing cost is amortized in SQLite/local artifacts and is never
 re-injected into each task.
+
+Contracts, continuations and Figma snapshots are stored outside the normal
+prompt budget. The workflow receives opaque handles and expands only the item
+needed for the next decision. This preserves recovery context across host
+compaction without treating storage as an unlimited prompt cache.

@@ -12,8 +12,10 @@ or an Atlas continuation. Skip small edits, research, diagnosis, and review.
 Name the decisive signal. Ask only about consequential ambiguity, not whether
 to use Atlas.
 
-Use a Codex task. Atlas supplies bounded evidence; it must not create,
-route, resume, cancel, or grant permissions.
+Use a Codex task. Atlas supplies bounded evidence and recovers its durable
+continuation state. It must not create, route, resume, supervise, or cancel
+native tasks, agents, tickets, terminals, branches, or worktrees, and it never
+grants permissions.
 
 ## Load references only when active
 
@@ -54,12 +56,17 @@ objective, resolved decisions, receipts/relations, and a prior ID only for the
 same task. Keep its ID and handles. Atlas hash-binds objective/governance;
 later evidence may raise but never lower it.
 
+For medium/large or resumable work, call `atlas_task_state` action
+`record-contract` after preparation and before locking. Persist observable
+criteria, resolved/open product decisions, constraints, exclusions, exact
+source receipts, and selected context handles. A changed contract is a new
+immutable revision and must name its previous handle.
+
 If preparation returns `needs-confirmation`, no repository scan or connector
 retrieval occurred. Resolve the named decisions and repeat with the same task
 ID. Otherwise repeat only for named graph/objective/source/visual invalidation.
 
-Expand only one named unresolved handle. If Atlas is unavailable, perform the
-same repository-first reasoning manually.
+Expand only one named unresolved handle.
 
 For a transient OpenAPI 502/503/504, retry once. Then prefer a current receipt,
 generated clients/types/tests, or a supplied local contract. Ask before using
@@ -82,9 +89,6 @@ to freeze it without alternatives, or in bounded exploration mode only when
 authority is unresolved. Every visual implementation attaches its contract via
 `atlas_task_state` `attach-evidence` before locking; later evidence needs relock.
 
-For small work, keep a compact intent, decision, scope, and checks. For larger
-work, use the brief and obtain required approval.
-
 Call `atlas_lock_change_scope` only after the decision. `reuse`, `extend`,
 `compose`, and `extract-and-reuse` require an existing `primary_component`
 among selected IDs. `create` uses a planned surface/files, no selected
@@ -92,6 +96,13 @@ component, and rejected candidates or a no-viable-candidate rationale;
 `not-applicable` uses a non-component surface. Pass at most two references,
 explicit exclusions, and only confirmed OpenAPI impact. Resolve required
 findings before edit; broaden only after named invalidation.
+
+Immediately after locking medium/large work and before the first edit, create
+the initial `checkpoint-continuation` against the latest contract and include
+`change_surface_lock_id`. Include every governing `visual:` and
+`figma-snapshot:` handle in `visual_handles`. Report every criterion exactly
+once, normally as `pending`, plus bounded covered/remaining scope and one next
+action.
 
 ## 4. Implement narrowly
 
@@ -102,12 +113,16 @@ findings before edit; broaden only after named invalidation.
   silently. Do not explore for non-visual work, established patterns, or
   exact-design fidelity.
 - Use the same native task. The main native Codex task is coordinator and sole writer;
-  optional independent-evidence delegates are read-only.
+  delegates are read-only.
 
-Use `atlas_task_state` only to resume, attach verified evidence, govern a
-confirmed Figma production asset through capture/materialization under its
-ChangeSurface, record a blocker, or save a semantic checkpoint not captured
-elsewhere. Never poll or checkpoint after every call.
+Use `atlas_task_state` only to recover exact-checkout evidence, record/revise
+the evidence contract, checkpoint criterion progress, attach verified
+evidence, govern a confirmed Figma production asset through
+capture/materialization under its ChangeSurface, record a blocker, or save a
+semantic checkpoint. Checkpoint after a completed batch, material decision,
+validation, or before handoff/context compaction. After lock include
+`change_surface_lock_id`; after validation also include its exact
+`validation:<lockId>:<deltaHash>`. Never checkpoint after every call.
 
 ## 5. Validate and review by size/risk
 
@@ -120,30 +135,46 @@ pre-clean review while bytes exist; clean the session, then attach the final
 review with identical handles/hashes and cleanup receipt. Complete unique
 viewport/state coverage and cleanup are mandatory.
 
-- small: no agent reviewer; run focused tests and required fast checks;
-- medium: one read-only correctness/architecture reviewer when shared/API/state
-  warrants it, plus relevant focused tests, lint, typecheck, or build;
-- large/high: up to three narrow read-only reviewers plus full applicable gates
+- small/low: no agent reviewer unless the change crosses a public, security,
+  data, accessibility-critical, or deployment boundary;
+- medium: one independent read-only correctness/architecture reviewer, plus
+  relevant focused tests, lint, typecheck, or build;
+- large/high: at least one independent read-only reviewer; use one correctness
+  reviewer and at most two additional specialists, three total, plus applicable gates
   and integration/e2e or visual evidence for correctness, UX/accessibility,
   and security/API only when their domains are present.
 
 Require file/line evidence for findings. Verify them, rerun affected checks,
-and stop after two review passes.
+and stop after two review passes. Fix blocking findings and request one fresh
+review before claiming success. If a blocker remains after the second pass,
+close as blocked or partial instead of silently dropping it.
 
 ## 6. Close technically, then handle memory separately
 
-Call `atlas_task_state` action `complete` after implementation, validation,
+Call `atlas_task_state` with action `complete` after implementation, validation,
 review, and cleanup. Include result, verification, reuse decision, changed
 files, risks, and delivery. Completion is an immutable technical outcome, not
 proof of external delivery, and must not write Project Memory.
+
+When an evidence contract exists, success requires its latest continuation,
+every required criterion satisfied by task-owned evidence, no open product
+decision, and bindings to the active ChangeSurface and current validation.
+Failure or partial closeout records what remains without claiming acceptance.
 
 Completion is first-writer-wins: HEAD, lock/delta, objective, sources, handles,
 and final review hash are bound durably. Identical interrupted/expired retries
 converge; changed payload or evidence is rejected.
 
 Default to no memory write. Read memory-closeout only for requested retention
-or a concrete candidate; it owns proposal review and the mandatory two-call,
+or a concrete candidate. Use `atlas_memory` action `review-proposal` for one
+exact pending proposal; memory-closeout owns the mandatory two-call,
 literal-consent protocol for every mutation.
+
+Use `$to-tickets` only when the user requests an approved delivery backlog or
+the approved specification has multiple independently reviewable units that
+need external coordination. Ticket decomposition is an optional output after
+the brief; it is never Atlas runtime state and does not make Atlas an
+orchestrator.
 
 Return behavior/files changed, verification, review/delivery state, unresolved
 risks, and memory status. Never commit, push, create a PR, or update an external

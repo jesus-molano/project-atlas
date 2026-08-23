@@ -6,8 +6,8 @@ Generated deterministically from the current checkout.
 | Surface | Current checkout |
 | --- | ---: |
 | Workspace packages | 10 |
-| Test/spec files | 94 |
-| Viewer Vue files included by self-scan | 16 |
+| Test/spec files | 100 |
+| Viewer Vue files included by self-scan | 15 |
 | MCP core tools (default) | 6 |
 | MCP legacy tools (temporary compatibility profile) | 34 |
 

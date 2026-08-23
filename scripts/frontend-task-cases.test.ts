@@ -304,8 +304,8 @@ describe("frontend-task capability routing fixtures", () => {
       ),
     ]);
 
-    expect(metadata).toMatch(/allow_implicit_invocation:\s*false/i);
-    expect(skill.length).toBeLessThanOrEqual(8_000);
+    expect(metadata).toMatch(/allow_implicit_invocation:\s*true/i);
+    expect(skill.length).toBeLessThanOrEqual(10_000);
     expect(skill).toMatch(/call `atlas_prepare_task` once/i);
     expect(skill).toMatch(/Classify only sources that are supplied or materially required/i);
     expect(skill).toMatch(/bare\s+reference stays `pending`/i);
@@ -313,20 +313,22 @@ describe("frontend-task capability routing fixtures", () => {
     expect(skill).toMatch(/Missing\s+optional evidence is a warning, not a blocker/i);
     expect(skill).toMatch(/transient OpenAPI 502\/503\/504, retry once/i);
     expect(skill).toMatch(/call `atlas_lock_change_scope`/i);
-    expect(skill).toMatch(/Plan mode and filesystem permissions belong to native Codex/i);
+    expect(skill).toMatch(/action\s+`record-contract`/i);
+    expect(skill).toMatch(/initial `checkpoint-continuation`/i);
     expect(skill).toMatch(/same native task/i);
-    expect(skill).toMatch(/Use `atlas_task_state` only to resume/i);
+    expect(skill).toMatch(/recover exact-checkout evidence/i);
     expect(skill).toMatch(/call `atlas_validate_change`/i);
     expect(skill).toMatch(/main native Codex task is coordinator and sole writer/i);
     expect(skill).toMatch(/small\/low: no agent reviewer/i);
-    expect(skill).toMatch(/medium: one read-only correctness\/architecture reviewer/i);
-    expect(skill).toMatch(/high: up to three narrow read-only reviewers/i);
-    expect(skill).toMatch(/Stop after two review passes/i);
+    expect(skill).toMatch(/medium: one independent read-only correctness\/architecture reviewer/i);
+    expect(skill).toMatch(/large\/high: at least one independent read-only reviewer/i);
+    expect(skill).toMatch(/stop after two review passes/i);
     expect(skill).toMatch(
-      /Atlas supplies bounded evidence; it must not create,\s*route, resume, cancel, or grant permissions/i,
+      /must not create, route, resume, supervise, or cancel\s*native tasks, agents, tickets, terminals, branches, or worktrees/i,
     );
-    expect(skill).toMatch(/tight file\/line evidence/i);
+    expect(skill).toMatch(/Require file\/line evidence/i);
     expect(skill).toMatch(/Call `atlas_task_state` with action `complete`/i);
+    expect(skill).toMatch(/Use `\$to-tickets` only when the user requests/i);
     expect(skill).toMatch(/Use `atlas_memory` action `review-proposal`/i);
     expect(skill).not.toMatch(/atlas_record_outcome/i);
     expect(skill).toMatch(/invoke `\$visual-direction` explicitly/i);

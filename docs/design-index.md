@@ -291,6 +291,21 @@ it. A caller may submit its authorized response as `figma-variables-rest`;
 Atlas never receives or persists the token. Atlas never requests
 `file_variables:write` and never creates, edits, or publishes Figma variables.
 
+## Task semantic snapshots
+
+The Design Index is reusable orientation data. A task that depends on final
+Figma fidelity also records a separate, immutable semantic snapshot through
+`atlas_task_state`: the exact receipt-bound
+`fileKey`/`nodeId`/`version`/`lastModified` identity, plus bounded nodes,
+components, styles, states and asset references. It never stores raw MCP
+responses, XML, SVG, binary bytes, localhost URLs, or tokens.
+
+The snapshot states what was covered or omitted. It is not a claim that an
+unread Figma subtree was inspected. If the confirmed receipt, any exact identity
+field, or required scoped semantic content changes, the prior snapshot is stale
+for final use and the workflow records a linked successor. Context receives its
+opaque handle and expands it only when that exact design decision needs detail.
+
 ## Optional evidence
 
 Code Connect mappings improve Figma-to-code evidence through component name and

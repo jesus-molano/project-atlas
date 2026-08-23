@@ -1,8 +1,9 @@
 # Optional retrieval delegation
 
-Project Atlas does not recommend subagents by default. Delegation is an
-optional context-pressure control, not a source-discovery or implementation
-strategy.
+Project Atlas does not recommend subagents by default. Delegation is a
+host-level optional context-pressure control, not a Project Atlas source-
+discovery or implementation strategy. Codex/Orca may use it; Atlas neither
+creates, schedules, supervises, nor resumes delegates.
 
 ## Activation gate
 
@@ -25,8 +26,8 @@ The plan reports both costs:
   coordination overhead per delegate.
 
 Delegation usually increases total work. It activates only when that extra work
-materially lowers coordinator-context pressure. At most two delegates run
-concurrently.
+materially lowers coordinator-context pressure. The host may run at most two
+delegates under this documented budget.
 
 ## Authority boundary
 

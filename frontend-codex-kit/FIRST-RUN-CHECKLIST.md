@@ -27,6 +27,9 @@
       select `frontend-task` automatically and names the decisive signal.
 - [ ] Use `$frontend-task Implementa este cambio localizado: <description>` to
       force Atlas; use `/plan $frontend-task ...` for an explicit reviewed gate.
+- [ ] Confirm the host workflow is clear: Codex/`frontend-task` implement,
+      Orca manages workspaces/orchestration, and Atlas only retains bounded
+      local evidence.
 
 ## First task acceptance check
 
@@ -36,6 +39,9 @@
       until they are confirmed, omitted, replaced, or marked unavailable.
 - [ ] Once preflight is resolved, `atlas_prepare_task` refreshes Code Atlas as
       needed; no manual bootstrap command was required.
+- [ ] A medium or large task records its immutable evidence contract after
+      preparation: acceptance criteria, source decisions, constraints,
+      exclusions and recovery handles.
 - [ ] Existing allowed memory is indexed/reused without loading every item.
 - [ ] Atlas proposes existing components before new component creation.
 - [ ] Each candidate includes source/scope and a reason.
@@ -52,8 +58,8 @@
       original file/node identity.
 - [ ] An unresolved existing component/section compares no more than two small
       directions; greenfield or explicit redesign compares three.
-- [ ] One selected DesignContract produces one implementation worktree and one
-      production solution.
+- [ ] A selected DesignContract leads to one production solution in the
+      checkout/workspace chosen by the host; Atlas does not create it.
 - [ ] Preview, sandbox, contact-sheet, and review-capture paths stay outside the
       repository and are purged on selection/close; cleanup failures remain
       visible and retryable.
@@ -61,14 +67,27 @@
       captures exist, then a final review for the locked contract with full
       capture SHA256s, complete state matrix, unique viewport/state pairs, and
       a task-bound `clean` receipt before close.
+- [ ] An authoritative Figma task records a bounded semantic snapshot before
+      locking. It binds the receipt to `fileKey`/`nodeId`/`version`/
+      `lastModified`, with explicit coverage/omissions. After locking, new Figma
+      evidence requires an explicit relock window and a linked successor when
+      identity or required coverage changed.
 - [ ] The reuse/extend/compose/extract/create/not-applicable decision is visible
       and persisted by `atlas_lock_change_scope` before the first edit.
+- [ ] The initial continuation is checkpointed against that lock before the
+      first edit. Later semantic milestones write linked checkpoints rather than
+      relying on conversation history. Resuming without a task ID succeeds only
+      for one active task with the same exact checkout; otherwise the host selects it.
 - [ ] The final implementation runs repository validation and
       `atlas_validate_change` against the complete task delta.
 - [ ] Task context reports its hard budget and does not dump every source.
 - [ ] `atlas_validate_change` surfaces only evidence-backed conflicts/warnings.
 - [ ] Technical close uses `atlas_task_state` action `complete` and writes no
       memory.
+- [ ] Atlas rejects a `success` close when required contract criteria,
+      decisions, or current validation evidence remain incomplete. The native
+      workflow completes its applicable independent review before requesting
+      success; use `partial` or `failure` when that is the honest outcome.
 - [ ] A proposal can be reviewed by exact ID, but a durable lesson is only
       recorded/proposed/applied/rejected through the matching consent-bound
       `atlas_memory` action; generic completion approval does not count.
@@ -76,9 +95,11 @@
       bounded scope plus an issued token/receipt; only an unchanged second call
       after literal approval writes and returns a consumed receipt.
 - [ ] `pnpm atlas -- "<repo>"` exposes the evidence/review GUI and no model
-      execution controls or task-execution routes.
+      execution controls, task-execution routes, or branch/worktree creation.
 - [ ] Small, medium, and large fixtures receive proportionate planning,
       validation, and independent review.
+- [ ] `to-tickets`, if used after an approved specification, produces an
+      optional human delivery backlog and does not become an Atlas task queue.
 
 ## Optional GUI check
 

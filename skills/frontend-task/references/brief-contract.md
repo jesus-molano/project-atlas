@@ -24,7 +24,17 @@ classification:
   risk: low | medium | high
   reasons: [Evidence-backed reasons]
 acceptance:
-  - Observable criterion
+  contract_handle: Immutable `contract:` handle after preparation
+  previous_contract_handle: Prior revision or none
+  criteria:
+    - id: Stable criterion ID
+      statement: Observable criterion
+      required: true | false
+      source_refs: [Task-owned receipt or context handles]
+  decisions:
+    - id: Stable product decision ID
+      status: open | resolved | deferred
+      answer: Exact resolved answer or none
 sources:
   ledger:
     - kind: jira | confluence | figma | github | openapi | other
@@ -77,6 +87,10 @@ visual_direction:
   visual_handle: Selected opaque visual handle or none
   contract_hash: Selected contract hash or none
   cleanup: clean | active | cleanup-pending | not-applicable
+  figma_snapshot:
+    handle: Immutable `figma-snapshot:` handle or none
+    identity: Exact fileKey, nodeId, version, and lastModified
+    coverage: Explicit complete/partial/not-requested categories
 unknowns:
   blocking:
     - Only unresolved decisions that materially change implementation
@@ -95,6 +109,12 @@ delivery:
   requested: working-tree | commit | push | pull-request
   external_write_authorized: true | false
 resume:
+  continuation_handle: Latest immutable `continuation:` handle or none
+  criterion_progress:
+    - criterion_id: Stable contract criterion ID
+      status: pending | satisfied | blocked | deferred
+      evidence_refs: [Task-owned expandable handles]
+      validation_refs: [Exact current Atlas validation reference]
   covered: [Bounded completed scope]
   remaining: [Bounded remaining scope]
   next_safe_action: One action
@@ -114,9 +134,11 @@ memory:
 | `sources.ledger[*]` | `sources[*]`; a newly retrieved provider result goes in that source's `evidence`, including stable `observed_at` |
 | `sources.receipt_ids` | Top-level `atlas_prepare_task.receipt_ids`, only for task receipts Atlas already persisted |
 | `sources.relations` | `atlas_prepare_task.source_relations` |
+| `acceptance.*` | `atlas_task_state` action `record-contract`; changed semantics require `previous_handle` |
 | `reuse.*`, `scope.primary_*`, `reference_components`, `allowed_files`, `exclusions` | `atlas_lock_change_scope`; selected/rejected component values are exact graph IDs |
 | `scope.derived_apis`, `scope.derived_impact` | Read-only output derived by Atlas; never pass these as caller assertions |
 | `validation.*` | Repository commands first, then `atlas_validate_change` |
+| `resume.*` | `atlas_task_state` action `checkpoint-continuation`; report every contract criterion exactly once |
 | `technical_close` | `atlas_task_state` action `complete`; the record is not proof of commit/push/PR/deploy |
 | `memory` | Independent `atlas_memory` flow; never implied by technical close |
 
@@ -139,7 +161,10 @@ Before code, report only:
 6. one evidence-backed blocking question, if needed.
 
 Do not include memory closeout before implementation and verification. Do not
-paste full source documents, raw indexes, Figma trees, or receipt bodies.
+paste full source documents, raw indexes, Figma trees, or receipt bodies. Keep
+only semantic Figma snapshot fields and opaque handles; retrieve raw provider
+context again only when the exact identity changed or recorded coverage is
+insufficient.
 
 ## Gate examples
 

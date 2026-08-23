@@ -13,7 +13,8 @@ Medium task with confirmed sources:
 ```text
 /plan $frontend-task Implementa <ISSUE-KEY>. Confirmo que uses este ticket y
 sus enlaces materiales de Confluence/Figma: <links>. Decide reutilización y
-bloquea el alcance antes de editar.
+bloquea el alcance antes de editar. Registra criterios de aceptación y un
+checkpoint de continuación al cerrar cada hito semántico.
 ```
 
 Large feature or migration:
@@ -21,7 +22,8 @@ Large feature or migration:
 ```text
 /plan $frontend-task Prepara e implementa <objetivo amplio>. Divide el trabajo
 en superficies verificables, identifica fuentes autoritativas, riesgos y
-exclusiones, y usa revisión independiente solo para los dominios aplicables.
+exclusiones, registra el contrato de evidencia, y usa revisión independiente
+proporcional antes del cierre técnico.
 ```
 
 Direct confirmed Figma node:
@@ -29,7 +31,8 @@ Direct confirmed Figma node:
 ```text
 /plan $frontend-task Este frame es el objetivo visual confirmado:
 <FIGMA-NODE-URL>. Conserva su identidad exacta, crúzalo con Atlas y reutiliza
-componentes existentes.
+componentes existentes. Conserva un snapshot semántico acotado y renuévalo si
+cambia la evidencia Figma confirmada.
 ```
 
 General Figma discovery:
@@ -52,8 +55,9 @@ Compact Project Atlas context:
 
 ```text
 /plan $frontend-task Prepara esta tarea con un presupuesto pequeño de contexto.
-Expande solo handles necesarios, decide reutilización antes del lock y valida
-el delta completo contra ese alcance.
+Expande solo handles necesarios, decide reutilización antes del lock, conserva
+el contrato/continuación por handles y valida el delta completo contra ese
+alcance.
 ```
 
 Explore unresolved visual direction:
@@ -76,4 +80,12 @@ Separate, literal memory request:
 ```text
 Propón como memoria canónica esta convención concreta: <convención>. Usa la
 evidencia <IDs/resumen>, pero no apliques la propuesta todavía.
+```
+
+Optional delivery backlog after an approved specification:
+
+```text
+Cuando la especificación esté aprobada, usa to-tickets solo para proponer un
+backlog humano de unidades revisables, con dependencias y criterios de
+aceptación. No crees una cola, agentes ni worktrees en Atlas.
 ```

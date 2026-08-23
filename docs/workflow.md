@@ -1,7 +1,10 @@
 # Native Codex workflow
 
 Project Atlas is a context and evidence sidecar. Native Codex owns conversation,
-planning, permissions, implementation, review, and delivery.
+planning, permissions, implementation, review, and delivery; Orca owns
+workspaces and multi-agent orchestration. Atlas does not create, route, resume,
+supervise, or cancel host tasks, agents, tickets, terminals, branches, or
+worktrees.
 
 ## Install and diagnose
 
@@ -50,30 +53,47 @@ points:
    implementation, and validation commands.
 2. Resolve only supplied or materially required sources. Bare detected links
    remain pending until confirmed; irrelevant provider checklists are skipped.
-3. Call `atlas_prepare_task` after preflight. Repeat under the same task ID only
-   for a named evidence invalidation.
+3. Call `atlas_prepare_task` after preflight. For medium/large work, record an
+   immutable evidence contract immediately afterwards. Repeat under the same
+   task ID only for a named evidence invalidation.
 4. Expand one unresolved handle with `atlas_expand_context` if necessary.
-5. Make the reuse decision, present a size-proportional plan, then call
+5. For authoritative Figma work, record a semantic task snapshot before
+   locking. Bind `fileKey`, `nodeId`, `version` and `lastModified` to the current
+   receipt. After a lock, a new snapshot is accepted only inside an explicit
+   relock-required window and must link to its predecessor when changed.
+6. Make the reuse decision, present a size-proportional plan, then call
    `atlas_lock_change_scope` with that decision and explicit exclusions.
-6. Implement the smallest locked surface in the same native task.
-7. Run focused tests and required checks. For visual work, attach an immutable
+7. Immediately checkpoint the initial continuation against that lock, before
+   the first edit. Then implement the smallest locked surface in the same native
+   task and checkpoint successors after semantic milestones, not every tool call.
+8. Run focused tests and required checks. For visual work, attach an immutable
    pre-clean review while captures exist, clean the temporary session, then
    attach the final task/contract-bound review with the same capture hashes and
    the content-free cleanup receipt.
-8. Call `atlas_validate_change`; inspect the complete staged, unstaged,
+9. Call `atlas_validate_change`; inspect the complete staged, unstaged,
    untracked, renamed, and deleted task delta, then call `atlas_task_state`
    action `complete` for an immutable technical outcome record.
-9. Default to no memory write. `review-proposal` may read one exact proposal;
+10. Before `success`, satisfy all contract acceptance criteria, resolve required
+    decisions, attach current validation evidence, and perform the proportionate
+    independent review. Atlas technically rejects incomplete durable evidence;
+    the native workflow owns the reviewer gate. `partial` and `failure` remain
+    available for an honest closeout.
+11. Default to no memory write. `review-proposal` may read one exact proposal;
    every mutation first returns a no-write exact scope/token and requires an
    unchanged second call after literal consent.
-10. Commit, push, PR, deployment, or external updates happen only when
+12. Commit, push, PR, deployment, or external updates happen only when
     separately requested and are reported separately from the Atlas record.
 
 The first accepted completion payload is a durable intent bound to the current
-HEAD, lock/delta, source receipts, context handles, and final visual-review
-hash. Identical concurrent or interrupted retries converge on one completion;
-different evidence or closeout text is rejected. Completion never implies a
-memory write.
+HEAD, lock/delta, source receipts, context handles, evidence contract,
+continuation, and final visual-review hash. Identical concurrent or interrupted
+retries converge on one completion; different evidence or closeout text is
+rejected. Completion never implies a memory write.
+
+Resume always accepts an explicit task ID. Without one, it recovers only the
+single active task whose stored checkout identity exactly matches the current
+checkout; multiple candidates require an explicit selection. Context compaction
+does not create a new task or justify an unbounded source reread.
 
 ## Core calls
 
@@ -118,14 +138,21 @@ review exactly; changed closeout evidence starts a new decision, not a retry.
 
 ## Validation and review
 
-- Small/low: focused checks and human-readable diff review; no agent reviewer.
-- Medium: relevant lint/typecheck/build plus one read-only correctness review
-  when shared/API/stateful scope warrants it.
-- Large/high: full applicable gates and narrow specialist reviews for only the
-  active domains.
+- Small/low: focused checks and human-readable diff review; use an independent
+  reviewer only for a public, security, accessibility, data, or deployment
+  boundary.
+- Medium: relevant checks plus one independent read-only correctness review.
+- Large/high: full applicable gates plus at least one independent read-only
+  review; add only narrow specialists justified by the changed domains.
 
 Independent review supplements deterministic checks and never becomes a second
-writer.
+writer. Fix blockers, rerun affected checks, and request at most one focused
+second review. Stop after two review passes and report a blocker or partial
+outcome if it remains unresolved.
+
+`to-tickets` is optional after an approved specification when independently
+reviewable delivery units help humans plan delivery. It is not an Atlas runtime
+feature and does not control Codex/Orca task execution.
 
 ## Sources and failures
 
@@ -137,9 +164,10 @@ receipt, generated client/types/tests, or a supplied local contract.
 ## GUI and telemetry
 
 Run `pnpm atlas` for local evidence inspection. The GUI can rescan local data,
-review decisions/proposals, and manage explicit project/worktree operations. It
-cannot execute or resume Codex, change permissions, technically complete a
-native task, or apply memory without the originating consent flow.
+inspect/open existing checkouts, and review decisions/proposals. It cannot
+create branches or worktrees, execute or resume Codex, change permissions,
+technically complete a native task, or apply memory without the originating
+consent flow.
 
 Telemetry is opt-in and loopback-only. It stores no prompts, code, diffs, tool
 arguments, tool outputs, or source bodies.

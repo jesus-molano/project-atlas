@@ -44,6 +44,10 @@ important is overwritten invisibly.
 - Technical completion is independent of memory. `$frontend-task` closes a
   verified implementation with `atlas_task_state` action `complete`; this
   records task state but does not create an episode or proposal.
+- Evidence contracts, continuations, and Figma semantic snapshots belong to the
+  task-evidence lifecycle, not Project Memory. They preserve recoverable task
+  state and acceptance evidence; they do not silently promote task details into
+  reusable project knowledge.
 - `atlas_memory` is the only core memory gateway. `review-proposal` reads one
   exact proposal ID without mutating it. Every mutating call requires literal
   user consent that matches one explicit action and target; generic approval to

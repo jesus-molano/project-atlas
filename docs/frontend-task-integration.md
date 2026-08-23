@@ -18,20 +18,31 @@ conflicts, or other consequential decisions.
 decision contract internally and reuses one Atlas task ID; it never loads a
 second prepare/scan cycle.
 
+Atlas remains a local evidence sidecar. `frontend-task` and Codex implement the
+task; Orca manages workspaces and multi-agent orchestration. Do not treat Atlas
+handles, continuations, or its GUI as a task queue or ticket system.
+
 ## Six-tool contract
 
 1. Run source preflight. Bare links remain `pending`; no connector or repository
    scan runs until material source decisions are resolved.
-2. Call `atlas_prepare_task` once per evidence version.
+2. Call `atlas_prepare_task` once per evidence version. For medium/large work,
+   record the immutable evidence contract before locking scope.
 3. Expand only a named unresolved handle with `atlas_expand_context`.
-4. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, `create`, or
+4. For authoritative Figma, retain one bounded, exact-identity semantic snapshot
+   before locking. New Figma evidence after a lock requires a named relock window
+   and a linked successor when identity or required coverage changed.
+5. Choose `reuse`, `extend`, `compose`, `extract-and-reuse`, `create`, or
    `not-applicable`, then persist that decision in `atlas_lock_change_scope`
    before editing.
-5. Implement in the same native Codex task and call `atlas_validate_change`
+6. Checkpoint the initial immutable continuation against the lock before the
+   first edit, then checkpoint semantic milestones. Resume by exact checkout
+   without a task ID only when one active candidate exists.
+7. Implement in the same native Codex task and call `atlas_validate_change`
    after deterministic checks.
-6. Use `atlas_task_state` for resume/block/checkpoint and action `complete` for
+8. Use `atlas_task_state` for resume/block/checkpoint and action `complete` for
    technical close without memory.
-7. Use `atlas_memory` `review-proposal` only for an exact proposal ID; require
+9. Use `atlas_memory` `review-proposal` only for an exact proposal ID; require
    literal user consent for every mutating memory action.
 
 The skill routes optional detail by domain: source preflight, brief,
@@ -40,11 +51,19 @@ their named condition is active.
 
 ## Size-aware behavior
 
-- Small: compact decision/scope, focused checks, no independent reviewer.
-- Medium: explicit brief/lock, relevant lint/typecheck/build, one correctness
-  review when shared/API/stateful risk warrants it.
-- Large or high-risk: reviewed plan, full applicable gates, and narrow domain
-  reviews only where evidence/risk justifies them.
+- Small: compact decision/scope and focused checks; an independent reviewer is
+  reserved for a public, security, accessibility, data, or deployment boundary.
+- Medium: explicit brief/contract/lock, relevant checks, and one independent
+  read-only correctness review.
+- Large or high-risk: reviewed plan, full applicable gates, at least one
+  independent review, and narrow specialists only where evidence/risk justifies
+  them.
+
+Before a successful technical close, the contract acceptance criteria, required
+decisions, current validation evidence and applicable review must be complete.
+`partial`/`failure` remain valid honest outcomes. `to-tickets` can turn an
+approved spec into an optional human delivery backlog; it is not a workflow
+orchestrator.
 
 If Atlas is unavailable, Codex follows the same repository-first reasoning
 manually. Missing optional connectors never block unrelated work. Run
