@@ -311,6 +311,12 @@ export {
   type TaskContextHandleSource,
 } from "./task-state.js";
 export {
+  listTaskResumeCandidates,
+  recoverTaskResumeState,
+  type TaskResumeCandidate,
+  type TaskResumeRecovery,
+} from "./task-recovery.js";
+export {
   computeTaskObjectiveHash,
   computeTaskObjectiveIntegrity,
   isTaskObjectiveProjection,
