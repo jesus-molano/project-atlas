@@ -12,6 +12,9 @@ import { fitBudgetedResponse } from "@component-atlas/memory";
 import { projectStorageDirectory } from "@component-atlas/store";
 import { canonicalJson } from "./change-surface-fingerprint.js";
 import {
+  createTaskEvidenceAmendmentApi,
+} from "./task-evidence-amendment.js";
+import {
   checkedRevision,
   checkedTimestamp,
   continuationIntegrityPayload,
@@ -61,7 +64,14 @@ export interface TaskEvidenceCriterion {
   statement: string;
   required: boolean;
   sourceRefs: string[];
+  supersedes?: string[];
 }
+
+export type {
+  TaskEvidenceContractAmendment,
+  TaskEvidenceCriterionPatch,
+  TaskEvidenceDecisionPatch,
+} from "./task-evidence-amendment.js";
 
 export interface TaskEvidenceDecision {
   id: string;
@@ -69,6 +79,7 @@ export interface TaskEvidenceDecision {
   status: TaskEvidenceDecisionStatus;
   answer?: string;
   sourceRefs: string[];
+  supersedes?: string[];
 }
 
 export interface TaskEvidenceContract {
@@ -779,6 +790,14 @@ export async function loadLatestTaskEvidenceContract(
   return contract;
 }
 
+export const {
+  amendTaskEvidenceContract,
+  preserveTaskCriterionProgress,
+} = createTaskEvidenceAmendmentApi({
+  loadContract: loadTaskEvidenceContract,
+  persistContract: persistTaskEvidenceContract,
+});
+
 function normalizedContinuationSemanticInput(
   input: PersistTaskContinuationBundleInput,
 ) {
@@ -826,7 +845,13 @@ async function prepareTaskContinuationBundleUnlocked(
     throw new Error("Task continuation must reference the latest evidence contract.");
   }
   const semantic = normalizedContinuationSemanticInput(input);
-  const latest = await loadLatestTaskContinuationBundle(rootPath, input.taskId);
+  // The latest continuation can legitimately target the previous contract
+  // while an amendment is being activated. Load the pointer's exact artifact
+  // so the successor can preserve that revision chain instead of treating the
+  // amended contract as if it had no continuation history.
+  const latest = previousPointer
+    ? await loadTaskContinuationBundle(rootPath, previousPointer.handle)
+    : undefined;
   if (
     latest &&
     canonicalJson(continuationSemanticArtifact(latest)) ===

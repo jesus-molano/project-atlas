@@ -6,6 +6,7 @@ import { projectStorageDirectory } from "@component-atlas/store";
 import { resolveProjectIdentity } from "./identity.js";
 import { computeTaskObjectiveHash } from "./task-objective.js";
 import {
+  amendTaskEvidenceContract,
   expandTaskContinuationBundle,
   expandTaskEvidenceContract,
   loadLatestTaskContinuationBundle,
@@ -17,6 +18,7 @@ import {
   persistTaskEvidenceContract,
   persistTaskEvidenceContractWithCheckpoint,
   taskAcceptanceState,
+  preserveTaskCriterionProgress,
 } from "./task-evidence-contract.js";
 import { recoverTaskResumeState } from "./task-recovery.js";
 import {
@@ -285,6 +287,47 @@ describe("task evidence contract", () => {
 });
 
 describe("task continuation bundle", () => {
+  it("amends criteria sparsely with explicit supersession and preserves only unchanged progress", async () => {
+    const root = await repository();
+    const first = await persistTaskEvidenceContract(root, contractInput());
+    const progress = first.criteria.map((criterion) => ({
+      criterionId: criterion.id,
+      status: "satisfied" as const,
+      evidenceRefs: ["code:verified"],
+      validationRefs: [],
+    }));
+    const amended = await amendTaskEvidenceContract(root, {
+      taskId: first.taskId,
+      contractHandle: first.handle,
+      criteria: [{
+        id: "checkout-submit",
+        statement: "The confirmed order can be submitted only after OTP.",
+        required: true,
+        supersedes: ["checkout-submit"],
+      }],
+      decisions: [{
+        id: "retry-policy-v2",
+        question: "How are failed submissions retried?",
+        status: "resolved",
+        answer: "Only after an explicit user action.",
+        sourceRefs: ["jira:SHOP-42"],
+        supersedes: ["retry-policy"],
+      }],
+    });
+    expect(amended.criteria.find((criterion) => criterion.id === "checkout-submit")).toMatchObject({ supersedes: ["checkout-submit"] });
+    expect(amended.decisions).toEqual([
+      expect.objectContaining({
+        id: "retry-policy-v2",
+        status: "resolved",
+        supersedes: ["retry-policy"],
+      }),
+    ]);
+    expect(preserveTaskCriterionProgress(first, progress, amended)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ criterionId: "checkout-submit", status: "pending", evidenceRefs: [] }),
+      expect.objectContaining({ criterionId: "responsive-layout", status: "satisfied" }),
+    ]));
+  });
+
   it("tracks every criterion and exposes completion readiness", async () => {
     const root = await repository();
     const contract = await persistTaskEvidenceContract(root, contractInput());
@@ -554,7 +597,7 @@ describe("task continuation bundle", () => {
       }),
     ).rejects.toThrow(/latest evidence contract/iu);
 
-    const replacement = await persistTaskContinuationBundle(root, {
+    const replacementInput = {
       taskId: secondContract.taskId,
       contractHandle: secondContract.handle,
       criteria: secondContract.criteria.map((criterion) => ({
@@ -564,11 +607,18 @@ describe("task continuation bundle", () => {
         validationRefs: [],
       })),
       nextSafeAction: "Implement the revised contract.",
+    };
+    await expect(
+      persistTaskContinuationBundle(root, replacementInput),
+    ).rejects.toThrow(/latest revision/iu);
+    const replacement = await persistTaskContinuationBundle(root, {
+      ...replacementInput,
+      previousHandle: firstContinuation.handle,
     });
     expect(replacement).toMatchObject({
-      revision: 1,
+      revision: 2,
       contract: { handle: secondContract.handle },
+      previousHandle: firstContinuation.handle,
     });
-    expect(replacement.previousHandle).toBeUndefined();
   });
 });

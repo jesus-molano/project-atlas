@@ -38,6 +38,7 @@ import {
   fitTaskResumeCapsuleStorageBudget as fitCapsuleStorageBudget,
   RECEIPT_ID_PATTERN as RECEIPT_ID,
   shortTaskText as short,
+  taskTitleFromObjective,
   TASK_CAPSULE_SCHEMA_VERSION as CAPSULE_SCHEMA_VERSION,
   TASK_ID_PATTERN as TASK_ID,
   validateTaskFinalReceipt,
@@ -89,7 +90,7 @@ export type {
   TaskValidationReference,
 } from "./task-lifecycle.js";
 export {
-  taskContextResumeHandles,
+  taskContextResumeHandles, taskTitleFromObjective,
   validateTaskFinalReceipt,
   validateTaskResumeCapsule,
   validateTaskSourceLedger,
@@ -101,6 +102,8 @@ export type {
   TaskContextHandleSource,
   TaskFinalReceipt,
   TaskJournalMilestone,
+  TaskFeedbackSummary,
+  TaskLineage,
   TaskResumeCapsule,
   TaskSourceLedger,
   TaskVisualReview,
@@ -503,6 +506,8 @@ async function writeTaskCheckpointLocked(
   const requestedLifecyclePhase =
     changeInvalidation
       ? "scoped"
+      : input.validation === null && existingCapsule?.lifecycle.phase === "validated"
+        ? "scoped"
       : input.lifecyclePhase ??
         (status === "completed" || input.milestone === "completed"
       ? "completed"
@@ -517,7 +522,8 @@ async function writeTaskCheckpointLocked(
     now,
     createdAt,
     (lockChanged && Boolean(input.changeSurface?.invalidationReason)) ||
-      Boolean(input.changeInvalidation),
+      Boolean(input.changeInvalidation) ||
+      input.validation === null,
   );
   if (input.activePolicy?.authMode === "dev-mock-no-session") {
     if (!input.activePolicy.authMockGuard) {
@@ -616,6 +622,9 @@ async function writeTaskCheckpointLocked(
     input,
     existingCapsule,
   );
+  const workspaceIdentity = await resolveProjectIdentity(rootPath);
+  const lineage = input.lineage ?? existingCapsule?.lineage;
+  const feedbackSummary = input.feedbackSummary ?? existingCapsule?.feedbackSummary;
   const capsule = fitCapsuleStorageBudget({
     schemaVersion: CAPSULE_SCHEMA_VERSION,
     taskId: input.taskId,
@@ -625,7 +634,10 @@ async function writeTaskCheckpointLocked(
     ...(status === "completed"
       ? { expiresAt: new Date(Date.parse(now) + CLOSED_TTL_MS).toISOString() }
       : {}),
+    title: existingCapsule?.title ?? taskTitleFromObjective(input.title || input.objective),
     objective,
+    ...(lineage ? { lineage } : {}),
+    ...(feedbackSummary ? { feedbackSummary } : {}),
     ...(governance ? { governance } : {}),
     decisions: effectiveDecisions.slice(0, 12).map((decision) => ({
       id: short(decision.id, 160),
@@ -664,6 +676,10 @@ async function writeTaskCheckpointLocked(
     workspace: {
       rootPath: path.resolve(rootPath),
       head: input.head ?? (await gitHead(rootPath)),
+      ...(workspaceIdentity.checkoutId
+        ? { checkoutId: workspaceIdentity.checkoutId }
+        : {}),
+      ...(workspaceIdentity.branch ? { branch: workspaceIdentity.branch } : {}),
     },
     budget: {
       contextChars: Math.max(800, Math.min(12_000, input.budgetChars)),

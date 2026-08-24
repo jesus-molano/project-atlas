@@ -47,7 +47,7 @@ async function clientAndServer() {
 }
 
 describe("task-owned context handles", () => {
-  it("requires and verifies the exact task for manifest expansion", async () => {
+  it("infers task ownership from a manifest handle and rejects a conflict", async () => {
     const manifest = await writeTaskExecutionManifest(rootPath, {
       taskId: "task-owner-a",
       objectiveHash: "0".repeat(64),
@@ -60,12 +60,14 @@ describe("task-owned context handles", () => {
     });
     const { client, server } = await clientAndServer();
     try {
-      const missingTask = await client.callTool({
+      const inferredTask = await client.callTool({
         name: "atlas_expand_context",
         arguments: { root_path: rootPath, handle: manifest.handle },
       });
-      expect(missingTask.isError).toBe(true);
-      expect(JSON.stringify(missingTask.content)).toMatch(/requires.*task_id/i);
+      expect(inferredTask.isError).not.toBe(true);
+      expect(inferredTask.structuredContent).toMatchObject({
+        manifest: { taskId: "task-owner-a" },
+      });
 
       const crossTask = await client.callTool({
         name: "atlas_expand_context",
@@ -76,7 +78,7 @@ describe("task-owned context handles", () => {
         },
       });
       expect(crossTask.isError).toBe(true);
-      expect(JSON.stringify(crossTask.content)).toMatch(/different task/i);
+      expect(JSON.stringify(crossTask.content)).toMatch(/conflicts/i);
 
       const selectedByOtherTask = await client.callTool({
         name: "atlas_prepare_task",
@@ -108,7 +110,7 @@ describe("task-owned context handles", () => {
     }
   });
 
-  it("requires exact task ownership for evidence and continuation expansion", async () => {
+  it("infers evidence ownership and still rejects an explicit foreign task", async () => {
     const objective = "Implement the approved checkout flow.";
     const contract = await persistTaskEvidenceContract(rootPath, {
       taskId: "task-evidence-owner",
@@ -140,11 +142,11 @@ describe("task-owned context handles", () => {
     const { client, server } = await clientAndServer();
     try {
       for (const handle of [contract.handle, continuation.handle]) {
-        const missingTask = await client.callTool({
+        const inferredTask = await client.callTool({
           name: "atlas_expand_context",
           arguments: { root_path: rootPath, handle },
         });
-        expect(missingTask.isError).toBe(true);
+        expect(inferredTask.isError).not.toBe(true);
 
         const crossTask = await client.callTool({
           name: "atlas_expand_context",
@@ -155,7 +157,7 @@ describe("task-owned context handles", () => {
           },
         });
         expect(crossTask.isError).toBe(true);
-        expect(JSON.stringify(crossTask.content)).toMatch(/different task/i);
+        expect(JSON.stringify(crossTask.content)).toMatch(/conflicts/i);
 
         const owned = await client.callTool({
           name: "atlas_expand_context",

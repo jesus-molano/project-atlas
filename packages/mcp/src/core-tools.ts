@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   assessTaskIntake,
   assessScopedTaskRisk,
@@ -12,18 +11,16 @@ import {
   computeTaskObjectiveHash,
   lockTaskChangeSurface,
   loadPersistedSourceReceipt,
-  loadTaskFinalReceipt,
   loadVisualEvidenceContract,
-  loadTaskResumeCapsule,
   loadTaskSourceLedger,
   normalizeLockedChangeIntent,
   normalizeLockedEvidenceHandles,
   prepareTaskContext,
   persistTaskObjective,
-  resolveTaskObjective,
   scanProject,
   taskObjectiveReference,
   taskContextResumeHandles,
+  writeTaskFocus,
   validateDiff,
   writeTaskCheckpoint,
 } from "@component-atlas/runtime";
@@ -54,7 +51,6 @@ import {
 } from "./core-task-governance.js";
 import {
   CORE_PREPARE_NEXT_STEPS,
-  completedTaskPrepareResult,
   continueAfterReuseBudget,
   explicitlyChangesApiContract,
 } from "./core-prepare-reuse.js";
@@ -70,6 +66,7 @@ import {
   sourceInput,
   sourceRelationInput,
 } from "./core-source-evidence.js";
+import { prepareTaskFocus } from "./core-task-prepare-focus.js";
 import { text } from "./shared.js";
 
 const taskId = z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u);
@@ -90,6 +87,8 @@ export function registerCoreTools(server: McpServer): void {
               "Task objectives must not contain URL credentials or secret signature parameters.",
           }),
         task_id: taskId.optional(),
+        title: z.string().min(1).max(160).optional(),
+        start_new_task: z.boolean().optional(),
         objective_confirmed: z.boolean().optional(),
         sources: z.array(sourceInput).max(12).optional(),
         source_relations: z.array(sourceRelationInput).max(12).optional(),
@@ -116,6 +115,8 @@ export function registerCoreTools(server: McpServer): void {
       root_path,
       objective,
       task_id,
+      title,
+      start_new_task,
       objective_confirmed,
       sources,
       source_relations,
@@ -125,37 +126,27 @@ export function registerCoreTools(server: McpServer): void {
       invalidation_reason,
       budget_chars,
     }) => {
-      const id = task_id ?? `task-${randomUUID()}`;
       const budget = budget_chars ?? 3_600;
-      const finalReceipt = task_id
-        ? await loadTaskFinalReceipt(root_path, task_id)
-        : undefined;
-      if (finalReceipt) return completedTaskPrepareResult(id, budget);
-      const prior = task_id
-        ? await loadTaskResumeCapsule(root_path, task_id)
-        : undefined;
-      if (
-        prior?.status === "completed" ||
-        prior?.lifecycle.phase === "completed"
-      ) {
-        return completedTaskPrepareResult(id, budget);
-      }
-      // Loading a capsule also prunes expired completed state. Recheck the
-      // immutable receipt so prepare cannot recreate a just-pruned task.
-      if (task_id && !prior && (await loadTaskFinalReceipt(root_path, task_id))) {
-        return completedTaskPrepareResult(id, budget);
-      }
-      const priorLedger = task_id
-        ? await loadTaskSourceLedger(root_path, task_id)
-        : undefined;
-      const priorObjective = task_id
-        ? await resolveTaskObjective(root_path, task_id)
-        : undefined;
+      const focus = await prepareTaskFocus({
+        rootPath: root_path,
+        objective,
+        ...(task_id ? { taskId: task_id } : {}),
+        ...(start_new_task ? { startNewTask: start_new_task } : {}),
+        budget,
+      });
+      if ("response" in focus) return focus.response;
+      const { id, prior, priorObjective } = focus;
+      // An explicit task ID and a safely recovered task become the checkout's
+      // focus after their capsule exists. New tasks are focused after the first
+      // successful checkpoint below.
+      const priorLedger = await loadTaskSourceLedger(root_path, id);
+      const implicitFocusedContinuation =
+        !task_id && !start_new_task && Boolean(priorObjective?.text);
       const effectiveObjective = mergedObjective(
-        priorObjective?.authority === "legacy-projection"
+        implicitFocusedContinuation || priorObjective?.authority === "legacy-projection"
           ? undefined
           : priorObjective?.text,
-        objective,
+        implicitFocusedContinuation ? priorObjective!.text : objective,
       );
       const priorRisk = assessTaskRisk(priorObjective?.text ?? objective);
       const risk = assessTaskRisk(effectiveObjective);
@@ -325,6 +316,7 @@ export function registerCoreTools(server: McpServer): void {
         const blocked = assessment.status === "blocked";
         await writeTaskCheckpoint(root_path, {
           taskId: id,
+          ...(title ? { title } : {}),
           expectedUpdatedAt: prior?.updatedAt ?? null,
           status: blocked ? "blocked" : "active",
           milestone: blocked ? "blocked" : "decision-confirmed",
@@ -345,6 +337,7 @@ export function registerCoreTools(server: McpServer): void {
             "Confirm, omit, replace or mark only the named pending source/objective decisions, then prepare again.",
           ...(lockedEvidenceChanged ? { changeInvalidation: { reason: invalidation_reason! } } : {}),
         });
+        await writeTaskFocus(root_path, { taskId: id });
         return text(
           compact(
             {
@@ -385,6 +378,7 @@ export function registerCoreTools(server: McpServer): void {
         );
         await writeTaskCheckpoint(root_path, {
           taskId: id,
+          ...(title ? { title } : {}),
           expectedUpdatedAt: prior?.updatedAt ?? null,
           status: "blocked",
           milestone: "blocked",
@@ -407,6 +401,7 @@ export function registerCoreTools(server: McpServer): void {
           nextSafeAction:
             "Retrieve each required confirmed source and attach exact current evidence before repository scanning.",
         });
+        await writeTaskFocus(root_path, { taskId: id });
         return text(
           compact(
             {
@@ -490,6 +485,7 @@ export function registerCoreTools(server: McpServer): void {
         ];
         await writeTaskCheckpoint(root_path, {
           taskId: id,
+          ...(title ? { title } : {}),
           expectedUpdatedAt: prior?.updatedAt ?? null,
           milestone:
             context.sourceReceiptIds.length > 0
@@ -517,6 +513,7 @@ export function registerCoreTools(server: McpServer): void {
               ? "Explicitly relock with the same invalidation reason before editing."
               : "Expand only a named unresolved handle, then lock the change scope.",
         });
+        await writeTaskFocus(root_path, { taskId: id });
         return text(
           compact(
             {
@@ -559,6 +556,7 @@ export function registerCoreTools(server: McpServer): void {
         if (continuation) return continuation;
         await writeTaskCheckpoint(root_path, {
           taskId: id,
+          ...(title ? { title } : {}),
           expectedUpdatedAt: prior?.updatedAt ?? null,
           status: "blocked",
           milestone: "blocked",
@@ -581,6 +579,7 @@ export function registerCoreTools(server: McpServer): void {
           nextSafeAction:
             "Resolve only the required source or objective decision named by the blocker.",
         });
+        await writeTaskFocus(root_path, { taskId: id });
         throw error;
       }
     },

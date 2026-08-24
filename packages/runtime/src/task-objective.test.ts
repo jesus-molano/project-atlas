@@ -23,6 +23,7 @@ import {
   taskObjectiveArtifactPath,
   taskObjectiveReference,
 } from "./task-objective.js";
+import { recoverTaskResumeState } from "./task-recovery.js";
 import {
   loadTaskFinalReceipt,
   loadTaskResumeCapsule,
@@ -129,6 +130,15 @@ describe("immutable task objective authority", () => {
       authority: "authoritative",
       text: objective,
       reference: { handle: first.handle },
+    });
+    await expect(recoverTaskResumeState(root)).resolves.toMatchObject({
+      status: "ready",
+      candidates: [
+        expect.objectContaining({
+          title: "Implement the complete checkout accessibility contract.",
+          objective,
+        }),
+      ],
     });
 
     // Simulates an older lifecycle caller that only echoes the bounded capsule.

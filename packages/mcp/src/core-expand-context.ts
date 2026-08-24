@@ -7,6 +7,8 @@ import {
   expandFigmaSnapshot,
   expandTaskContinuationBundle,
   expandTaskEvidenceContract,
+  expandTaskFeedbackEvent,
+  expandTaskGitReconciliation,
   expandTaskCompletionReceipt,
   expandVisualEvidenceContract,
   expandVisualReviewReceipt,
@@ -29,12 +31,20 @@ import { text } from "./shared.js";
 
 const taskId = z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u);
 
+function taskIdFromOwnedHandle(handle: string): string | undefined {
+  const match = /^(?:contract|continuation|figma-asset|figma-snapshot|visual-review|delivery|manifest):([A-Za-z0-9_.:-]{1,160}):[a-f0-9]{16,24}$/u.exec(handle)
+    ?? /^retrieval:([A-Za-z0-9_.:-]{1,160}):[a-z-]{2,32}:[a-f0-9]{16}$/u.exec(handle)
+    ?? /^feedback:([A-Za-z0-9_.:-]{1,160}):[a-f0-9]{16}$/u.exec(handle)
+    ?? /^git-state:([A-Za-z0-9_.:-]{1,160}):[a-f0-9]{16}$/u.exec(handle);
+  return match?.[1];
+}
+
 export function registerCoreExpandContext(server: McpServer): void {
   server.registerTool(
     "atlas_expand_context",
     {
       description:
-        "Expand one code, design, Figma snapshot/asset, source, memory or delivery handle under a hard budget.",
+        "Expand one code, design, task feedback/Git state, Figma, source, memory or delivery handle under a hard budget.",
       inputSchema: {
         root_path: z.string(),
         handle: z.string().min(1).max(320),
@@ -51,6 +61,13 @@ export function registerCoreExpandContext(server: McpServer): void {
     },
     async ({ root_path, handle, task_id, response_format }) => {
       const budget = response_format === "detailed" ? 3_000 : 1_600;
+      const inferredTaskId = taskIdFromOwnedHandle(handle);
+      if (task_id && inferredTaskId && task_id !== inferredTaskId) {
+        throw new Error(
+          `The supplied task_id ${task_id} conflicts with task-owned handle ${handle}.`,
+        );
+      }
+      task_id ??= inferredTaskId;
       if (handle.startsWith("contract:") || handle.startsWith("continuation:")) {
         if (!task_id) {
           throw new Error(
@@ -62,6 +79,29 @@ export function registerCoreExpandContext(server: McpServer): void {
           handle.startsWith("contract:")
             ? await expandTaskEvidenceContract(root_path, handle, budget)
             : await expandTaskContinuationBundle(root_path, handle, budget),
+        );
+      }
+      if (handle.startsWith("feedback:")) {
+        if (!task_id) {
+          throw new Error("Expanding task feedback requires its exact task_id binding.");
+        }
+        await assertTaskBoundHandle(root_path, task_id, handle);
+        return text(
+          compact(await expandTaskFeedbackEvent(root_path, handle), budget),
+        );
+      }
+      if (handle.startsWith("git-state:")) {
+        if (!task_id) {
+          throw new Error(
+            "Expanding task Git state requires its exact task_id binding.",
+          );
+        }
+        await assertTaskBoundHandle(root_path, task_id, handle);
+        return text(
+          compact(
+            await expandTaskGitReconciliation(root_path, handle),
+            budget,
+          ),
         );
       }
       if (SOURCE_RECEIPT_ID_PATTERN.test(handle)) {
@@ -243,7 +283,7 @@ export function registerCoreExpandContext(server: McpServer): void {
         );
       }
       throw new Error(
-        "Use a code:, entity:, design:, contract:, continuation:, figma-snapshot:, figma-asset:, visual:, visual-review:, delivery:, memory:, retrieval:, manifest: or receipt-* handle.",
+        "Use a code:, entity:, design:, feedback:, git-state:, contract:, continuation:, figma-snapshot:, figma-asset:, visual:, visual-review:, delivery:, memory:, retrieval:, manifest: or receipt-* handle.",
       );
     },
   );

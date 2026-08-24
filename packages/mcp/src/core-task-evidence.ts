@@ -3,6 +3,7 @@ import {
   loadLatestFigmaSnapshot,
   loadLatestTaskContinuationBundle,
   loadLatestTaskEvidenceContract,
+  loadTaskFeedbackQueue,
   loadVisualEvidenceContract,
   persistTaskContinuationBundleWithCheckpoint,
   persistTaskEvidenceContractWithCheckpoint,
@@ -232,6 +233,14 @@ export async function assertCoreTaskEvidenceReadyForSuccess(
   capsule: TaskResumeCapsule,
   knownSourceLedger?: AuthoritativeTaskSources,
 ): Promise<CoreTaskEvidenceReadiness | undefined> {
+  const pendingFeedback = (await loadTaskFeedbackQueue(rootPath, taskId))
+    .filter((event) => event.required && event.status === "pending")
+    .map((event) => event.feedbackId);
+  if (pendingFeedback.length > 0) {
+    throw new Error(
+      `Successful completion requires all required feedback to be resolved; pending-feedback=${pendingFeedback.join(",")}.`,
+    );
+  }
   const contract = await loadLatestTaskEvidenceContract(rootPath, taskId);
   if (!contract) {
     if (

@@ -25,7 +25,6 @@ import {
 } from "./task-state.js";
 
 const run = promisify(execFile);
-
 const sources: TaskSourceDecision[] = [
   {
     id: taskSourceId("jira", "ATLAS-42"),
@@ -68,6 +67,8 @@ describe("task checkpoint and resume", () => {
         "visual:vd-task-42:0123456789abcdef",
         "figma-asset:task-42:0123456789abcdef01234567",
         "delivery:task-42:0123456789abcdef",
+        "feedback:task-42:0123456789abcdef",
+        "git-state:task-42:fedcba9876543210",
         "entity:component:checkout-form",
         "memory:contract-rule",
         "visual:not-expandable",
@@ -75,6 +76,13 @@ describe("task checkpoint and resume", () => {
       covered: ["intake"],
       remaining: ["implementation", "validation"],
       budgetChars: 2_400,
+      lineage: {
+        rootTaskId: "task-parent", parentTaskId: "task-parent", relation: "correction",
+        sourceFeedbackHandle: "feedback:task-parent:0123456789abcdef",
+      },
+      feedbackSummary: {
+        total: 1, pending: 1, latestHandle: "feedback:task-42:0123456789abcdef",
+      },
       nextSafeAction: "Expand code:checkout-form only.",
       executionManifest: {
         handle: "manifest:task-42:0123456789abcdef",
@@ -112,10 +120,16 @@ describe("task checkpoint and resume", () => {
       "visual:vd-task-42:0123456789abcdef",
       "figma-asset:task-42:0123456789abcdef01234567",
       "delivery:task-42:0123456789abcdef",
+      "feedback:task-42:0123456789abcdef",
+      "git-state:task-42:fedcba9876543210",
       "entity:component:checkout-form",
       "memory:contract-rule",
     ]);
-    expect(capsule?.schemaVersion).toBe(4);
+    expect(capsule?.schemaVersion).toBe(5);
+    expect(capsule?.title).toBe("Implement the approved checkout contract");
+    expect(capsule?.workspace.checkoutId).toMatch(/^[a-f0-9]{20}$/u);
+    expect(capsule?.lineage).toMatchObject({ rootTaskId: "task-parent", parentTaskId: "task-parent", relation: "correction" });
+    expect(capsule?.feedbackSummary).toMatchObject({ total: 1, pending: 1 });
     expect(capsule?.lifecycle.phase).toBe("prepared");
     expect(capsule?.activePolicy).toMatchObject({
       visualMode: "fidelity",
@@ -657,7 +671,7 @@ describe("task checkpoint and resume", () => {
     const resumed = await loadTaskResumeCapsule(root, "task-lock");
     expect(resumed?.changeSurface).toEqual(locked);
     expect(resumed).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       lifecycle: { phase: "scoped" },
       changeSurface: {
         schemaVersion: 2,
@@ -1059,7 +1073,7 @@ describe("task checkpoint and resume", () => {
     );
 
     await expect(loadTaskResumeCapsule(root, "task-v3")).resolves.toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       taskId: "task-v3",
       handles: ["code:legacy-component"],
       lifecycle: {
@@ -1147,7 +1161,7 @@ describe("task checkpoint and resume", () => {
 
     const migrated = await loadTaskResumeCapsule(root, "task-v1-lock");
     expect(migrated).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       status: "active",
       objective: { text: "Continue a v1 locked task" },
       sourceReceiptIds: ["receipt-0123456789abcdef"],

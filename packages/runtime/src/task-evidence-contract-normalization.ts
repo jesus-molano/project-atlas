@@ -97,9 +97,23 @@ export function normalizeCriteria(criteria: TaskEvidenceCriterion[]): TaskEviden
       16,
       "Criterion source reference",
     ),
+    ...(criterion.supersedes?.length
+      ? {
+          supersedes: normalizedReferences(
+            criterion.supersedes,
+            64,
+            "Criterion supersession reference",
+          ),
+        }
+      : {}),
   }));
   if (new Set(normalized.map((criterion) => criterion.id)).size !== normalized.length) {
     throw new Error("Task evidence criterion IDs must be unique.");
+  }
+  for (const criterion of normalized) {
+    if (criterion.supersedes?.includes(criterion.id) && criterion.supersedes.length > 1) {
+      throw new Error("A self-superseding criterion cannot supersede another criterion.");
+    }
   }
   return normalized;
 }
@@ -132,10 +146,29 @@ export function normalizeDecisions(
         16,
         "Decision source reference",
       ),
+      ...(decision.supersedes?.length
+        ? {
+            supersedes: normalizedReferences(
+              decision.supersedes,
+              64,
+              "Decision supersession reference",
+            ),
+          }
+        : {}),
     };
   });
   if (new Set(normalized.map((decision) => decision.id)).size !== normalized.length) {
     throw new Error("Task evidence decision IDs must be unique.");
+  }
+  for (const decision of normalized) {
+    if (
+      decision.supersedes?.includes(decision.id) &&
+      decision.supersedes.length > 1
+    ) {
+      throw new Error(
+        "A self-superseding decision cannot supersede another decision.",
+      );
+    }
   }
   return normalized;
 }

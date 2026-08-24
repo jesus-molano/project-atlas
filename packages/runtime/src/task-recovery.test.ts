@@ -10,6 +10,7 @@ import {
   persistTaskEvidenceContract,
 } from "./task-evidence-contract.js";
 import { resolveProjectIdentity } from "./identity.js";
+import { readTaskFocus, writeTaskFocus } from "./task-focus.js";
 import { computeTaskObjectiveHash } from "./task-objective.js";
 import {
   listTaskResumeCandidates,
@@ -172,7 +173,7 @@ describe("task recovery", () => {
       status: "ready",
       candidateCount: 1,
       candidates: [expect.objectContaining({ taskId: "task-v3" })],
-      capsule: { schemaVersion: 4, taskId: "task-v3" },
+      capsule: { schemaVersion: 5, taskId: "task-v3" },
     });
   });
 
@@ -269,6 +270,98 @@ describe("task recovery", () => {
       status: "not-found",
       candidateCount: 0,
       candidates: [],
+    });
+  });
+
+  it("prefers an explicit blocked focus over newer active alternatives", async () => {
+    const root = await repository();
+    await checkpoint(root, "task-active", "Continue the newer active task.");
+    await checkpoint(root, "task-blocked", "Resolve the focused blocker.");
+    await checkpoint(root, "task-blocked", "Resolve the focused blocker.", []);
+    const blocked = await writeTaskCheckpoint(root, {
+      taskId: "task-blocked",
+      status: "blocked",
+      milestone: "blocked",
+      objective: "Resolve the focused blocker.",
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      handles: [],
+      covered: [],
+      remaining: ["Resolve the blocker"],
+      budgetChars: 2_400,
+      nextSafeAction: "Resolve the named blocker.",
+    });
+    await writeTaskFocus(root, { taskId: blocked.taskId });
+
+    await expect(readTaskFocus(root)).resolves.toMatchObject({
+      taskId: "task-blocked",
+    });
+    await expect(recoverTaskResumeState(root)).resolves.toMatchObject({
+      status: "ready",
+      candidateCount: 2,
+      recommendedTaskId: "task-blocked",
+      recommendationReason: "durable-focus",
+      candidates: expect.arrayContaining([
+        expect.objectContaining({ taskId: "task-blocked", status: "blocked" }),
+      ]),
+    });
+  });
+
+  it("auto-recovers only a uniquely exact HEAD when several tasks exist", async () => {
+    const root = await repository();
+    await run("git", ["init"], { cwd: root, windowsHide: true });
+    await run("git", ["config", "user.email", "atlas@example.test"], {
+      cwd: root,
+      windowsHide: true,
+    });
+    await run("git", ["config", "user.name", "Atlas"], {
+      cwd: root,
+      windowsHide: true,
+    });
+    await run("git", ["commit", "--allow-empty", "-m", "initial"], {
+      cwd: root,
+      windowsHide: true,
+    });
+    const { stdout } = await run("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      windowsHide: true,
+    });
+    const head = stdout.trim();
+    await writeTaskCheckpoint(root, {
+      taskId: "task-old-head",
+      milestone: "objective-approved",
+      objective: "Old branch state.",
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      handles: [],
+      covered: [],
+      remaining: ["Implementation"],
+      budgetChars: 2_400,
+      nextSafeAction: "Continue old state.",
+      head: "a".repeat(40),
+    });
+    await writeTaskCheckpoint(root, {
+      taskId: "task-current-head",
+      milestone: "objective-approved",
+      objective: "Current branch state.",
+      objectiveApproved: true,
+      decisions: [],
+      sourceReceiptIds: [],
+      handles: [],
+      covered: [],
+      remaining: ["Implementation"],
+      budgetChars: 2_400,
+      nextSafeAction: "Continue current state.",
+      head,
+    });
+
+    await expect(recoverTaskResumeState(root)).resolves.toMatchObject({
+      status: "ready",
+      candidateCount: 2,
+      recommendedTaskId: "task-current-head",
+      recommendationReason: "exact-head",
     });
   });
 });

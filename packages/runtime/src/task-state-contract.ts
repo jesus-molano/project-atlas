@@ -42,10 +42,11 @@ import {
 
 export { EXPANDABLE_HANDLE_PATTERN };
 
-export const TASK_CAPSULE_SCHEMA_VERSION = 4 as const;
-const PREVIOUS_CAPSULE_SCHEMA_VERSION = 3 as const;
-const LEGACY_CAPSULE_SCHEMA_VERSIONS = [1, 2] as const;
+export const TASK_CAPSULE_SCHEMA_VERSION = 5 as const;
+const PREVIOUS_CAPSULE_SCHEMA_VERSION = 4 as const;
+const LEGACY_CAPSULE_SCHEMA_VERSIONS = [1, 2, 3] as const;
 export const MAX_TASK_CAPSULE_BYTES = 4_096;
+const TARGET_TASK_CAPSULE_BYTES = 3_800;
 export const TASK_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,160}$/u;
 export const RECEIPT_ID_PATTERN = SOURCE_RECEIPT_ID_PATTERN;
 const DELTA_HASH = /^[a-f0-9]{64}$/u;
@@ -124,6 +125,24 @@ export interface TaskCompletionSummary {
   lock?: { id: string; revision: number };
 }
 
+/** Stable, compact identity for UI and recovery. The full objective is immutable. */
+export interface TaskLineage {
+  rootTaskId?: string;
+  parentTaskId?: string;
+  relation?: "correction";
+  sourceFeedbackHandle?: string;
+  supersedesTaskId?: string;
+  supersededByTaskId?: string;
+}
+
+/** A bounded projection of iterative user feedback attached to the active task. */
+export interface TaskFeedbackSummary {
+  total: number;
+  pending: number;
+  latestHandle: string;
+  latestAt?: string;
+}
+
 export interface TaskResumeCapsule {
   schemaVersion: typeof TASK_CAPSULE_SCHEMA_VERSION;
   taskId: string;
@@ -131,7 +150,10 @@ export interface TaskResumeCapsule {
   createdAt: string;
   updatedAt: string;
   expiresAt?: string;
+  title: string;
   objective: TaskObjectiveProjection;
+  lineage?: TaskLineage;
+  feedbackSummary?: TaskFeedbackSummary;
   governance?: TaskGovernance;
   decisions: Array<{
     id: string;
@@ -155,6 +177,8 @@ export interface TaskResumeCapsule {
   workspace: {
     rootPath: string;
     head: string;
+    checkoutId?: string;
+    branch?: string;
   };
   budget: {
     contextChars: number;
@@ -194,6 +218,8 @@ export interface TaskResumeCapsule {
 
 export interface TaskCheckpointInput {
   taskId: string;
+  /** Stable task label. Omit on later checkpoints to retain the initial title. */
+  title?: string;
   /**
    * Optional optimistic-concurrency precondition for a capsule update.
    *
@@ -211,6 +237,8 @@ export interface TaskCheckpointInput {
    * immutable objective. Omit for new tasks and ordinary idempotent retries.
    */
   objectiveReference?: TaskObjectiveReference;
+  lineage?: TaskLineage;
+  feedbackSummary?: TaskFeedbackSummary;
   governance?: TaskGovernance;
   decisions: TaskSourceDecision[];
   sourceRelations?: TaskSourceRelation[];
@@ -285,6 +313,53 @@ export function shortTaskText(value: string, maximum: number): string {
     .slice(0, maximum);
 }
 
+/**
+ * Keeps a human-readable task identity independent from the budgeted objective
+ * projection. The immutable objective artifact remains the complete contract.
+ */
+export function taskTitleFromObjective(value: string): string {
+  const trimmed = value.trim();
+  const firstLine = trimmed.split(/\r?\n/u, 1)[0] ?? trimmed;
+  const normalized = firstLine.replace(/[\u0000-\u001f]+/gu, " ");
+  return shortTaskText(normalized, 160) || "Untitled task";
+}
+
+function validTaskLineage(value: TaskLineage | undefined, taskId: string): boolean {
+  if (!value) return true;
+  const ids = [
+    value.rootTaskId,
+    value.parentTaskId,
+    value.supersedesTaskId,
+    value.supersededByTaskId,
+  ].filter((id): id is string => id !== undefined);
+  return Boolean(
+    ids.length > 0 &&
+      ids.every((id) => TASK_ID_PATTERN.test(id) && id !== taskId) &&
+      (value.relation === undefined || value.relation === "correction") &&
+      (value.sourceFeedbackHandle === undefined ||
+        /^feedback:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}$/u.test(
+          value.sourceFeedbackHandle,
+        )),
+  );
+}
+
+function validTaskFeedbackSummary(value: TaskFeedbackSummary | undefined): boolean {
+  return Boolean(
+    !value ||
+      (Number.isInteger(value.total) &&
+        value.total > 0 &&
+        value.total <= 999 &&
+        Number.isInteger(value.pending) &&
+        value.pending >= 0 &&
+        value.pending <= value.total &&
+        typeof value.latestHandle === "string" &&
+        /^feedback:[A-Za-z0-9_.:-]{1,160}:[a-f0-9]{16}$/u.test(
+          value.latestHandle,
+        ) &&
+        (value.latestAt === undefined || Number.isFinite(Date.parse(value.latestAt)))),
+  );
+}
+
 function migrateTaskObjectiveProjection(raw: Record<string, unknown>): TaskObjectiveProjection {
   const candidate = raw.objective as
     | (Partial<TaskObjectiveProjection> & { text?: unknown; approved?: unknown })
@@ -327,6 +402,10 @@ export function migrateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
     typeof raw.createdAt === "string" ? raw.createdAt : new Date(0).toISOString();
   const updatedAt = typeof raw.updatedAt === "string" ? raw.updatedAt : createdAt;
   const objective = migrateTaskObjectiveProjection(raw);
+  const title =
+    typeof raw.title === "string" && raw.title.trim()
+      ? taskTitleFromObjective(raw.title)
+      : taskTitleFromObjective(objective.text);
   const hasUntrustedV1ChangeSurface =
     (raw as { changeSurface?: { schemaVersion?: unknown } }).changeSurface
       ?.schemaVersion === 1;
@@ -372,6 +451,7 @@ export function migrateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
         | "nextSafeAction"
       >),
       schemaVersion: TASK_CAPSULE_SCHEMA_VERSION,
+      title,
       objective,
       status: "active",
       lifecycle,
@@ -387,7 +467,7 @@ export function migrateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
     };
   }
   if (raw.schemaVersion === TASK_CAPSULE_SCHEMA_VERSION) {
-    return { ...raw, objective } as unknown as TaskResumeCapsule;
+    return { ...raw, objective, title } as unknown as TaskResumeCapsule;
   }
   const phase = lifecyclePhaseFromLegacy(
     raw as unknown as {
@@ -401,6 +481,7 @@ export function migrateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
   return {
     ...(raw as unknown as Omit<TaskResumeCapsule, "schemaVersion" | "lifecycle">),
     schemaVersion: TASK_CAPSULE_SCHEMA_VERSION,
+    title,
     objective,
     lifecycle,
   };
@@ -623,7 +704,28 @@ export function fitTaskResumeCapsuleStorageBudget(
           };
         })()
       : inputCapsule;
-  if (Buffer.byteLength(JSON.stringify(capsule), "utf8") <= MAX_TASK_CAPSULE_BYTES) {
+  const fitsTargetAfterHydration = (candidate: TaskResumeCapsule): boolean => {
+    if (!fullChangeSurface || !candidate.changeSurfaceArtifact) {
+      return (
+        Buffer.byteLength(JSON.stringify(candidate), "utf8") <=
+        TARGET_TASK_CAPSULE_BYTES
+      );
+    }
+    const {
+      changeSurfaceArtifact: _changeSurfaceArtifact,
+      ...withoutArtifactReference
+    } = candidate;
+    return (
+      Buffer.byteLength(
+        JSON.stringify({
+          ...withoutArtifactReference,
+          changeSurface: fullChangeSurface,
+        }),
+        "utf8",
+      ) <= TARGET_TASK_CAPSULE_BYTES
+    );
+  };
+  if (fitsTargetAfterHydration(capsule)) {
     return capsule;
   }
   const { sourceRelations: _sourceRelations, ...capsuleWithoutRelations } =
@@ -710,7 +812,7 @@ export function fitTaskResumeCapsuleStorageBudget(
         ? "Task complete."
         : shortTaskText(capsule.nextSafeAction, 180),
   };
-  if (Buffer.byteLength(JSON.stringify(compact), "utf8") <= MAX_TASK_CAPSULE_BYTES) {
+  if (fitsTargetAfterHydration(compact)) {
     return compact;
   }
   const tight: TaskResumeCapsule = {
@@ -735,7 +837,7 @@ export function fitTaskResumeCapsuleStorageBudget(
     },
     nextSafeAction: shortTaskText(compact.nextSafeAction, 140),
   };
-  if (Buffer.byteLength(JSON.stringify(tight), "utf8") <= MAX_TASK_CAPSULE_BYTES) {
+  if (fitsTargetAfterHydration(tight)) {
     return tight;
   }
 
@@ -771,8 +873,12 @@ export function fitTaskResumeCapsuleStorageBudget(
           ...essentialPolicy
         } = tight.activePolicy;
         return essentialPolicy;
-      })()
+    })()
     : undefined;
+  const {
+    checkoutId: _checkoutId,
+    ...compactWorkspace
+  } = tight.workspace;
   const essentialHandle =
     tight.status === "completed"
       ? undefined
@@ -813,6 +919,7 @@ export function fitTaskResumeCapsuleStorageBudget(
         : [];
   return {
     ...compactBase,
+    title: shortTaskText(tight.title, 96),
     objective: {
       ...tight.objective,
       // The immutable objective artifact remains authoritative. A shorter
@@ -831,6 +938,7 @@ export function fitTaskResumeCapsuleStorageBudget(
       updatedAt: tight.lifecycle.updatedAt,
     },
     decisions: [],
+    workspace: compactWorkspace,
     sourceReceiptIds:
       tight.status === "completed" ? tight.sourceReceiptIds.slice(0, 2) : [],
     handles: finalHandles,
@@ -887,7 +995,12 @@ export function validateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
     capsule.schemaVersion !== TASK_CAPSULE_SCHEMA_VERSION ||
     !TASK_ID_PATTERN.test(capsule.taskId) ||
     !["active", "blocked", "completed"].includes(capsule.status) ||
+    typeof capsule.title !== "string" ||
+    !capsule.title.trim() ||
+    capsule.title.length > 160 ||
     !isTaskObjectiveProjection(capsule.objective, capsule.taskId) ||
+    !validTaskLineage(capsule.lineage, capsule.taskId) ||
+    !validTaskFeedbackSummary(capsule.feedbackSummary) ||
     (capsule.governance !== undefined &&
       !isTaskGovernance(capsule.governance)) ||
     !Array.isArray(capsule.decisions) ||
@@ -897,6 +1010,10 @@ export function validateTaskResumeCapsule(value: unknown): TaskResumeCapsule {
     !Array.isArray(capsule.scope?.remaining) ||
     !capsule.workspace?.rootPath ||
     !capsule.workspace.head ||
+    (capsule.workspace.checkoutId !== undefined &&
+      !/^[a-f0-9]{20}$/u.test(capsule.workspace.checkoutId)) ||
+    (capsule.workspace.branch !== undefined &&
+      (!capsule.workspace.branch.trim() || capsule.workspace.branch.length > 240)) ||
     !Number.isFinite(capsule.budget?.contextChars) ||
     !validLifecycle(capsule.lifecycle) ||
     ((capsule.status === "completed") !==

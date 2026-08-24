@@ -87,7 +87,7 @@ describe("Project Atlas MCP surface", () => {
         mcpSerializedChars: serialized.length,
         mcpContractHash: createHash("sha256").update(serialized).digest("hex"),
       }).toEqual(DECLARED_CORE_MCP_CONTRACT_COST);
-      expect(serialized.length).toBeLessThanOrEqual(16_200);
+      expect(serialized.length).toBeLessThanOrEqual(17_000);
       for (const tool of tools.tools) {
         expect(tool.annotations).toMatchObject({
           destructiveHint: false,
@@ -333,8 +333,11 @@ describe("Project Atlas MCP surface", () => {
         },
       });
       expect(resumed.structuredContent).toMatchObject({
-        format: expect.stringMatching(/^(?:toon|json)$/u),
-        body: expect.stringContaining("task-core-flow"),
+        taskId: "task-core-flow",
+        recommendation: { taskId: "task-core-flow", reason: "explicit-task-id" },
+        git: { head: expect.any(String) },
+        criteria: { total: 0 },
+        feedback: { total: 0, pending: 0 },
       });
 
       const validated = await client.callTool({
@@ -351,6 +354,21 @@ describe("Project Atlas MCP surface", () => {
 
       const postValidationFile = path.join(rootPath, "post-validation.txt");
       await writeFile(postValidationFile, "changed after validation\n", "utf8");
+      const staleResume = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-core-flow",
+          action: "resume",
+        },
+      });
+      expect(staleResume.isError, JSON.stringify(staleResume.content)).not.toBe(
+        true,
+      );
+      expect(staleResume.structuredContent).toMatchObject({
+        validation: "stale",
+        nextAction: expect.stringMatching(/reconcile.*validation/iu),
+      });
       const staleOutcome = await client.callTool({
         name: "atlas_task_state",
         arguments: {

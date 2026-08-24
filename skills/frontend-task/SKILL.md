@@ -32,7 +32,8 @@ grants permissions.
 1. Read repository instructions; record root/package, branch/HEAD, dirty
    baseline, and required checks. Existing changes are user-owned. Inspect code
    after source decisions resolve.
-2. Preserve the first objective. Corrections may add scope/risk, never silently
+2. Preserve the first objective and give it a short stable title. Corrections
+   become feedback on that task; they may add scope/risk, but never silently
    replace the objective or lower risk for its `task_id`.
 3. Classify only sources that are supplied or materially required. A bare
    reference stays `pending`, as does vague "use this". Treat a current-turn
@@ -51,16 +52,16 @@ Missing optional evidence is a warning, not a blocker.
 
 ## 2. Prepare once per evidence version
 
-Call `atlas_prepare_task` once per evidence version with the absolute root,
-objective, resolved decisions, receipts/relations, and a prior ID only for the
-same task. Keep its ID and handles. Atlas hash-binds objective/governance;
-later evidence may raise but never lower it.
+Call `atlas_prepare_task` once per evidence version with root, stable `title`,
+objective, decisions, and receipts/relations. Omit `task_id` to reuse the safe
+checkout/branch focus. Use `start_new_task: true` only for a separate objective.
+An explicit `task_id` creates or continues that identity for compatibility.
+Keep its ID/handles; later evidence may raise but never lower governance.
 
 For medium/large or resumable work, call `atlas_task_state` action
-`record-contract` after preparation and before locking. Persist observable
-criteria, resolved/open product decisions, constraints, exclusions, exact
-source receipts, and selected context handles. A changed contract is a new
-immutable revision and must name its previous handle.
+`record-contract` before locking. Persist criteria, product decisions,
+constraints, exclusions, receipts, and context handles. Revisions are immutable
+and name their predecessor.
 
 If preparation returns `needs-confirmation`, no repository scan or connector
 retrieval occurred. Resolve the named decisions and repeat with the same task
@@ -85,11 +86,10 @@ Produce a size-proportional, decision-complete plan:
 - objective/criteria, package, files/APIs, exclusions, authority and reuse;
 - data flow/states/assumptions, tests, review tier, and delivery boundary.
 
-Resolve visual authority before locking. Load the Figma skill only for a
-confirmed exact source. Invoke `$visual-direction` explicitly in fidelity mode
-to freeze it without alternatives, or in bounded exploration mode only when
-authority is unresolved. Every visual implementation attaches its contract via
-`atlas_task_state` `attach-evidence` before locking; later evidence needs relock.
+Resolve visual authority before locking. Load Figma only for a confirmed exact
+source. Invoke `$visual-direction` explicitly for fidelity, or use bounded
+exploration only while authority is unresolved. Attach the selected visual
+contract before locking; later evidence needs relock.
 
 Call `atlas_lock_change_scope` only after the decision. `reuse`, `extend`,
 `compose`, and `extract-and-reuse` require an existing `primary_component`
@@ -117,14 +117,12 @@ action.
 - Use the same native task. The main native Codex task is coordinator and sole writer;
   delegates are read-only.
 
-Use `atlas_task_state` only to recover exact-checkout evidence, record/revise
-the evidence contract, checkpoint criterion progress, attach verified
-evidence, govern a confirmed Figma production asset through
-capture/materialization under its ChangeSurface, record a blocker, or save a
-semantic checkpoint. Checkpoint after a completed batch, material decision,
-validation, or before handoff/context compaction. After lock include
-`change_surface_lock_id`; after validation also include its exact
-`validation:<lockId>:<deltaHash>`. Never checkpoint after every call.
+Use `atlas_task_state` to recover exact-checkout evidence, record/revise the
+contract, append/reconcile feedback and Git, attach evidence/assets, block, or
+checkpoint. Follow [continuation-mode.md](references/continuation-mode.md) for
+feedback types, sparse supersession, relock, and completed-parent children.
+Checkpoint only after a semantic batch, decision, validation, or handoff. Bind
+the active lock and exact validation reference when they exist.
 
 ## 5. Validate and review by size/risk
 
@@ -160,7 +158,8 @@ proof of external delivery, and must not write Project Memory.
 
 When an evidence contract exists, success requires its latest continuation,
 every required criterion satisfied by task-owned evidence, no open product
-decision, and bindings to the active ChangeSurface and current validation.
+decision or required feedback, and bindings to the active ChangeSurface and
+current validation.
 Failure or partial closeout records what remains without claiming acceptance.
 
 Completion is first-writer-wins: HEAD, lock/delta, objective, sources, handles,

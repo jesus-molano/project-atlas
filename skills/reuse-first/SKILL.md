@@ -22,7 +22,9 @@ Use the current repository as authority and Project Atlas as bounded evidence.
    `$frontend-task`; this repository-only module must not create a partial task
    that later cannot attach the governing receipt or visual contract.
 4. If this module owns the task, call `atlas_prepare_task` with the absolute
-   root and resolved task-scoped sources. Keep its `task_id`. If a parent
+   root, stable title, and resolved task-scoped sources. Omit `task_id` so Atlas
+   reuses the checkout-and-branch focus; use `start_new_task: true` only for a
+   separate objective. Keep the returned `task_id`. If a parent
    `$frontend-task` already prepared the same objective, reuse that task ID and
    returned handles; never prepare or scan twice.
 5. Inspect the ranked candidates, scope, API summary, consumers, tests,

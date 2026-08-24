@@ -6,11 +6,13 @@ mapping to the six core tools is defined below. For a small task, report only
 objective, decision, scope, assumptions, and checks.
 
 ```yaml
+title: Stable short task title
 objective: One observable product outcome
 identity:
   task_id: Stable Atlas/native task ID
   mode: new | continue | correct | finish
   objective_confirmed: true | false
+  parent_task_id: Completed parent for a correction child, or none
 repository:
   root: Absolute path
   package: Target package/route/feature
@@ -118,6 +120,13 @@ resume:
   covered: [Bounded completed scope]
   remaining: [Bounded remaining scope]
   next_safe_action: One action
+  feedback:
+    pending_required: Count
+    latest_handle: Immutable `feedback:` handle or none
+  git:
+    relation: same | advanced | diverged | unknown
+    stored_head: Exact prior HEAD or none
+    current_head: Exact current HEAD or none
 technical_close:
   status: pending | complete | blocked
   verification: [Completed checks]
@@ -130,7 +139,7 @@ memory:
 
 | Brief field | Core input/evidence |
 | --- | --- |
-| `objective`, `identity.task_id`, `identity.objective_confirmed` | `atlas_prepare_task.objective`, `task_id`, `objective_confirmed` |
+| `title`, `objective`, `identity.task_id`, `identity.objective_confirmed` | `atlas_prepare_task.title`, `objective`, `task_id`, `objective_confirmed`; an explicit `task_id` creates or continues that identity, omitting it reuses focus, and `start_new_task: true` creates a separate objective without an ID |
 | `sources.ledger[*]` | `sources[*]`; a newly retrieved provider result goes in that source's `evidence`, including stable `observed_at` |
 | `sources.receipt_ids` | Top-level `atlas_prepare_task.receipt_ids`, only for task receipts Atlas already persisted |
 | `sources.relations` | `atlas_prepare_task.source_relations` |
@@ -138,6 +147,8 @@ memory:
 | `reuse.*`, `scope.primary_*`, `reference_components`, `allowed_files`, `exclusions` | `atlas_lock_change_scope`; selected/rejected component values are exact graph IDs |
 | `scope.derived_apis`, `scope.derived_impact` | Read-only output derived by Atlas; never pass these as caller assertions |
 | `validation.*` | Repository commands first, then `atlas_validate_change` |
+| Mid-task observation | `atlas_task_state` action `append-feedback`; corrections, decisions, scope changes, and review findings are required by default |
+| Sparse progress and Git reconciliation | `atlas_task_state` action `reconcile`; update only changed criteria and resolve named feedback IDs |
 | `resume.*` | `atlas_task_state` action `checkpoint-continuation`; report every contract criterion exactly once |
 | `technical_close` | `atlas_task_state` action `complete`; the record is not proof of commit/push/PR/deploy |
 | `memory` | Independent `atlas_memory` flow; never implied by technical close |

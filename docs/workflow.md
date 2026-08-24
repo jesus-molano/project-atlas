@@ -53,9 +53,13 @@ points:
    implementation, and validation commands.
 2. Resolve only supplied or materially required sources. Bare detected links
    remain pending until confirmed; irrelevant provider checklists are skipped.
-3. Call `atlas_prepare_task` after preflight. For medium/large work, record an
-   immutable evidence contract immediately afterwards. Repeat under the same
-   task ID for one bounded re-ranking when the objective becomes more precise.
+3. Call `atlas_prepare_task` after preflight with a stable title. By default it
+   reuses the checkout-and-branch focus; use `start_new_task: true` only for a
+   separate objective when no ID is supplied. An explicit `task_id` creates or
+   continues that deterministic identity for compatibility. For medium/large
+   work, record an immutable evidence contract immediately afterwards. Repeat
+   under the same task ID for one bounded re-ranking when the objective becomes
+   more precise.
    Further retrieval needs a typed `retrieval_invalidation_reason`. If prepare
    returns `ready-with-existing-context`, continue to the lock with planned
    surfaces or `not-applicable`; do not block the task or retrieve again.
@@ -68,7 +72,8 @@ points:
    `atlas_lock_change_scope` with that decision and explicit exclusions.
 7. Immediately checkpoint the initial continuation against that lock, before
    the first edit. Then implement the smallest locked surface in the same native
-   task and checkpoint successors after semantic milestones, not every tool call.
+   task. Append mid-task observations with `append-feedback`; reconcile sparse
+   progress and Git state after semantic milestones, not every tool call.
 8. Run focused tests and required checks. For visual work, attach an immutable
    pre-clean review while captures exist, clean the temporary session, then
    attach the final task/contract-bound review with the same capture hashes and
@@ -93,20 +98,22 @@ continuation, and final visual-review hash. Identical concurrent or interrupted
 retries converge on one completion; different evidence or closeout text is
 rejected. Completion never implies a memory write.
 
-Resume always accepts an explicit task ID. Without one, it recovers only the
-single active task whose stored checkout identity exactly matches the current
-checkout; multiple candidates require an explicit selection. Context compaction
+Resume always accepts an explicit task ID. Without one, it first uses the
+durable focus for the current checkout and branch, then one uniquely safe
+candidate. A real ambiguity returns one recommendation and alternatives, but
+does not create another task. An advanced descendant HEAD is reported for
+reconciliation; diverged history is not silently accepted. Context compaction
 does not create a new task or justify an unbounded source reread.
 
 ## Core calls
 
 | Tool | Use |
 | --- | --- |
-| `atlas_prepare_task` | Source-gated preparation, code refresh, bounded reuse/context, stable task ID |
+| `atlas_prepare_task` | Source-gated preparation, code refresh, bounded reuse/context, stable title and focused task ID |
 | `atlas_expand_context` | One named unresolved handle |
 | `atlas_lock_change_scope` | Persist decision, exact allowed files, references, Git baseline, derived graph/API evidence, and exclusions before edit |
 | `atlas_validate_change` | Validate the complete task delta against the lock and confirmed contracts |
-| `atlas_task_state` | Resume, attach bounded evidence/review, checkpoint, block, or technically complete |
+| `atlas_task_state` | Resume, append feedback, reconcile Git/criteria, attach evidence/review, checkpoint, block, or technically complete |
 | `atlas_memory` | Review one proposal; mutate only through the two-call, payload-bound literal-consent protocol |
 
 Administrative migrations, bulk diagnostics, and local GUI inspection remain

@@ -8,6 +8,7 @@ import {
 } from "./task-evidence-contract.js";
 import { assertLockedChangeSurfaceArtifact } from "./change-surface-lock.js";
 import { resolveProjectIdentity } from "./identity.js";
+import { readTaskFocus } from "./task-focus.js";
 import { resolveTaskObjectiveProjection } from "./task-objective.js";
 import { hydrateTaskResumeCapsule } from "./task-state-hydration.js";
 import { pruneExpiredTaskState } from "./task-state.js";
@@ -25,6 +26,7 @@ export interface TaskResumeCandidate {
   taskId: string;
   status: "active" | "blocked";
   updatedAt: string;
+  title: string;
   objective: string;
   nextSafeAction: string;
   continuationHandle?: string;
@@ -40,13 +42,17 @@ export type TaskResumeRecovery =
       status: "selection-required";
       candidateCount: number;
       candidates: TaskResumeCandidate[];
+      recommendedTaskId: string;
+      recommendationReason: "most-recent-same-branch-but-ambiguous";
     }
   | {
       status: "ready";
-      candidateCount: 1;
+      candidateCount: number;
       candidates: TaskResumeCandidate[];
       capsule: TaskResumeCapsule;
       continuation?: TaskContinuationBundle;
+      recommendedTaskId: string;
+      recommendationReason: "durable-focus" | "only-candidate" | "exact-head";
     };
 
 async function taskStateDirectories(rootPath: string): Promise<string[]> {
@@ -140,13 +146,15 @@ async function activatedTaskEvidence(
 
 function resumeCandidate(
   capsule: TaskResumeCapsule & { status: "active" | "blocked" },
+  objective: string,
   continuation?: TaskContinuationBundle,
 ): TaskResumeCandidate {
   return {
     taskId: capsule.taskId,
     status: capsule.status,
     updatedAt: capsule.updatedAt,
-    objective: capsule.objective.text,
+    title: capsule.title,
+    objective,
     nextSafeAction: continuation?.nextSafeAction ?? capsule.nextSafeAction,
     ...(continuation ? { continuationHandle: continuation.handle } : {}),
   };
@@ -155,8 +163,10 @@ function resumeCandidate(
 async function discoverTaskResumeState(rootPath: string): Promise<{
   candidates: TaskResumeCandidate[];
   capsules: Map<string, TaskResumeCapsule>;
+  currentHead?: string;
 }> {
   await pruneExpiredTaskState(rootPath);
+  const identity = await resolveProjectIdentity(rootPath);
   const discovered = new Map<string, TaskResumeCapsule>();
   for (const { directory, name } of await capsuleFiles(rootPath)) {
     let capsule: TaskResumeCapsule;
@@ -175,7 +185,11 @@ async function discoverTaskResumeState(rootPath: string): Promise<{
     }
     if (
       !sameWorkspaceRoot(capsule.workspace.rootPath, rootPath) ||
-      capsule.status === "completed"
+      capsule.status === "completed" ||
+      (capsule.workspace.checkoutId !== undefined &&
+        capsule.workspace.checkoutId !== identity.checkoutId) ||
+      (capsule.workspace.branch !== undefined &&
+        capsule.workspace.branch !== (identity.branch ?? "HEAD"))
     ) {
       continue;
     }
@@ -196,23 +210,27 @@ async function discoverTaskResumeState(rootPath: string): Promise<{
         capsule.changeSurface,
       );
     }
-    await resolveTaskObjectiveProjection(rootPath, taskId, capsule.objective);
+    const resolvedObjective = await resolveTaskObjectiveProjection(
+      rootPath,
+      taskId,
+      capsule.objective,
+    );
     const activated = await activatedTaskEvidence(rootPath, capsule);
     capsules.set(taskId, activated.capsule);
     candidates.push(
       resumeCandidate(
         { ...activated.capsule, status: capsule.status },
+        resolvedObjective.text,
         activated.continuation,
       ),
     );
   }
   return {
-    candidates: candidates.toSorted(
-      (left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt) ||
-        left.taskId.localeCompare(right.taskId),
+    candidates: candidates.toSorted((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) || left.taskId.localeCompare(right.taskId),
     ),
     capsules,
+    ...(identity.head ? { currentHead: identity.head } : {}),
   };
 }
 
@@ -228,7 +246,10 @@ export async function listTaskResumeCandidates(
   return candidates.slice(0, limit);
 }
 
-/** Recovers state only when this exact checkout has one active task. */
+/**
+ * Recovers the explicit checkout-and-branch focus when present. Without a
+ * focus, Atlas continues only for one candidate or a uniquely exact HEAD.
+ */
 export async function recoverTaskResumeState(
   rootPath: string,
   candidateLimit = 8,
@@ -240,18 +261,30 @@ export async function recoverTaskResumeState(
   ) {
     throw new Error("Task resume candidate limit must be between 1 and 32.");
   }
-  const { candidates, capsules } = await discoverTaskResumeState(rootPath);
+  const { candidates, capsules, currentHead } = await discoverTaskResumeState(rootPath);
   if (candidates.length === 0) {
     return { status: "not-found", candidateCount: 0, candidates: [] };
   }
-  if (candidates.length > 1) {
+  const focus = await readTaskFocus(rootPath);
+  const focused = focus
+    ? candidates.find((candidate) => candidate.taskId === focus.taskId)
+    : undefined;
+  const exactHead = currentHead
+    ? candidates.filter((candidate) => capsules.get(candidate.taskId)?.workspace.head === currentHead)
+    : [];
+  const candidate =
+    focused ??
+    (candidates.length === 1 ? candidates[0] : undefined) ??
+    (exactHead.length === 1 ? exactHead[0] : undefined);
+  if (!candidate) {
     return {
       status: "selection-required",
       candidateCount: candidates.length,
       candidates: candidates.slice(0, candidateLimit),
+      recommendedTaskId: candidates[0]!.taskId,
+      recommendationReason: "most-recent-same-branch-but-ambiguous",
     };
   }
-  const candidate = candidates[0]!;
   const capsule = capsules.get(candidate.taskId);
   if (!capsule) throw new Error("Recovered task capsule is unavailable.");
   const activated = await activatedTaskEvidence(rootPath, capsule);
@@ -263,13 +296,27 @@ export async function recoverTaskResumeState(
       ...activated.capsule,
       status: activated.capsule.status,
     },
+    (await resolveTaskObjectiveProjection(
+      rootPath,
+      candidate.taskId,
+      activated.capsule.objective,
+    )).text,
     activated.continuation,
   );
   return {
     status: "ready",
-    candidateCount: 1,
-    candidates: [recoveredCandidate],
+    candidateCount: candidates.length,
+    candidates: [
+      recoveredCandidate,
+      ...candidates.filter((item) => item.taskId !== recoveredCandidate.taskId),
+    ].slice(0, candidateLimit),
     capsule: activated.capsule,
+    recommendedTaskId: candidate.taskId,
+    recommendationReason: focused
+      ? "durable-focus"
+      : candidates.length === 1
+        ? "only-candidate"
+        : "exact-head",
     ...(activated.continuation
       ? { continuation: activated.continuation }
       : {}),

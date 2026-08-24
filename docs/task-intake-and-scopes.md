@@ -7,9 +7,9 @@ checkout preflight before any deep scan or retrieval.
 
 ## Intake
 
-1. Preserve the original objective as task identity and record repository,
-   checkout, branch, HEAD, dirty baseline, requested scope, and delivery
-   authority.
+1. Preserve the original objective as task identity, assign a stable short
+   title, and record repository, checkout, branch, HEAD, dirty baseline,
+   requested scope, and delivery authority.
 2. Classify only supplied or materially required sources as `confirmed`,
    `pending`, `omitted`, or `unavailable`. A bare external link remains
    `pending`, even beside "use this", until confirmation unambiguously binds
@@ -20,9 +20,13 @@ checkout preflight before any deep scan or retrieval.
 4. Separate task size (`small`, `medium`, `large`) from risk. Risk derives from
    the original objective, source authority and affected surface; later
    evidence may increase, but not lower, it within the same task.
-5. Call `atlas_prepare_task` once for the confirmed evidence version. It returns
-   bounded candidates, findings, receipt IDs, relations, and expandable
-   handles, not full source bodies.
+5. Call `atlas_prepare_task` once for the confirmed evidence version. Without a
+   `task_id`, Atlas reuses the focused task for the current checkout and branch,
+   or one uniquely safe candidate. `start_new_task: true` is the explicit escape
+   hatch for a separate objective when no ID is supplied. For compatibility, an
+   explicit `task_id` creates or continues that deterministic identity.
+   Preparation returns bounded candidates, findings, receipt IDs, relations,
+   and expandable handles, not full source bodies.
 6. For medium/large work, record the immutable task evidence contract: original
    objective, acceptance criteria, sources, constraints, exclusions and bounded
    handles. Its successor must link to the prior version.
@@ -39,7 +43,10 @@ checkout preflight before any deep scan or retrieval.
    receipts; it is not a caller-supplied assertion.
 10. Checkpoint the initial continuation against the new lock before the first
    edit, so criteria and the next safe action survive handoff or compaction.
-11. Implement and review in native Codex. Use focused checks for small changes;
+11. Implement and review in native Codex. Append observations to the active
+   task instead of creating correction tasks. Reconcile changed criteria,
+   required feedback, Git HEAD, and validation at semantic milestones. Use
+   focused checks for small changes;
    medium changes require one independent read-only review; large/high-risk
    changes require at least one, plus only justified specialists. Checkpoint the
    continuation at semantic milestones, not every tool call.
@@ -92,11 +99,23 @@ reported explicitly and can be narrowed or replaced when its operations matter.
 
 The task capsule is bounded and resumes by task ID through `atlas_task_state`
 action `resume`. It stores an integrity-checked reference to the full immutable
-objective, its compact projection, governance classification, decision/receipt/
-handle IDs, covered and remaining scope, checkout identity, budget, blockers,
-and next safe action. Without an ID, recovery is allowed only for a unique active
-task with the same exact checkout identity; ambiguity requires selection.
+objective, a stable title, its compact projection, governance classification,
+decision/receipt/handle IDs, covered and remaining scope, checkout and branch
+identity, lineage, feedback summary, budget, blockers, and next safe action.
+Without an ID, the focused task wins for that checkout and branch. Otherwise,
+Atlas resumes only one uniquely safe candidate and returns a deterministic
+recommendation without creating a task when selection is genuinely ambiguous.
 Checkpoints are semantic, not per tool call.
+
+Feedback is an immutable task queue. `note` is advisory;
+`correction`, `decision`, `scope-change`, and `review-finding` are required by
+default. Sparse reconciliation preserves unchanged criterion progress and
+records an advanced descendant Git HEAD as evidence, but a commit never
+satisfies a criterion by itself. A changed contract explicitly supersedes only
+the affected criteria or decisions. Scope changes invalidate the active lock;
+within-scope corrections may create a successor bound to the same surface. A
+correction after completion creates a linked child task and leaves the parent
+receipt immutable.
 
 Component decisions are idempotent by task ID, decision type and surface.
 Superseded decisions remain in history, but only the active relevant decision

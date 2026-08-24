@@ -67,12 +67,13 @@ and cross-source scope relations. Capsules contain only a bounded resume
 projection, so a long confirmed URL is never truncated at the trust boundary
 and later checkpoints do not require the user to repeat it.
 
-`task-state/` also owns Git baselines, immutable final/technical-outcome receipts,
-source receipts, visual contracts/reviews, evidence contracts, continuation
-bundles, semantic Figma snapshots, and the write-once memory-consent
-chain. These durable artifacts are intentionally separate from expiring
-capsules, so completion, visual review, and an approved memory mutation remain
-auditable after resume state is pruned.
+`task-state/` also owns checkout-and-branch focus records, immutable feedback
+events, Git reconciliation records, Git baselines, immutable
+final/technical-outcome receipts, source receipts, visual contracts/reviews,
+evidence contracts, continuation bundles, semantic Figma snapshots, and the
+write-once memory-consent chain. These durable artifacts are intentionally
+separate from expiring capsules, so completion, feedback lineage, visual review,
+and an approved memory mutation remain auditable after resume state is pruned.
 
 New source observations use SourceReceipt v3 IDs: `receipt-` followed by the
 64-character SHA-256 of the complete normalized semantic payload. Version 1
@@ -100,6 +101,13 @@ checkpoint succeeds. Semantic Figma snapshots retain only bounded
 node/component/style/state/asset-reference metadata and current source receipt
 identity; they reject raw Figma payloads and require a linked successor when
 the observed source changes.
+
+Focus records are keyed by checkout identity and branch, not objective text.
+They point to one active or blocked task and never reopen a completed task.
+Feedback events form a content-addressed per-task chain. Capsules retain only a
+bounded queue summary and lineage pointer. Git reconciliation classifies the
+stored and current HEAD as same, advanced, diverged, or unknown; it records
+commits as evidence without converting them into acceptance evidence.
 
 Logical project identity is based on the normalized Git remote, then the Git
 common directory, and finally the canonical path. Worktrees share the logical

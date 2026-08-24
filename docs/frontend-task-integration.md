@@ -26,8 +26,10 @@ handles, continuations, or its GUI as a task queue or ticket system.
 
 1. Run source preflight. Bare links remain `pending`; no connector or repository
    scan runs until material source decisions are resolved.
-2. Call `atlas_prepare_task` once per evidence version. For medium/large work,
-   record the immutable evidence contract before locking scope.
+2. Call `atlas_prepare_task` once per evidence version with a stable title. It
+   reuses the focused checkout-and-branch task unless `start_new_task: true`
+   explicitly requests a separate objective. For medium/large work, record the
+   immutable evidence contract before locking scope.
 3. Expand only a named unresolved handle with `atlas_expand_context`.
 4. For authoritative Figma, retain one bounded, exact-identity semantic snapshot
    before locking. New Figma evidence after a lock requires a named relock window
@@ -36,12 +38,13 @@ handles, continuations, or its GUI as a task queue or ticket system.
    `not-applicable`, then persist that decision in `atlas_lock_change_scope`
    before editing.
 6. Checkpoint the initial immutable continuation against the lock before the
-   first edit, then checkpoint semantic milestones. Resume by exact checkout
-   without a task ID only when one active candidate exists.
+   first edit. Append notes and corrections to the task queue, then reconcile
+   changed criteria and Git state at semantic milestones. Resume without a task
+   ID through the checkout-and-branch focus or one uniquely safe candidate.
 7. Implement in the same native Codex task and call `atlas_validate_change`
    after deterministic checks.
-8. Use `atlas_task_state` for resume/block/checkpoint and action `complete` for
-   technical close without memory.
+8. Use `atlas_task_state` for resume, `append-feedback`, `reconcile`,
+   block/checkpoint, and action `complete` for technical close without memory.
 9. Use `atlas_memory` `review-proposal` only for an exact proposal ID; require
    literal user consent for every mutating memory action.
 

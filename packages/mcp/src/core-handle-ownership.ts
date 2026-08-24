@@ -16,6 +16,8 @@ import {
   loadTaskContinuationBundle,
   loadTaskEvidenceContract,
   loadTaskExecutionManifest,
+  loadTaskFeedbackEvent,
+  loadTaskGitReconciliation,
   loadTaskResumeCapsule,
   loadTaskRetrievalResult,
   loadTaskSourceLedger,
@@ -33,6 +35,8 @@ export function taskBoundHandle(handle: string): boolean {
     handle.startsWith("delivery:") ||
     handle.startsWith("contract:") ||
     handle.startsWith("continuation:") ||
+    handle.startsWith("feedback:") ||
+    handle.startsWith("git-state:") ||
     handle.startsWith("retrieval:") ||
     handle.startsWith("manifest:")
   );
@@ -176,6 +180,20 @@ export async function assertTaskBoundHandle(
     const continuation = await loadTaskContinuationBundle(rootPath, handle);
     if (continuation.taskId !== taskId) {
       throw new Error(`Task continuation ${handle} belongs to a different task.`);
+    }
+    return;
+  }
+  if (handle.startsWith("feedback:")) {
+    const feedback = await loadTaskFeedbackEvent(rootPath, handle);
+    if (feedback.taskId !== taskId) {
+      throw new Error(`Task feedback ${handle} belongs to a different task.`);
+    }
+    return;
+  }
+  if (handle.startsWith("git-state:")) {
+    const gitState = await loadTaskGitReconciliation(rootPath, handle);
+    if (gitState.taskId !== taskId) {
+      throw new Error(`Git state ${handle} belongs to a different task.`);
     }
     return;
   }

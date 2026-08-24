@@ -11,10 +11,12 @@ confidence; they do not invalidate repository-first work.
 | Prepare task, refresh code evidence, rank reuse | `atlas_prepare_task` after source preflight | Inspect repository manually and keep the same decision contract |
 | Expand one unresolved item | `atlas_expand_context` with one returned handle | Open the exact local file or confirmed provider item |
 | Freeze criteria and decisions | `atlas_task_state` action `record-contract` before scope lock | Keep the same versioned criteria in the native task brief |
+| Queue an observation or correction | `atlas_task_state` action `append-feedback` | Add it to the active native task; do not create a parallel task |
+| Reconcile sparse progress and Git | `atlas_task_state` action `reconcile` | Update the task brief without inferring acceptance from commits |
 | Persist exact progress/next action | `atlas_task_state` action `checkpoint-continuation` at semantic boundaries | Keep one compact task-local handoff with every criterion |
 | Persist decision and implementation boundary | `atlas_lock_change_scope` after selecting reuse/extend/compose/extract/create/not-applicable | Write the bounded decision and exclusions in the plan |
 | Validate task delta | `atlas_validate_change` after deterministic checks | Inspect staged, unstaged, and untracked task delta manually |
-| Attach evidence/review, recover exact-checkout state, block, or technically complete | `atlas_task_state` | Keep a compact task-local handoff in the native task |
+| Attach evidence/review, recover focused checkout-and-branch state, block, or technically complete | `atlas_task_state` | Keep a compact task-local handoff in the native task |
 | Review or write Project Memory | `atlas_memory` with one explicit action | Do not review/write memory; report the unavailable action |
 
 Do not call legacy Atlas tools or assume a `component-atlas` executable exists

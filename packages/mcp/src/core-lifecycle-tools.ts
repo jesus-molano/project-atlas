@@ -1,19 +1,15 @@
 import { createHash } from "node:crypto";
-import { assertSourceReceiptMatchesDecision } from "@component-atlas/core";
 import {
   applyMemoryUpdate,
   appendTaskJournalMilestone,
   assertLockedChangeSurfaceArtifact,
   beginMemoryConsentExecution,
+  clearTaskFocus,
   commitMemoryConsentExecution,
   committedMemoryConsentResult,
   consumeMemoryConsent,
   issueMemoryConsent,
   loadMemoryConsentState,
-  loadPersistedSourceReceipt,
-  loadTaskCompletionReceipt,
-  loadTaskFinalReceipt,
-  loadTaskSourceLedger,
   loadTaskResumeCapsule,
   persistVisualEvidenceContract,
   proposeMemoryUpdate,
@@ -44,6 +40,16 @@ import {
   coreTaskEvidenceInputSchema,
   handleCoreTaskEvidenceAction,
 } from "./core-task-evidence.js";
+import { coreTaskReconcileInputSchema } from "./core-task-reconcile.js";
+import {
+  feedbackKind,
+  handleCoreTaskFeedbackLifecycle,
+  resolveFocusedTaskId,
+} from "./core-task-feedback-lifecycle.js";
+import {
+  completedTaskContext,
+  verifyTaskReceiptLedger,
+} from "./core-lifecycle-support.js";
 import {
   coreFigmaSnapshotInputSchema,
   recordCoreFigmaSnapshot,
@@ -287,78 +293,6 @@ async function committedConsent(
   });
 }
 
-async function completedTaskContext(rootPath: string, id: string) {
-  const capsule = await loadTaskResumeCapsule(rootPath, id);
-  if (
-    capsule?.status === "completed" &&
-    capsule.lifecycle.phase === "completed"
-  ) {
-    const objective = await resolveTaskObjective(rootPath, id);
-    if (!objective) throw new Error("Completed task objective is missing.");
-    return { objective: objective.text };
-  }
-  const finalReceipt = await loadTaskFinalReceipt(rootPath, id);
-  if (
-    finalReceipt?.outcome &&
-    ["failure", "partial"].includes(finalReceipt.outcome.result)
-  ) {
-    return { objective: finalReceipt.objective };
-  }
-  if (
-    finalReceipt?.deliveryReceipt &&
-    finalReceipt.validation &&
-    finalReceipt.lock?.id === finalReceipt.validation.lockId
-  ) {
-    await loadTaskCompletionReceipt(
-      rootPath,
-      finalReceipt.deliveryReceipt,
-      id,
-    );
-    return { objective: finalReceipt.objective };
-  }
-  throw new Error(
-    "Episodic recording and canonical proposals require a completed task with either a durable partial/failure outcome or a validated successful delivery receipt.",
-  );
-}
-
-async function verifyTaskReceiptLedger(
-  rootPath: string,
-  taskIdValue: string,
-  receiptIds: string[],
-): Promise<
-  Array<{
-    id: string;
-    receipt: Awaited<ReturnType<typeof loadPersistedSourceReceipt>>;
-  }>
-> {
-  const uniqueReceiptIds = [...new Set(receiptIds)];
-  if (uniqueReceiptIds.length === 0) return [];
-  const ledger = await loadTaskSourceLedger(rootPath, taskIdValue);
-  if (!ledger) {
-    throw new Error(`Task ${taskIdValue} has no source ledger.`);
-  }
-  const verified = [];
-  for (const currentReceiptId of uniqueReceiptIds) {
-    if (!ledger.receiptIds.includes(currentReceiptId)) {
-      throw new Error(
-        `Receipt ${currentReceiptId} is outside task ${taskIdValue}'s source ledger.`,
-      );
-    }
-    const receipt = await loadPersistedSourceReceipt(rootPath, currentReceiptId);
-    const decision = ledger.decisions.find(
-      (candidate) => candidate.id === receipt.sourceDecisionId,
-    );
-    if (!decision) {
-      throw new Error(
-        `Receipt ${currentReceiptId} is outside task ${taskIdValue}'s source ledger.`,
-      );
-    }
-    assertSourceReceiptMatchesDecision(decision, receipt);
-    verified.push({ id: currentReceiptId, receipt });
-  }
-  return verified;
-}
-
 export function registerCoreLifecycleTools(
   server: McpServer,
   assetOperations: CoreLifecycleAssetOperations =
@@ -376,6 +310,8 @@ export function registerCoreLifecycleTools(
           "resume",
           "record-contract",
           "checkpoint-continuation",
+          "append-feedback",
+          "reconcile",
           "record-figma-snapshot",
           "checkpoint",
           "block",
@@ -391,6 +327,13 @@ export function registerCoreLifecycleTools(
         covered: z.array(z.string().max(240)).max(8).optional(),
         remaining: z.array(z.string().max(240)).max(8).optional(),
         next_action: z.string().min(1).max(500).optional(),
+        kind: feedbackKind.optional(),
+        text: z.string().min(1).max(2_000).optional(),
+        origin: z.enum(["user", "agent", "reviewer"]).optional(),
+        required: z.boolean().optional(),
+        impact: z.enum(["none", "within-scope", "scope-change"]).optional(),
+        evidence_refs: z.array(z.string().min(1).max(320)).max(24).optional(),
+        ...coreTaskReconcileInputSchema,
         result: z.enum(["success", "failure", "partial"]).optional(),
         summary: z.string().min(1).max(1_000).optional(),
         verification: z
@@ -456,6 +399,15 @@ export function registerCoreLifecycleTools(
       covered,
       remaining,
       next_action,
+      kind,
+      text: feedback_text,
+      origin,
+      required,
+      impact,
+      evidence_refs,
+      contract_patch,
+      criterion_updates,
+      feedback_ids,
       result,
       summary,
       verification,
@@ -475,8 +427,38 @@ export function registerCoreLifecycleTools(
       if (action === "resume") {
         return text(await resumeCoreTask(root_path, task_id));
       }
+      if (action === "append-feedback" || action === "reconcile") {
+        task_id = await resolveFocusedTaskId(root_path, task_id);
+      }
       if (!task_id) {
         throw new Error(`${action} requires an exact task_id.`);
+      }
+      if (action === "append-feedback") {
+        return handleCoreTaskFeedbackLifecycle({
+          rootPath: root_path,
+          taskId: task_id,
+          action,
+          ...(kind ? { kind } : {}),
+          ...(feedback_text ? { feedbackText: feedback_text } : {}),
+          ...(origin ? { origin } : {}),
+          ...(required !== undefined ? { required } : {}),
+          ...(impact ? { impact } : {}),
+          ...(evidence_refs ? { evidenceRefs: evidence_refs } : {}),
+          ...(contract_patch ? { contractPatch: contract_patch } : {}),
+        });
+      }
+      if (action === "reconcile") {
+        return handleCoreTaskFeedbackLifecycle({
+          rootPath: root_path,
+          taskId: task_id,
+          action,
+          ...(contract_patch ? { contractPatch: contract_patch } : {}),
+          ...(criterion_updates ? { criterionUpdates: criterion_updates } : {}),
+          ...(feedback_ids ? { feedbackIds: feedback_ids } : {}),
+          ...(covered ? { covered } : {}),
+          ...(remaining ? { remaining } : {}),
+          ...(next_action ? { nextAction: next_action } : {}),
+        });
       }
       if (action === "complete" && result && summary && verification?.length) {
         const committed = await loadCommittedTaskCompletion(
@@ -486,6 +468,7 @@ export function registerCoreLifecycleTools(
         );
         if (committed) {
           await purgeTaskFigmaAssets({ rootPath: root_path, taskId: task_id });
+          await clearTaskFocus(root_path, task_id);
           return text(committed);
         }
       }
@@ -850,6 +833,7 @@ export function registerCoreLifecycleTools(
           files: files ?? [],
         });
         await purgeTaskFigmaAssets({ rootPath: root_path, taskId: task_id });
+        await clearTaskFocus(root_path, task_id);
         return text(completed);
       }
       const blocked = action === "block";

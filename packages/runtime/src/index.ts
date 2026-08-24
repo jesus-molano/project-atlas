@@ -113,6 +113,7 @@ export {
   type PersistFigmaSnapshotInput,
 } from "./figma-snapshot.js";
 export {
+  amendTaskEvidenceContract,
   expandTaskContinuationBundle,
   expandTaskEvidenceContract,
   loadLatestTaskContinuationBundle,
@@ -123,6 +124,7 @@ export {
   persistTaskContinuationBundleWithCheckpoint,
   persistTaskEvidenceContract,
   persistTaskEvidenceContractWithCheckpoint,
+  preserveTaskCriterionProgress,
   taskAcceptanceState,
   MAX_TASK_CONTINUATION_BUNDLE_BYTES,
   MAX_TASK_EVIDENCE_CONTRACT_BYTES,
@@ -143,6 +145,29 @@ export {
   type TaskEvidenceDecision,
   type TaskEvidenceDecisionStatus,
 } from "./task-evidence-contract.js";
+export {
+  type TaskEvidenceContractAmendment,
+  type TaskEvidenceCriterionPatch,
+  type TaskEvidenceDecisionPatch,
+} from "./task-evidence-amendment.js";
+export {
+  expandTaskFeedbackEvent,
+  loadTaskFeedbackQueue,
+  loadTaskFeedbackEvent,
+  persistTaskFeedbackEvent,
+  type PersistTaskFeedbackInput,
+  type TaskFeedbackEvent,
+  type TaskFeedbackKind,
+  type TaskFeedbackStatus,
+} from "./task-feedback.js";
+export {
+  expandTaskGitReconciliation,
+  inspectTaskGit,
+  loadTaskGitReconciliation,
+  reconcileTaskGit,
+  type TaskGitReconciliation,
+  type TaskGitReconciliationState,
+} from "./task-git-reconciliation.js";
 export {
   assertVisualCleanupReceipt,
   expandVisualReviewReceipt,
@@ -324,6 +349,8 @@ export {
   type TaskCheckpointInput,
   type TaskCompletionSummary,
   type TaskFinalReceipt,
+  type TaskFeedbackSummary,
+  type TaskLineage,
   type TaskChangeInvalidation,
   type TaskChangeInvalidationInput,
   type TaskLifecycle,
@@ -343,6 +370,12 @@ export {
   type TaskResumeCandidate,
   type TaskResumeRecovery,
 } from "./task-recovery.js";
+export {
+  clearTaskFocus,
+  readTaskFocus,
+  writeTaskFocus,
+  type TaskFocus,
+} from "./task-focus.js";
 export {
   computeTaskObjectiveHash,
   computeTaskObjectiveIntegrity,

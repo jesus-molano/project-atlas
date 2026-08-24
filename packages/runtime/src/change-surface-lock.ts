@@ -191,7 +191,7 @@ export function normalizeLockedEvidenceHandles(values: string[] = []): string[] 
   const priority = (handle: string): number =>
     /^(?:visual|contract):/u.test(handle)
       ? 0
-      : /^(?:figma-asset|figma-snapshot|manifest|retrieval|continuation):/u.test(
+      : /^(?:figma-asset|figma-snapshot|manifest|retrieval|continuation|feedback|git-state):/u.test(
             handle,
           )
         ? 1

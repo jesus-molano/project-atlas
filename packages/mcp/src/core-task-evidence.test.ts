@@ -808,8 +808,12 @@ describe("core task evidence lifecycle", () => {
       expect(resumed.structuredContent).toMatchObject({
         taskId,
         recovered: "exact-checkout",
-        continuationHandle,
-        nextAction: `Expand ${continuationHandle} before continuing implementation.`,
+        recommendation: { taskId: taskId },
+        criteria: {
+          contract: { handle: expect.any(String) },
+          acceptance: { pending: ["runtime"] },
+        },
+        nextAction: "Run the focused runtime and MCP tests.",
       });
 
       const expanded = await client.callTool({
@@ -919,8 +923,12 @@ describe("core task evidence lifecycle", () => {
       });
       expect(selected.isError, JSON.stringify(selected.content)).not.toBe(true);
       expect(selected.structuredContent).toMatchObject({
-        format: "toon",
-        body: expect.stringContaining("taskId: task-one"),
+        taskId: "task-one",
+        title: "Implement task one.",
+        objective: "Implement task one.",
+        recommendation: { taskId: "task-one", reason: "explicit-task-id" },
+        git: { head: expect.any(String) },
+        feedback: { total: 0, pending: 0 },
       });
 
       const missingTask = await client.callTool({
@@ -933,6 +941,42 @@ describe("core task evidence lifecycle", () => {
       });
       expect(missingTask.isError).toBe(true);
       expect(JSON.stringify(missingTask.content)).toMatch(/exact task_id/iu);
+    });
+  });
+
+  it("appends feedback and reconciles the uniquely recoverable task without task_id", async () => {
+    const root = await createGitRoot();
+    await seedTask(root, "task-feedback", "Implement task feedback continuity.");
+
+    await withCoreClient(async (client) => {
+      const appended = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: root,
+          action: "append-feedback",
+          kind: "correction",
+          text: "Require OTP for every digital consent change.",
+          origin: "user",
+          impact: "within-scope",
+        },
+      });
+      expect(appended.isError, JSON.stringify(appended.content)).not.toBe(true);
+      expect(appended.structuredContent).toMatchObject({
+        status: "feedback-appended",
+        taskId: "task-feedback",
+        feedback: { kind: "correction", origin: "user" },
+      });
+
+      const reconciled = await client.callTool({
+        name: "atlas_task_state",
+        arguments: { root_path: root, action: "reconcile" },
+      });
+      expect(reconciled.isError, JSON.stringify(reconciled.content)).not.toBe(true);
+      expect(reconciled.structuredContent).toMatchObject({
+        status: "reconciled",
+        taskId: "task-feedback",
+        feedback: { total: 1, pending: 1 },
+      });
     });
   });
 
