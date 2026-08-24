@@ -221,6 +221,53 @@ describe("core Figma semantic snapshots", () => {
         /^figma-snapshot:task-figma-snapshot:[a-f0-9]{16}$/u,
       );
 
+      const metadataCheck = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: root,
+          task_id: taskId,
+          action: "check-figma-snapshot",
+          figma_snapshot: {
+            file_key: "SnapshotFile",
+            node_id: "39-2731",
+            required_categories: ["nodes", "components", "states"],
+          },
+        },
+      });
+      expect(metadataCheck.isError, JSON.stringify(metadataCheck.content)).not.toBe(
+        true,
+      );
+      expect(metadataCheck.structuredContent).toMatchObject({
+        status: "metadata-required",
+        snapshot: { handle: firstHandle },
+        providerRead: "metadata-only",
+        quotaWarning: expect.stringMatching(/quota/iu),
+      });
+
+      const reusable = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: root,
+          task_id: taskId,
+          action: "check-figma-snapshot",
+          source_receipt_id: receiptId,
+          figma_snapshot: {
+            file_key: "SnapshotFile",
+            node_id: "39-2731",
+            required_categories: ["nodes", "components", "states"],
+          },
+        },
+      });
+      expect(reusable.isError, JSON.stringify(reusable.content)).not.toBe(true);
+      expect(reusable.structuredContent).toMatchObject({
+        status: "reusable",
+        snapshot: { handle: firstHandle, revision: 1 },
+        providerRead: "skip-deep-read",
+      });
+      expect(
+        JSON.stringify(reusable.structuredContent),
+      ).not.toMatch(/quotaWarning/iu);
+
       const expanded = await client.callTool({
         name: "atlas_expand_context",
         arguments: {

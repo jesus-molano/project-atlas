@@ -1,6 +1,7 @@
 import {
   assertVisualArtifactSessionClean,
   assertVisualCleanupReceipt,
+  loadLatestFigmaSnapshot,
   loadVisualEvidenceContract,
   loadVisualReviewReceipt,
   persistVisualReviewReceipt,
@@ -8,12 +9,14 @@ import {
   verifyVisualCaptureReceipt,
   writeTaskCheckpoint,
   type TaskResumeCapsule,
+  type VisualEvidenceContract,
   type VisualReviewReceipt,
 } from "@component-atlas/runtime";
 import { z } from "zod";
 import { authoritativeTaskSources } from "./core-source-evidence.js";
 
 const captureHandle = /^artifact-[a-f0-9]{12}-[a-f0-9]{8}$/u;
+const MAX_VISUAL_REVIEW_CASES = 14;
 
 export const visualReviewInputSchema = z.object({
   contract_handle: z
@@ -22,12 +25,22 @@ export const visualReviewInputSchema = z.object({
   contract_hash: z.string().regex(/^[a-f0-9]{64}$/u),
   state_matrix: z.object({
     surface: z.string().min(1).max(120),
-    viewports: z.array(z.string().min(1).max(48)).min(1).max(6),
-    required_states: z.array(z.string().min(1).max(48)).min(1).max(14),
+    cases: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(64),
+          route: z.string().min(1).max(160),
+          viewport: z.string().min(1).max(48),
+          state: z.string().min(1).max(48),
+        }),
+      )
+      .min(1)
+      .max(MAX_VISUAL_REVIEW_CASES),
   }),
   captures: z
     .array(
       z.object({
+        case_id: z.string().min(1).max(64),
         handle: z.string().regex(captureHandle),
         hash: z.string().regex(/^[a-f0-9]{64}$/u),
         receipt: z
@@ -35,11 +48,18 @@ export const visualReviewInputSchema = z.object({
           .regex(
             /^capture-receipt:v1:[a-f0-9]{16}:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}:[a-f0-9]{16}$/u,
           ),
-        viewport: z.string().min(1).max(48),
-        state: z.string().min(1).max(48),
       }),
     )
-    .max(24),
+    .max(MAX_VISUAL_REVIEW_CASES),
+  figma_comparisons: z
+    .array(
+      z.object({
+        case_id: z.string().min(1).max(64),
+        status: z.enum(["match", "deviation", "not-applicable"]),
+        node_id: z.string().min(1).max(240).optional(),
+      }),
+    )
+    .max(MAX_VISUAL_REVIEW_CASES),
   result: z.enum(["pass", "fix-and-recapture", "blocked"]),
   deviation_count: z.number().int().min(0).max(99),
   cleanup: z.object({
@@ -65,6 +85,7 @@ function sameImmutableReviewEvidence(
   final: VisualReviewReceipt,
 ): boolean {
   return (
+    preliminary.schemaVersion === final.schemaVersion &&
     preliminary.taskId === final.taskId &&
     preliminary.contractHandle === final.contractHandle &&
     preliminary.contractHash === final.contractHash &&
@@ -74,6 +95,10 @@ function sameImmutableReviewEvidence(
     JSON.stringify(preliminary.stateMatrix) ===
       JSON.stringify(final.stateMatrix) &&
     JSON.stringify(preliminary.captures) === JSON.stringify(final.captures) &&
+    (preliminary.schemaVersion !== 2 ||
+      final.schemaVersion !== 2 ||
+      JSON.stringify(preliminary.figmaComparisons) ===
+        JSON.stringify(final.figmaComparisons)) &&
     JSON.stringify(preliminary.coverage) === JSON.stringify(final.coverage)
   );
 }
@@ -122,6 +147,75 @@ async function assertFinalReviewChain(
   await assertVisualArtifactSessionClean(cleanup.sessionId);
 }
 
+function normalizedFigmaNodeId(value: string): string {
+  return value.trim().replace(/^(\d+)-(\d+)$/u, "$1:$2");
+}
+
+async function assertFigmaComparisonAuthority(
+  rootPath: string,
+  taskId: string,
+  capsule: TaskResumeCapsule,
+  contract: Pick<VisualEvidenceContract, "authority" | "figma">,
+  input: VisualReviewInput,
+): Promise<void> {
+  if (contract.authority !== "exact-figma") {
+    if (
+      input.figma_comparisons.some(
+        (comparison) =>
+          comparison.status !== "not-applicable" || comparison.node_id !== undefined,
+      )
+    ) {
+      throw new Error(
+        "Non-Figma visual authority must mark every Figma comparison as not-applicable.",
+      );
+    }
+    return;
+  }
+  if (
+    input.figma_comparisons.some(
+      (comparison) =>
+        comparison.status === "not-applicable" || !comparison.node_id,
+    )
+  ) {
+    throw new Error(
+      "Exact Figma authority requires a node-bound comparison for every supplied case.",
+    );
+  }
+  if (input.figma_comparisons.length === 0 && input.result !== "pass") {
+    return;
+  }
+  const snapshot = await loadLatestFigmaSnapshot(rootPath, taskId);
+  if (
+    !snapshot ||
+    !capsule.changeSurface?.evidence.handles.includes(snapshot.handle)
+  ) {
+    throw new Error(
+      "Exact Figma comparison requires the latest semantic snapshot in the active ChangeSurface.",
+    );
+  }
+  if (
+    !contract.figma ||
+    snapshot.identity.fileKey !== contract.figma.fileKey ||
+    normalizedFigmaNodeId(snapshot.identity.nodeId ?? "") !==
+      normalizedFigmaNodeId(contract.figma.nodeId ?? "")
+  ) {
+    throw new Error(
+      "Exact Figma comparison requires a semantic snapshot for the visual contract's exact file and node.",
+    );
+  }
+  const exactNodeId = normalizedFigmaNodeId(contract.figma.nodeId ?? "");
+  const unknownNode = input.figma_comparisons.find(
+    (comparison) =>
+      comparison.node_id &&
+      normalizedFigmaNodeId(comparison.node_id) !== exactNodeId,
+  );
+  if (unknownNode) {
+    throw new Error(
+      `Figma comparison ${unknownNode.case_id} must reference the exact node authorized by the locked visual contract and semantic snapshot.`,
+    );
+  }
+}
+
 export async function attachVisualReview(
   rootPath: string,
   taskId: string,
@@ -167,6 +261,13 @@ export async function attachVisualReview(
       "Visual review contract identity is stale or differs from the locked task evidence.",
     );
   }
+  await assertFigmaComparisonAuthority(
+    rootPath,
+    taskId,
+    capsule,
+    contract,
+    input,
+  );
   let artifactSessionId: string | undefined;
   let preliminaryReviewHandle: string | undefined;
   if (input.cleanup.state === "clean") {
@@ -181,6 +282,7 @@ export async function attachVisualReview(
       taskId,
     );
     if (
+      preliminary.schemaVersion !== 2 ||
       preliminary.cleanup.state !== "selected-retained" ||
       !preliminary.artifactSessionId ||
       preliminary.contractHandle !== input.contract_handle ||
@@ -188,25 +290,39 @@ export async function attachVisualReview(
       preliminary.result !== input.result ||
       preliminary.deviationCount !== input.deviation_count ||
       preliminary.stateMatrix.surface !== input.state_matrix.surface ||
-      JSON.stringify(preliminary.stateMatrix.viewports) !==
-        JSON.stringify([...input.state_matrix.viewports].sort()) ||
-      JSON.stringify(preliminary.stateMatrix.requiredStates) !==
-        JSON.stringify([...input.state_matrix.required_states].sort()) ||
+      JSON.stringify(preliminary.stateMatrix.cases) !==
+        JSON.stringify(
+          input.state_matrix.cases
+            .map((entry) => ({
+              id: entry.id,
+              route: entry.route,
+              viewport: entry.viewport,
+              state: entry.state,
+            }))
+            .sort((left, right) => left.id.localeCompare(right.id)),
+        ) ||
       JSON.stringify(preliminary.captures) !==
         JSON.stringify(
           input.captures
             .map((capture) => ({
+              caseId: capture.case_id,
               handle: capture.handle,
               hash: capture.hash,
               receipt: capture.receipt,
-              viewport: capture.viewport,
-              state: capture.state,
             }))
-            .sort((left, right) =>
-              `${left.viewport}\0${left.state}`.localeCompare(
-                `${right.viewport}\0${right.state}`,
-              ),
-            ),
+            .sort((left, right) => left.caseId.localeCompare(right.caseId)),
+        ) ||
+      JSON.stringify(preliminary.figmaComparisons) !==
+        JSON.stringify(
+          input.figma_comparisons
+            .map((comparison) => ({
+              caseId: comparison.case_id,
+              status: comparison.status,
+              ...(comparison.node_id
+                ? { nodeId: comparison.node_id }
+                : {}),
+            }))
+            .sort((left, right) => left.caseId.localeCompare(right.caseId)),
         )
     ) {
       throw new Error(
@@ -268,10 +384,19 @@ export async function attachVisualReview(
     ...(preliminaryReviewHandle ? { preliminaryReviewHandle } : {}),
     stateMatrix: {
       surface: input.state_matrix.surface,
-      viewports: input.state_matrix.viewports,
-      requiredStates: input.state_matrix.required_states,
+      cases: input.state_matrix.cases,
     },
-    captures: input.captures,
+    captures: input.captures.map((capture) => ({
+      caseId: capture.case_id,
+      handle: capture.handle,
+      hash: capture.hash,
+      receipt: capture.receipt,
+    })),
+    figmaComparisons: input.figma_comparisons.map((comparison) => ({
+      caseId: comparison.case_id,
+      status: comparison.status,
+      ...(comparison.node_id ? { nodeId: comparison.node_id } : {}),
+    })),
     result: input.result,
     deviationCount: input.deviation_count,
     cleanup: {
@@ -339,8 +464,12 @@ export async function loadPassingVisualReview(
   const receipt = await loadAttachedVisualReview(rootPath, taskId, capsule);
   if (
     !receipt ||
+    receipt.schemaVersion !== 2 ||
     !lockedVisualHandles.includes(receipt.contractHandle) ||
     receipt.result !== "pass" ||
+    !receipt.coverage.complete ||
+    !receipt.coverage.browser.complete ||
+    !receipt.coverage.figma.complete ||
     receipt.cleanup.state !== "clean" ||
     receipt.captures.length < 1
   ) {

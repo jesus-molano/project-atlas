@@ -126,6 +126,34 @@ export interface FigmaSnapshotCheckpointResult<TCheckpoint> {
   checkpoint: TCheckpoint;
 }
 
+export type FigmaSnapshotReuseStatus =
+  | "not-cached"
+  | "metadata-required"
+  | "refresh-required"
+  | "reusable";
+
+export interface AssessLatestFigmaSnapshotReuseInput {
+  taskId: string;
+  scope: Pick<FigmaSnapshotIdentity, "fileKey" | "nodeId">;
+  currentIdentity?: FigmaSnapshotIdentity;
+  requiredCategories: FigmaSnapshotCategory[];
+}
+
+export interface FigmaSnapshotReuseAssessment {
+  schemaVersion: 1;
+  taskId: string;
+  status: FigmaSnapshotReuseStatus;
+  snapshot?: Pick<
+    FigmaSnapshot,
+    "handle" | "revision" | "identity" | "coverage"
+  >;
+  missingCategories: FigmaSnapshotCategory[];
+  changedIdentityFields: Array<keyof FigmaSnapshotIdentity>;
+  providerRead: "metadata-only" | "bounded-deep-read" | "skip-deep-read";
+  quotaWarning?: string;
+  nextAction: string;
+}
+
 interface LatestFigmaSnapshotPointer {
   schemaVersion: 1;
   taskId: string;
@@ -888,6 +916,126 @@ export async function loadLatestFigmaSnapshot(
     throw new Error("Latest Figma snapshot pointer is stale or invalid.");
   }
   return snapshot;
+}
+
+function normalizedNodeId(value: string | undefined): string | undefined {
+  return value?.trim().replace(/^(\d+)-(\d+)$/u, "$1:$2");
+}
+
+function sameSnapshotScope(
+  identity: Pick<FigmaSnapshotIdentity, "fileKey" | "nodeId">,
+  scope: Pick<FigmaSnapshotIdentity, "fileKey" | "nodeId">,
+): boolean {
+  return (
+    identity.fileKey === scope.fileKey &&
+    normalizedNodeId(identity.nodeId) === normalizedNodeId(scope.nodeId)
+  );
+}
+
+function changedIdentityFields(
+  cached: FigmaSnapshotIdentity,
+  current: FigmaSnapshotIdentity,
+): Array<keyof FigmaSnapshotIdentity> {
+  return (["fileKey", "nodeId", "version", "lastModified"] as const).filter(
+    (field) => {
+      if (field === "nodeId") {
+        return normalizedNodeId(cached.nodeId) !== normalizedNodeId(current.nodeId);
+      }
+      if (field === "lastModified") {
+        return (
+          new Date(cached.lastModified).toISOString() !==
+          new Date(current.lastModified).toISOString()
+        );
+      }
+      return cached[field] !== current[field];
+    },
+  );
+}
+
+export async function assessLatestFigmaSnapshotReuse(
+  rootPath: string,
+  input: AssessLatestFigmaSnapshotReuseInput,
+): Promise<FigmaSnapshotReuseAssessment> {
+  if (!TASK_ID_PATTERN.test(input.taskId)) throw new Error("Task ID is invalid.");
+  const scope = normalizeIdentity({
+    ...input.scope,
+    version: "scope-only",
+    lastModified: "1970-01-01T00:00:00.000Z",
+  });
+  if (
+    !Array.isArray(input.requiredCategories) ||
+    input.requiredCategories.length === 0 ||
+    input.requiredCategories.length > CATEGORIES.length ||
+    input.requiredCategories.some((category) => !CATEGORIES.includes(category)) ||
+    new Set(input.requiredCategories).size !== input.requiredCategories.length
+  ) {
+    throw new Error("Required Figma snapshot categories are invalid.");
+  }
+  const requiredCategories = [...input.requiredCategories].sort();
+  const latest = await loadLatestFigmaSnapshot(rootPath, input.taskId);
+  const quotaWarning =
+    "The next Figma provider read may consume quota; inspect metadata before any bounded deep read.";
+  if (!latest || !sameSnapshotScope(latest.identity, scope)) {
+    return {
+      schemaVersion: 1,
+      taskId: input.taskId,
+      status: "not-cached",
+      missingCategories: requiredCategories,
+      changedIdentityFields: [],
+      providerRead: "bounded-deep-read",
+      quotaWarning,
+      nextAction: "Read only the required Figma scope and record its first semantic snapshot.",
+    };
+  }
+  const snapshot = {
+    handle: latest.handle,
+    revision: latest.revision,
+    identity: latest.identity,
+    coverage: latest.coverage,
+  };
+  const missingCategories = requiredCategories.filter(
+    (category) => latest.coverage[category].status !== "complete",
+  );
+  if (!input.currentIdentity) {
+    return {
+      schemaVersion: 1,
+      taskId: input.taskId,
+      status: "metadata-required",
+      snapshot,
+      missingCategories,
+      changedIdentityFields: [],
+      providerRead: "metadata-only",
+      quotaWarning,
+      nextAction:
+        "Verify current Figma version and last-modified metadata, then repeat this check with its task-owned receipt.",
+    };
+  }
+  const currentIdentity = normalizeIdentity(input.currentIdentity);
+  const changedFields = changedIdentityFields(latest.identity, currentIdentity);
+  if (changedFields.length > 0 || missingCategories.length > 0) {
+    return {
+      schemaVersion: 1,
+      taskId: input.taskId,
+      status: "refresh-required",
+      snapshot,
+      missingCategories,
+      changedIdentityFields: changedFields,
+      providerRead: "bounded-deep-read",
+      quotaWarning,
+      nextAction:
+        "Read only the changed or uncovered Figma scope, record a linked snapshot revision, then relock before continuing.",
+    };
+  }
+  return {
+    schemaVersion: 1,
+    taskId: input.taskId,
+    status: "reusable",
+    snapshot,
+    missingCategories: [],
+    changedIdentityFields: [],
+    providerRead: "skip-deep-read",
+    nextAction: "Reuse the existing semantic snapshot handle; do not repeat the deep Figma read.",
+  };
 }
 
 export async function expandFigmaSnapshot(

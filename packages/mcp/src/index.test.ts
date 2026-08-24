@@ -310,10 +310,17 @@ describe("Project Atlas MCP surface", () => {
             contract_hash: visualHash,
             state_matrix: {
               surface: "Confirmation dialog",
-              viewports: ["desktop", "narrow"],
-              required_states: ["default", "focus-visible"],
+              cases: [
+                {
+                  id: "confirmation-default-desktop",
+                  route: "/confirm",
+                  viewport: "desktop",
+                  state: "default",
+                },
+              ],
             },
             captures: [],
+            figma_comparisons: [],
             result: "blocked",
             deviation_count: 1,
             cleanup: { state: "cleanup-pending" },
@@ -462,6 +469,71 @@ describe("Project Atlas MCP surface", () => {
           "focus-visible",
         ),
       ];
+      const reviewCases = [
+        {
+          id: "confirmation-default-desktop",
+          route: "/confirm",
+          viewport: "desktop",
+          state: "default",
+        },
+        {
+          id: "confirmation-focus-narrow",
+          route: "/confirm",
+          viewport: "narrow",
+          state: "focus-visible",
+        },
+      ];
+      const strictReviewCaptures = reviewCaptures.map((capture, index) => ({
+        case_id: reviewCases[index]!.id,
+        handle: capture.handle,
+        hash: capture.hash,
+        receipt: capture.receipt,
+      }));
+      const selectedDirectionComparisons = reviewCases.map((reviewCase) => ({
+        case_id: reviewCase.id,
+        status: "not-applicable" as const,
+      }));
+      const duplicateCaseReview = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-core-flow",
+          action: "attach-review",
+          visual_review: {
+            contract_handle: visualHandle,
+            contract_hash: visualHash,
+            state_matrix: {
+              surface: "Confirmation dialog",
+              cases: [reviewCases[0]!, reviewCases[0]!],
+            },
+            captures: strictReviewCaptures,
+            figma_comparisons: selectedDirectionComparisons,
+            result: "pass",
+            deviation_count: 0,
+            cleanup: { state: "selected-retained" },
+          },
+        },
+      });
+      expect(duplicateCaseReview.isError).toBe(true);
+      const incompleteCaseReview = await client.callTool({
+        name: "atlas_task_state",
+        arguments: {
+          root_path: rootPath,
+          task_id: "task-core-flow",
+          action: "attach-review",
+          visual_review: {
+            contract_handle: visualHandle,
+            contract_hash: visualHash,
+            state_matrix: { surface: "Confirmation dialog", cases: reviewCases },
+            captures: [strictReviewCaptures[0]!],
+            figma_comparisons: selectedDirectionComparisons,
+            result: "pass",
+            deviation_count: 0,
+            cleanup: { state: "selected-retained" },
+          },
+        },
+      });
+      expect(incompleteCaseReview.isError).toBe(true);
       const forgedCaptureReview = await client.callTool({
         name: "atlas_task_state",
         arguments: {
@@ -473,19 +545,19 @@ describe("Project Atlas MCP surface", () => {
             contract_hash: visualHash,
             state_matrix: {
               surface: "Confirmation dialog",
-              viewports: ["desktop", "narrow"],
-              required_states: ["default", "focus-visible"],
+              cases: reviewCases,
             },
             captures: [
               {
-                ...reviewCaptures[0],
-                receipt: reviewCaptures[0]!.receipt.replace(
+                ...strictReviewCaptures[0],
+                receipt: strictReviewCaptures[0]!.receipt.replace(
                   /:[a-f0-9]{16}$/u,
                   ":0000000000000000",
                 ),
               },
-              reviewCaptures[1],
+              strictReviewCaptures[1],
             ],
+            figma_comparisons: selectedDirectionComparisons,
             result: "pass",
             deviation_count: 0,
             cleanup: { state: "selected-retained" },
@@ -504,10 +576,10 @@ describe("Project Atlas MCP surface", () => {
             contract_hash: visualHash,
             state_matrix: {
               surface: "Confirmation dialog",
-              viewports: ["desktop", "narrow"],
-              required_states: ["default", "focus-visible"],
+              cases: reviewCases,
             },
-            captures: reviewCaptures,
+            captures: strictReviewCaptures,
+            figma_comparisons: selectedDirectionComparisons,
             result: "pass",
             deviation_count: 0,
             cleanup: {
@@ -530,10 +602,10 @@ describe("Project Atlas MCP surface", () => {
             contract_hash: visualHash,
             state_matrix: {
               surface: "Confirmation dialog",
-              viewports: ["desktop", "narrow"],
-              required_states: ["default", "focus-visible"],
+              cases: reviewCases,
             },
-            captures: reviewCaptures,
+            captures: strictReviewCaptures,
+            figma_comparisons: selectedDirectionComparisons,
             result: "pass",
             deviation_count: 0,
             cleanup: { state: "selected-retained" },
@@ -580,10 +652,10 @@ describe("Project Atlas MCP surface", () => {
             contract_hash: visualHash,
             state_matrix: {
               surface: "Confirmation dialog changed",
-              viewports: ["desktop", "narrow"],
-              required_states: ["default", "focus-visible"],
+              cases: reviewCases,
             },
-            captures: reviewCaptures,
+            captures: strictReviewCaptures,
+            figma_comparisons: selectedDirectionComparisons,
             result: "pass",
             deviation_count: 0,
             cleanup: { state: "clean", receipt: cleanup.receipt },
@@ -603,10 +675,10 @@ describe("Project Atlas MCP surface", () => {
             contract_hash: visualHash,
             state_matrix: {
               surface: "Confirmation dialog",
-              viewports: ["desktop", "narrow"],
-              required_states: ["default", "focus-visible"],
+              cases: reviewCases,
             },
-            captures: reviewCaptures,
+            captures: strictReviewCaptures,
+            figma_comparisons: selectedDirectionComparisons,
             result: "pass",
             deviation_count: 0,
             cleanup: { state: "clean", receipt: cleanup.receipt },

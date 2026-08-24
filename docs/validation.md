@@ -60,6 +60,11 @@ handles, including an authoritative Figma semantic snapshot when used, are
 checked before close. This gate does not turn a `partial` or `failure` result
 into an error when those honestly describe the state.
 
+A current visual pass uses schema v2: explicit route/state/viewport cases,
+one browser capture per case, and one separate Figma comparison per case.
+Schema v1 receipts remain readable for audit and migration, but cannot satisfy
+a new passing visual review.
+
 Independent correctness/architecture review is a native `frontend-task` gate,
 not an Atlas task-scheduler receipt. The coordinator must complete and verify
 that review before requesting `success`; Atlas does not create or supervise the

@@ -102,6 +102,11 @@ node/component/style/state/asset-reference metadata and current source receipt
 identity; they reject raw Figma payloads and require a linked successor when
 the observed source changes.
 
+Snapshot reuse is decided by a metadata preflight. Only an exact
+file/node/version/lastModified identity, current task receipt, and complete
+requested coverage may skip a deep read. A mismatch records no remote-change
+assumption: it warns about quota and requires a bounded replacement snapshot.
+
 Focus records are keyed by checkout identity and branch, not objective text.
 They point to one active or blocked task and never reopen a completed task.
 Feedback events form a content-addressed per-task chain. Capsules retain only a

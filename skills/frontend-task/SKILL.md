@@ -86,10 +86,12 @@ Produce a size-proportional, decision-complete plan:
 - objective/criteria, package, files/APIs, exclusions, authority and reuse;
 - data flow/states/assumptions, tests, review tier, and delivery boundary.
 
-Resolve visual authority before locking. Load Figma only for a confirmed exact
-source. Invoke `$visual-direction` explicitly for fidelity, or use bounded
-exploration only while authority is unresolved. Attach the selected visual
-contract before locking; later evidence needs relock.
+Resolve visual authority before locking. For confirmed Figma, before a deep
+read call `check-figma-snapshot`: metadata first; reuse needs exact identity,
+current task receipt, and full coverage. On mismatch, show its quota warning
+and refresh only the scope; never infer an unchanged remote.
+Invoke `$visual-direction` explicitly for fidelity, or explore only while
+authority is unresolved.
 
 Call `atlas_lock_change_scope` only after the decision. `reuse`, `extend`,
 `compose`, and `extract-and-reuse` require an existing `primary_component`
@@ -130,10 +132,9 @@ Run narrow tests first, inspect the complete delta against its dirty baseline,
 then run required checks. Call `atlas_validate_change`; fix scope escapes and
 real regressions, and report advisory findings with evidence.
 
-For a visual lock, register the matrix captures and attach an immutable
-pre-clean review while bytes exist; clean the session, then attach the final
-review with identical handles/hashes and cleanup receipt. Complete unique
-viewport/state coverage and cleanup are mandatory.
+For a visual lock, declare route/state/viewport cases. Each needs a browser
+capture and Figma comparison. Attach pre-clean then final review with identical
+handles/hashes and cleanup receipt. V1 is readable but cannot pass new work.
 
 - small/low: no agent reviewer unless the change crosses a public, security,
   data, accessibility-critical, or deployment boundary;

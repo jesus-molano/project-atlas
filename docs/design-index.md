@@ -307,6 +307,12 @@ field, or required scoped semantic content changes, the prior snapshot is stale
 for final use and the workflow records a linked successor. Context receives its
 opaque handle and expands it only when that exact design decision needs detail.
 
+Before a deep Figma read, use `atlas_task_state` action `check-figma-snapshot`.
+It starts with metadata and permits reuse only when the exact identity and a
+current task-owned receipt match with complete requested coverage. A mismatch
+returns a quota warning and requires a bounded refresh; Atlas never treats a
+missing observed change as proof that the remote source is unchanged.
+
 ## Optional evidence
 
 Code Connect mappings improve Figma-to-code evidence through component name and

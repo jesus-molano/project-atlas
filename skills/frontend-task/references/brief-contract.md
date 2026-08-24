@@ -93,6 +93,7 @@ visual_direction:
     handle: Immutable `figma-snapshot:` handle or none
     identity: Exact fileKey, nodeId, version, and lastModified
     coverage: Explicit complete/partial/not-requested categories
+    reuse_preflight: metadata-only | reusable | bounded-refresh | not-applicable
 unknowns:
   blocking:
     - Only unresolved decisions that materially change implementation
@@ -104,6 +105,7 @@ validation:
   focused: [Narrow tests/checks]
   required: [Repository-required lint/typecheck/build/e2e]
   atlas: atlas_validate_change
+  visual_cases: Explicit route/state/viewport cases with separate browser and Figma evidence
 review:
   tier: none | correctness | specialist
   domains: [correctness, ux-a11y-fidelity, security-api]

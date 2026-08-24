@@ -51,6 +51,7 @@ import {
   verifyTaskReceiptLedger,
 } from "./core-lifecycle-support.js";
 import {
+  checkCoreFigmaSnapshotReuse,
   coreFigmaSnapshotInputSchema,
   recordCoreFigmaSnapshot,
 } from "./core-figma-snapshot.js";
@@ -312,6 +313,7 @@ export function registerCoreLifecycleTools(
           "checkpoint-continuation",
           "append-feedback",
           "reconcile",
+          "check-figma-snapshot",
           "record-figma-snapshot",
           "checkpoint",
           "block",
@@ -379,7 +381,7 @@ export function registerCoreLifecycleTools(
             expires_at: z.string().datetime(),
           })
           .optional(),
-        visual_review: visualReviewInputSchema.optional(),
+        visual_review: z.record(z.string(), z.unknown()).optional(),
         ...coreTaskEvidenceInputSchema,
         ...coreFigmaSnapshotInputSchema,
       },
@@ -473,6 +475,19 @@ export function registerCoreLifecycleTools(
         }
       }
       const capsule = await requireCapsule(root_path, task_id);
+      if (action === "check-figma-snapshot") {
+        return text(
+          await checkCoreFigmaSnapshotReuse({
+            rootPath: root_path,
+            taskId: task_id,
+            capsule,
+            ...(figma_snapshot ? { snapshot: figma_snapshot } : {}),
+            ...(source_receipt_id
+              ? { sourceReceiptId: source_receipt_id }
+              : {}),
+          }),
+        );
+      }
       if (action === "record-figma-snapshot") {
         return text(
           await recordCoreFigmaSnapshot({
@@ -810,7 +825,7 @@ export function registerCoreLifecycleTools(
           root_path,
           task_id,
           capsule,
-          visual_review,
+          visualReviewInputSchema.parse(visual_review),
         );
         return text({
           taskId: task_id,

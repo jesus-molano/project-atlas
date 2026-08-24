@@ -1,8 +1,10 @@
 import { assertSourceReceiptMatchesDecision } from "@component-atlas/core";
 import {
+  assessLatestFigmaSnapshotReuse,
   loadPersistedSourceReceipt,
   persistFigmaSnapshotWithCheckpoint,
   writeTaskCheckpoint,
+  type FigmaSnapshotIdentity,
   type TaskResumeCapsule,
 } from "@component-atlas/runtime";
 import { z } from "zod";
@@ -65,6 +67,11 @@ const figmaSnapshotInput = z.object({
   }),
   created_at: z.string().datetime().optional(),
 });
+const figmaSnapshotReuseInput = z.object({
+  file_key: z.string().regex(/^[A-Za-z0-9_-]{1,240}$/u),
+  node_id: z.string().regex(/^[A-Za-z0-9_.:-]{1,240}$/u).optional(),
+  required_categories: z.array(z.enum(categories)).min(1).max(categories.length),
+});
 
 export const coreFigmaSnapshotInputSchema = {
   figma_snapshot: z.record(z.string(), z.unknown()).optional(),
@@ -77,6 +84,10 @@ interface RecordCoreFigmaSnapshotInput {
   snapshot?: Record<string, unknown>;
 }
 
+interface CheckCoreFigmaSnapshotInput extends RecordCoreFigmaSnapshotInput {
+  sourceReceiptId?: string;
+}
+
 function authorizedScopeIds(receipt: Awaited<ReturnType<typeof loadPersistedSourceReceipt>>) {
   return new Set(
     [
@@ -87,7 +98,9 @@ function authorizedScopeIds(receipt: Awaited<ReturnType<typeof loadPersistedSour
       receipt.scopeRelation?.sourceId,
       receipt.scopeRelation?.targetId,
       ...(receipt.scopeRelation?.ancestorIds ?? []),
-    ].filter((value): value is string => Boolean(value)),
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map(normalizedFigmaNodeId),
   );
 }
 
@@ -101,11 +114,106 @@ function exactFigmaScopeNodeId(
   if (["node", "selection"].includes(receipt.scope.kind)) {
     return normalizedFigmaNodeId(receipt.scope.id);
   }
-  return receipt.resolved.nodeId ?? receipt.requested.nodeId;
+  const nodeId = receipt.resolved.nodeId ?? receipt.requested.nodeId;
+  return nodeId ? normalizedFigmaNodeId(nodeId) : undefined;
 }
 
 function normalizedDate(value: string): string {
   return new Date(value).toISOString();
+}
+
+async function currentFigmaReceiptIdentity(
+  rootPath: string,
+  sourceLedger: Awaited<ReturnType<typeof authoritativeTaskSources>>,
+  receiptId: string,
+): Promise<{
+  identity: FigmaSnapshotIdentity;
+  observedAt: string;
+}> {
+  if (!sourceLedger.receiptIds.includes(receiptId)) {
+    throw new Error(`Figma receipt ${receiptId} is outside this task ledger.`);
+  }
+  const receipt = await loadPersistedSourceReceipt(rootPath, receiptId);
+  const decision = sourceLedger.decisions.find(
+    (candidate) => candidate.id === receipt.sourceDecisionId,
+  );
+  if (!decision) {
+    throw new Error(`Figma receipt ${receiptId} has no task source decision.`);
+  }
+  assertSourceReceiptMatchesDecision(decision, receipt);
+  const nodeId = exactFigmaScopeNodeId(receipt);
+  if (
+    receipt.provider !== "figma" ||
+    !["figma-desktop-mcp-local", "figma-remote-connector"].includes(
+      receipt.adapter,
+    ) ||
+    receipt.coverage !== "exact" ||
+    receipt.freshness !== "current" ||
+    !receipt.requested.fileKey ||
+    receipt.requested.fileKey !== receipt.resolved.fileKey ||
+    !receipt.resolved.version ||
+    !receipt.resolved.lastModified ||
+    (nodeId !== undefined && !authorizedScopeIds(receipt).has(nodeId))
+  ) {
+    throw new Error(
+      `Figma receipt ${receiptId} does not prove an exact current snapshot identity.`,
+    );
+  }
+  return {
+    identity: {
+      fileKey: receipt.resolved.fileKey,
+      ...(nodeId ? { nodeId } : {}),
+      version: receipt.resolved.version,
+      lastModified: normalizedDate(receipt.resolved.lastModified),
+    },
+    observedAt: receipt.observedAt,
+  };
+}
+
+export async function checkCoreFigmaSnapshotReuse(
+  input: CheckCoreFigmaSnapshotInput,
+) {
+  if (!input.snapshot) {
+    throw new Error("check-figma-snapshot requires figma_snapshot.");
+  }
+  if (input.capsule.status === "completed") {
+    throw new Error("Completed tasks cannot reuse task-local Figma snapshots.");
+  }
+  const request = figmaSnapshotReuseInput.parse(input.snapshot);
+  let currentIdentity: FigmaSnapshotIdentity | undefined;
+  if (input.sourceReceiptId) {
+    const sourceLedger = await authoritativeTaskSources(
+      input.rootPath,
+      input.taskId,
+      input.capsule,
+    );
+    const current = await currentFigmaReceiptIdentity(
+      input.rootPath,
+      sourceLedger,
+      input.sourceReceiptId,
+    );
+    currentIdentity = current.identity;
+    if (
+      currentIdentity.fileKey !== request.file_key ||
+      normalizedFigmaNodeId(currentIdentity.nodeId ?? "") !==
+        normalizedFigmaNodeId(request.node_id ?? "")
+    ) {
+      throw new Error(
+        `Figma receipt ${input.sourceReceiptId} does not prove the requested cache scope.`,
+      );
+    }
+  }
+  return assessLatestFigmaSnapshotReuse(input.rootPath, {
+    taskId: input.taskId,
+    scope: {
+      fileKey: request.file_key,
+      ...(request.node_id
+        ? { nodeId: normalizedFigmaNodeId(request.node_id) }
+        : {}),
+    },
+    ...(currentIdentity ? { currentIdentity } : {}),
+    requiredCategories: request.required_categories,
+  });
 }
 
 export async function recordCoreFigmaSnapshot(
@@ -132,45 +240,27 @@ export async function recordCoreFigmaSnapshot(
     input.capsule,
   );
   for (const receiptId of [...new Set(snapshotInput.receipt_ids)]) {
-    if (!sourceLedger.receiptIds.includes(receiptId)) {
-      throw new Error(`Figma receipt ${receiptId} is outside this task ledger.`);
-    }
-    const receipt = await loadPersistedSourceReceipt(input.rootPath, receiptId);
-    const decision = sourceLedger.decisions.find(
-      (candidate) => candidate.id === receipt.sourceDecisionId,
+    const current = await currentFigmaReceiptIdentity(
+      input.rootPath,
+      sourceLedger,
+      receiptId,
     );
-    if (!decision) {
-      throw new Error(`Figma receipt ${receiptId} has no task source decision.`);
-    }
-    assertSourceReceiptMatchesDecision(decision, receipt);
-    const receiptScopeNodeId = exactFigmaScopeNodeId(receipt);
     if (
-      receipt.provider !== "figma" ||
-      !["figma-desktop-mcp-local", "figma-remote-connector"].includes(
-        receipt.adapter,
-      ) ||
-      receipt.coverage !== "exact" ||
-      receipt.freshness !== "current" ||
-      receipt.requested.fileKey !== snapshotInput.identity.file_key ||
-      receipt.resolved.fileKey !== snapshotInput.identity.file_key ||
-      !receipt.resolved.version ||
-      receipt.resolved.version !== snapshotInput.identity.version ||
-      !receipt.resolved.lastModified ||
-      receipt.resolved.lastModified !==
+      current.identity.fileKey !== snapshotInput.identity.file_key ||
+      current.identity.version !== snapshotInput.identity.version ||
+      current.identity.lastModified !==
         normalizedDate(snapshotInput.identity.last_modified) ||
       (snapshotInput.identity.node_id === undefined) !==
-        (receiptScopeNodeId === undefined) ||
+        (current.identity.nodeId === undefined) ||
       (snapshotInput.identity.node_id !== undefined &&
         normalizedFigmaNodeId(snapshotInput.identity.node_id) !==
-          receiptScopeNodeId) ||
-      (receiptScopeNodeId !== undefined &&
-        !authorizedScopeIds(receipt).has(receiptScopeNodeId))
+          current.identity.nodeId)
     ) {
       throw new Error(
         `Figma receipt ${receiptId} does not prove this exact current snapshot identity.`,
       );
     }
-    if (Date.parse(snapshotInput.observed_at) < Date.parse(receipt.observedAt)) {
+    if (Date.parse(snapshotInput.observed_at) < Date.parse(current.observedAt)) {
       throw new Error("Figma snapshot observation predates its source receipt.");
     }
   }

@@ -64,20 +64,26 @@ points:
    returns `ready-with-existing-context`, continue to the lock with planned
    surfaces or `not-applicable`; do not block the task or retrieve again.
 4. Expand one unresolved handle with `atlas_expand_context` if necessary.
-5. For authoritative Figma work, record a semantic task snapshot before
-   locking. Bind `fileKey`, `nodeId`, `version` and `lastModified` to the current
-   receipt. After a lock, a new snapshot is accepted only inside an explicit
-   relock-required window and must link to its predecessor when changed.
+5. For authoritative Figma work, call `check-figma-snapshot` before each deep
+   provider read. Start with metadata; reuse only an exact
+   `fileKey`/`nodeId`/`version`/`lastModified` identity with the current task
+   receipt and complete requested coverage. If it differs, report the quota
+   warning and refresh only the bounded scope; never infer that remote Figma is
+   unchanged. Record the resulting semantic snapshot before locking. After a
+   lock, a new snapshot is accepted only inside an explicit relock-required
+   window and must link to its predecessor when changed.
 6. Make the reuse decision, present a size-proportional plan, then call
    `atlas_lock_change_scope` with that decision and explicit exclusions.
 7. Immediately checkpoint the initial continuation against that lock, before
    the first edit. Then implement the smallest locked surface in the same native
    task. Append mid-task observations with `append-feedback`; reconcile sparse
    progress and Git state after semantic milestones, not every tool call.
-8. Run focused tests and required checks. For visual work, attach an immutable
-   pre-clean review while captures exist, clean the temporary session, then
-   attach the final task/contract-bound review with the same capture hashes and
-   the content-free cleanup receipt.
+8. Run focused tests and required checks. For visual work, define explicit
+   route/state/viewport cases and attach an immutable pre-clean review with a
+   browser capture and separate Figma comparison for every case. Clean the
+   temporary session, then attach the final task/contract-bound review with the
+   same capture hashes and content-free cleanup receipt. Legacy v1 reviews are
+   readable but cannot pass new work.
 9. Call `atlas_validate_change`; inspect the complete staged, unstaged,
    untracked, renamed, and deleted task delta, then call `atlas_task_state`
    action `complete` for an immutable technical outcome record.

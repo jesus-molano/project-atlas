@@ -122,14 +122,15 @@ Figma source does not authorize modification.
 
 1. Hand the locked DesignContract to the parent `frontend-task` workflow.
 2. Implement one cohesive solution using repository components and tokens.
-3. Capture only the contract's relevant viewports and states after
+3. Declare explicit cases (`route`, `state`, `viewport`) and capture each after
    implementation. Keep the captures in the same temporary artifact session.
 4. Compare hierarchy, density, typography, token use, responsive behavior,
    interaction states, accessibility, and exact Figma fidelity when applicable.
 5. Fix the single implementation; do not revive discarded variants.
-6. Register every review capture and carry its exact
-   `artifact-<sha256-prefix>-<uuid>` handle, full SHA256, emitted capture
-   receipt, viewport, and state.
+6. Register every browser capture against one case and carry its exact
+   `artifact-<sha256-prefix>-<uuid>` handle, full SHA256, and emitted receipt.
+   Record a separate Figma comparison for every case. Exact Figma uses its node
+   ID and `match` or `deviation`; other authority uses `not-applicable`.
    Attach a first immutable `visual-review:` receipt to the parent task while
    the artifacts still exist, using `selected-retained`; this is an auditable
    review boundary and deliberately blocks completion.
@@ -139,7 +140,8 @@ Figma source does not authorize modification.
    are registered temporary artifacts, `not-applicable` cannot authorize a
    passing close. `cleanup-pending` or a retained selection blocks completion.
 8. Expand the final `visual-review:` handle once and verify task, selected
-   contract, complete state-matrix coverage, result, and cleanup binding.
+   contract, complete browser and Figma case coverage, result, and cleanup
+   binding. Schema v1 reviews remain readable but cannot pass new work.
 9. Verify Git contains no preview, sandbox, generated image, or temporary
    direction residue before the parent validates and closes the task.
 
@@ -167,9 +169,9 @@ Use `scripts/build-atlas-handoff.mjs` to create one bounded core projection.
 - Never technically complete the parent task or call `atlas_memory` from this
   child workflow.
 - Treat `cleanup-pending` as blocking implementation/completion claims.
-- A passing review is valid only when every declared viewport and required
-  state is represented, viewport/state pairs are unique, and each capture
-  handle prefix matches its full SHA256. Free-form capture strings are invalid.
+- A passing review needs one browser capture and one authority-valid Figma
+  comparison for every unique route/state/viewport case. Each capture handle
+  prefix must match its full SHA256. Free-form capture strings are invalid.
 - The GUI may review receipts and memory proposals; it cannot reclassify
   authority, replace exact Figma identity, or select a direction.
 

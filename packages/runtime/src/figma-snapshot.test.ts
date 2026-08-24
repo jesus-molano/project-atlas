@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  assessLatestFigmaSnapshotReuse,
   expandFigmaSnapshot,
   loadFigmaSnapshot,
   loadLatestFigmaSnapshot,
@@ -106,6 +107,77 @@ function snapshotInput(): PersistFigmaSnapshotInput {
 }
 
 describe("Figma semantic snapshot", () => {
+  it("assesses task-local reuse before a deep Figma read", async () => {
+    const root = await repository();
+    const snapshot = await persistFigmaSnapshot(root, snapshotInput());
+
+    await expect(
+      assessLatestFigmaSnapshotReuse(root, {
+        taskId: snapshot.taskId,
+        scope: { fileKey: "AtlasCheckoutFile", nodeId: "39:2731" },
+        requiredCategories: ["nodes", "components"],
+      }),
+    ).resolves.toMatchObject({
+      status: "metadata-required",
+      snapshot: { handle: snapshot.handle },
+      providerRead: "metadata-only",
+      quotaWarning: expect.stringMatching(/quota/iu),
+    });
+
+    await expect(
+      assessLatestFigmaSnapshotReuse(root, {
+        taskId: snapshot.taskId,
+        scope: { fileKey: "AtlasCheckoutFile", nodeId: "39-2731" },
+        currentIdentity: snapshot.identity,
+        requiredCategories: ["nodes", "components"],
+      }),
+    ).resolves.toMatchObject({
+      status: "reusable",
+      snapshot: { handle: snapshot.handle },
+      providerRead: "skip-deep-read",
+      missingCategories: [],
+      changedIdentityFields: [],
+    });
+
+    await expect(
+      assessLatestFigmaSnapshotReuse(root, {
+        taskId: snapshot.taskId,
+        scope: { fileKey: "AtlasCheckoutFile", nodeId: "39:2731" },
+        currentIdentity: snapshot.identity,
+        requiredCategories: ["styles"],
+      }),
+    ).resolves.toMatchObject({
+      status: "refresh-required",
+      providerRead: "bounded-deep-read",
+      missingCategories: ["styles"],
+      quotaWarning: expect.stringMatching(/quota/iu),
+    });
+
+    await expect(
+      assessLatestFigmaSnapshotReuse(root, {
+        taskId: snapshot.taskId,
+        scope: { fileKey: "AtlasCheckoutFile", nodeId: "39:2731" },
+        currentIdentity: { ...snapshot.identity, version: "1842098346" },
+        requiredCategories: ["nodes"],
+      }),
+    ).resolves.toMatchObject({
+      status: "refresh-required",
+      changedIdentityFields: ["version"],
+      providerRead: "bounded-deep-read",
+    });
+
+    await expect(
+      assessLatestFigmaSnapshotReuse(root, {
+        taskId: snapshot.taskId,
+        scope: { fileKey: "AtlasCheckoutFile", nodeId: "99:1" },
+        requiredCategories: ["nodes"],
+      }),
+    ).resolves.toMatchObject({
+      status: "not-cached",
+      providerRead: "bounded-deep-read",
+    });
+  });
+
   it("persists immutable content-addressed evidence and requires explicit revisions", async () => {
     const root = await repository();
     const first = await persistFigmaSnapshot(root, snapshotInput());

@@ -19,8 +19,9 @@ const CLEANUP_RECEIPT =
   /^cleanup:v1:([a-f0-9]{16}):(vd-[A-Za-z0-9_-]+):(close|cancel|expired):([a-z0-9]+):([a-f0-9]{16})$/u;
 const CLEANUP_OWNER = "component-atlas-visual-direction/v1";
 const MAX_ARTIFACT_BYTES = 16 * 1024;
+const MAX_VISUAL_REVIEW_CASES = 14;
 
-export interface VisualReviewCapture {
+export interface LegacyVisualReviewCapture {
   handle: string;
   hash: string;
   receipt: string;
@@ -28,7 +29,7 @@ export interface VisualReviewCapture {
   state: string;
 }
 
-export interface VisualReviewReceipt {
+export interface LegacyVisualReviewReceipt {
   schemaVersion: 1;
   handle: string;
   hash: string;
@@ -42,7 +43,7 @@ export interface VisualReviewReceipt {
     viewports: string[];
     requiredStates: string[];
   };
-  captures: VisualReviewCapture[];
+  captures: LegacyVisualReviewCapture[];
   coverage: {
     complete: boolean;
     coveredViewports: string[];
@@ -57,17 +58,83 @@ export interface VisualReviewReceipt {
   reviewedAt: string;
 }
 
+export interface VisualReviewCase {
+  id: string;
+  route: string;
+  viewport: string;
+  state: string;
+}
+
+export interface VisualReviewCapture {
+  caseId: string;
+  handle: string;
+  hash: string;
+  receipt: string;
+}
+
+export type VisualReviewFigmaComparisonStatus =
+  | "match"
+  | "deviation"
+  | "not-applicable";
+
+export interface VisualReviewFigmaComparison {
+  caseId: string;
+  status: VisualReviewFigmaComparisonStatus;
+  nodeId?: string;
+}
+
+export interface StrictVisualReviewReceipt {
+  schemaVersion: 2;
+  handle: string;
+  hash: string;
+  taskId: string;
+  contractHandle: string;
+  contractHash: string;
+  artifactSessionId?: string;
+  preliminaryReviewHandle?: string;
+  stateMatrix: {
+    surface: string;
+    cases: VisualReviewCase[];
+  };
+  captures: VisualReviewCapture[];
+  figmaComparisons: VisualReviewFigmaComparison[];
+  coverage: {
+    complete: boolean;
+    browser: {
+      complete: boolean;
+      coveredCaseIds: string[];
+    };
+    figma: {
+      complete: boolean;
+      coveredCaseIds: string[];
+      notApplicableCaseIds: string[];
+    };
+  };
+  result: "pass" | "fix-and-recapture" | "blocked";
+  deviationCount: number;
+  cleanup: {
+    state: "clean" | "selected-retained" | "not-applicable" | "cleanup-pending";
+    receipt?: string;
+  };
+  reviewedAt: string;
+}
+
+export type VisualReviewReceipt =
+  | LegacyVisualReviewReceipt
+  | StrictVisualReviewReceipt;
+
 export interface PersistVisualReviewReceiptInput {
   taskId: string;
   contractHandle: string;
   contractHash: string;
   artifactSessionId?: string;
   preliminaryReviewHandle?: string;
-  stateMatrix: VisualReviewReceipt["stateMatrix"];
+  stateMatrix: StrictVisualReviewReceipt["stateMatrix"];
   captures: VisualReviewCapture[];
-  result: VisualReviewReceipt["result"];
+  figmaComparisons: VisualReviewFigmaComparison[];
+  result: StrictVisualReviewReceipt["result"];
   deviationCount: number;
-  cleanup: VisualReviewReceipt["cleanup"];
+  cleanup: StrictVisualReviewReceipt["cleanup"];
   reviewedAt?: string;
 }
 
@@ -77,7 +144,12 @@ export interface VisualCleanupReceiptMetadata {
   cleanedAt: string;
 }
 
-type ReviewPayload = Omit<VisualReviewReceipt, "handle" | "hash">;
+type LegacyReviewPayload = Omit<LegacyVisualReviewReceipt, "handle" | "hash">;
+type StrictReviewPayload = Omit<StrictVisualReviewReceipt, "handle" | "hash">;
+type LegacyVisualReviewReceiptInput = Omit<
+  LegacyVisualReviewReceipt,
+  "handle" | "hash" | "coverage"
+>;
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -150,7 +222,9 @@ export function assertVisualCleanupReceipt(
   };
 }
 
-function normalizePayload(input: PersistVisualReviewReceiptInput): ReviewPayload {
+function normalizeLegacyPayload(
+  input: LegacyVisualReviewReceiptInput,
+): LegacyReviewPayload {
   if (!TASK_ID.test(input.taskId)) throw new Error("Visual review task ID is invalid.");
   if (!VISUAL_HANDLE.test(input.contractHandle) || !CONTRACT_HASH.test(input.contractHash)) {
     throw new Error("Visual review contract binding is invalid.");
@@ -315,7 +389,260 @@ function normalizePayload(input: PersistVisualReviewReceiptInput): ReviewPayload
   };
 }
 
-function payloadHash(payload: ReviewPayload): string {
+function normalizeStrictPayload(
+  input: PersistVisualReviewReceiptInput,
+): StrictReviewPayload {
+  if (!TASK_ID.test(input.taskId)) throw new Error("Visual review task ID is invalid.");
+  if (!VISUAL_HANDLE.test(input.contractHandle) || !CONTRACT_HASH.test(input.contractHash)) {
+    throw new Error("Visual review contract binding is invalid.");
+  }
+  if (
+    !Array.isArray(input.stateMatrix.cases) ||
+    input.stateMatrix.cases.length === 0 ||
+    input.stateMatrix.cases.length > MAX_VISUAL_REVIEW_CASES
+  ) {
+    throw new Error("Visual review cases are invalid.");
+  }
+  const cases = input.stateMatrix.cases.map((entry) => ({
+    id: bounded(entry.id, 64, "Visual review case ID"),
+    route: bounded(entry.route, 160, "Visual review case route"),
+    viewport: bounded(entry.viewport, 48, "Visual review case viewport"),
+    state: bounded(entry.state, 48, "Visual review case state"),
+  }));
+  const caseIds = cases.map((entry) => entry.id);
+  if (new Set(caseIds).size !== caseIds.length) {
+    throw new Error("Visual review case IDs must be unique.");
+  }
+  const matrixKeys = cases.map((entry) =>
+    JSON.stringify([entry.route, entry.viewport, entry.state]),
+  );
+  if (new Set(matrixKeys).size !== matrixKeys.length) {
+    throw new Error("Visual review route, viewport and state cases must be unique.");
+  }
+  const sortedCases = [...cases].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+  if (
+    !Array.isArray(input.captures) ||
+    input.captures.length > MAX_VISUAL_REVIEW_CASES
+  ) {
+    throw new Error("Visual review browser captures are invalid.");
+  }
+  if (
+    (input.captures.length > 0 &&
+      (!input.artifactSessionId || !ARTIFACT_SESSION.test(input.artifactSessionId))) ||
+    (input.artifactSessionId !== undefined &&
+      !ARTIFACT_SESSION.test(input.artifactSessionId)) ||
+    (input.captures.length === 0 &&
+      input.artifactSessionId !== undefined &&
+      !["selected-retained", "clean"].includes(input.cleanup.state))
+  ) {
+    throw new Error(
+      "Visual review browser captures and their artifact session ID must be declared together.",
+    );
+  }
+  const captures = input.captures.map((capture) => {
+    const caseId = bounded(capture.caseId, 64, "Browser capture case ID");
+    if (!caseIds.includes(caseId)) {
+      throw new Error("Every browser capture must belong to a declared visual case.");
+    }
+    const handle = bounded(capture.handle, 260, "Capture handle");
+    const hash = capture.hash.trim();
+    const handleMatch = CAPTURE_HANDLE.exec(handle);
+    if (!handleMatch || !HASH.test(hash) || handleMatch[1] !== hash.slice(0, 12)) {
+      throw new Error(
+        "Capture handles must be temporary-artifact handles bound to their full SHA256 hash.",
+      );
+    }
+    const receipt = bounded(capture.receipt, 260, "Capture receipt");
+    const binding = parseVisualCaptureReceiptBinding({
+      taskId: input.taskId,
+      receipt,
+      hash,
+    });
+    if (input.artifactSessionId !== binding.sessionId) {
+      throw new Error(
+        "Every capture receipt must belong to the declared visual artifact session.",
+      );
+    }
+    return { caseId, handle, hash, receipt };
+  });
+  const capturedCaseIds = captures.map((capture) => capture.caseId);
+  if (new Set(capturedCaseIds).size !== capturedCaseIds.length) {
+    throw new Error("Browser capture case IDs must be unique.");
+  }
+  if (
+    !Array.isArray(input.figmaComparisons) ||
+    input.figmaComparisons.length > MAX_VISUAL_REVIEW_CASES
+  ) {
+    throw new Error("Visual review Figma comparisons are invalid.");
+  }
+  const figmaComparisons = input.figmaComparisons.map((comparison) => {
+    const caseId = bounded(comparison.caseId, 64, "Figma comparison case ID");
+    if (!caseIds.includes(caseId)) {
+      throw new Error("Every Figma comparison must belong to a declared visual case.");
+    }
+    if (!["match", "deviation", "not-applicable"].includes(comparison.status)) {
+      throw new Error("Figma comparison status is invalid.");
+    }
+    const nodeId = comparison.nodeId
+      ? bounded(comparison.nodeId, 240, "Figma comparison node ID")
+      : undefined;
+    if (comparison.status === "not-applicable" ? nodeId : !nodeId) {
+      throw new Error(
+        "Figma comparisons require a node ID unless explicitly not applicable.",
+      );
+    }
+    return {
+      caseId,
+      status: comparison.status,
+      ...(nodeId ? { nodeId } : {}),
+    };
+  });
+  const comparedCaseIds = figmaComparisons.map((comparison) => comparison.caseId);
+  if (new Set(comparedCaseIds).size !== comparedCaseIds.length) {
+    throw new Error("Figma comparison case IDs must be unique.");
+  }
+  const browserComplete =
+    capturedCaseIds.length === caseIds.length &&
+    caseIds.every((caseId) => capturedCaseIds.includes(caseId));
+  const figmaComplete =
+    comparedCaseIds.length === caseIds.length &&
+    caseIds.every((caseId) => comparedCaseIds.includes(caseId));
+  const complete = browserComplete && figmaComplete;
+  if (input.result === "pass" && !browserComplete) {
+    throw new Error(
+      "A passing visual review requires one browser capture for every declared case.",
+    );
+  }
+  if (input.result === "pass" && !figmaComplete) {
+    throw new Error(
+      "A passing visual review requires one Figma comparison for every declared case.",
+    );
+  }
+  if (
+    input.result === "pass" &&
+    input.figmaComparisons.some((comparison) => comparison.status === "deviation")
+  ) {
+    throw new Error("A passing visual review cannot contain Figma deviations.");
+  }
+  if (input.result === "pass" && input.cleanup.state === "not-applicable") {
+    throw new Error(
+      "A passing review with registered browser captures requires clean cleanup evidence.",
+    );
+  }
+  if (!["pass", "fix-and-recapture", "blocked"].includes(input.result)) {
+    throw new Error("Visual review result is invalid.");
+  }
+  if (
+    !Number.isInteger(input.deviationCount) ||
+    input.deviationCount < 0 ||
+    input.deviationCount > 99 ||
+    (input.result === "pass" && input.deviationCount !== 0)
+  ) {
+    throw new Error("Visual review deviation count is invalid.");
+  }
+  const figmaDeviationCount = figmaComparisons.filter(
+    (comparison) => comparison.status === "deviation",
+  ).length;
+  if (input.deviationCount < figmaDeviationCount) {
+    throw new Error(
+      "Visual review deviation count cannot be lower than its Figma deviations.",
+    );
+  }
+  if (
+    !["clean", "selected-retained", "not-applicable", "cleanup-pending"].includes(
+      input.cleanup.state,
+    )
+  ) {
+    throw new Error("Visual review cleanup state is invalid.");
+  }
+  const reviewedAt = input.reviewedAt ?? new Date().toISOString();
+  if (!Number.isFinite(Date.parse(reviewedAt))) {
+    throw new Error("Visual review timestamp is invalid.");
+  }
+  if (input.cleanup.state === "clean") {
+    if (!input.cleanup.receipt) {
+      throw new Error("Clean visual review state requires a cleanup receipt.");
+    }
+    const cleanup = assertVisualCleanupReceipt(input.taskId, input.cleanup.receipt);
+    if (
+      Date.parse(cleanup.cleanedAt) > Date.now() ||
+      Date.parse(cleanup.cleanedAt) > Date.parse(reviewedAt)
+    ) {
+      throw new Error("Visual cleanup receipt timestamp is in the future.");
+    }
+    if (input.result === "pass" && cleanup.reason !== "close") {
+      throw new Error("A passing clean review requires a normal close cleanup receipt.");
+    }
+    if (
+      !input.artifactSessionId ||
+      cleanup.sessionId !== input.artifactSessionId ||
+      !input.preliminaryReviewHandle
+    ) {
+      throw new Error(
+        "A clean visual review must close the capture session and reference its preliminary review.",
+      );
+    }
+    const preliminary = REVIEW_HANDLE.exec(input.preliminaryReviewHandle);
+    if (!preliminary || preliminary[1] !== input.taskId) {
+      throw new Error("Preliminary visual review identity is invalid.");
+    }
+  } else if (input.cleanup.receipt) {
+    throw new Error("Only clean cleanup may carry a cleanup receipt.");
+  }
+  if (input.cleanup.state !== "clean" && input.preliminaryReviewHandle) {
+    throw new Error(
+      "Only a final clean review may reference a preliminary review.",
+    );
+  }
+  return {
+    schemaVersion: 2,
+    taskId: input.taskId,
+    contractHandle: input.contractHandle,
+    contractHash: input.contractHash,
+    ...(input.artifactSessionId
+      ? { artifactSessionId: input.artifactSessionId }
+      : {}),
+    ...(input.preliminaryReviewHandle
+      ? { preliminaryReviewHandle: input.preliminaryReviewHandle }
+      : {}),
+    stateMatrix: {
+      surface: bounded(input.stateMatrix.surface, 120, "Review surface"),
+      cases: sortedCases,
+    },
+    captures: captures.sort((left, right) => left.caseId.localeCompare(right.caseId)),
+    figmaComparisons: figmaComparisons.sort((left, right) =>
+      left.caseId.localeCompare(right.caseId),
+    ),
+    coverage: {
+      complete,
+      browser: {
+        complete: browserComplete,
+        coveredCaseIds: [...capturedCaseIds].sort(),
+      },
+      figma: {
+        complete: figmaComplete,
+        coveredCaseIds: [...comparedCaseIds].sort(),
+        notApplicableCaseIds: figmaComparisons
+          .filter((comparison) => comparison.status === "not-applicable")
+          .map((comparison) => comparison.caseId)
+          .sort(),
+      },
+    },
+    result: input.result,
+    deviationCount: input.deviationCount,
+    cleanup: {
+      state: input.cleanup.state,
+      ...(input.cleanup.receipt
+        ? { receipt: bounded(input.cleanup.receipt, 260, "Cleanup receipt") }
+        : {}),
+    },
+    reviewedAt: new Date(reviewedAt).toISOString(),
+  };
+}
+
+function payloadHash(payload: LegacyReviewPayload | StrictReviewPayload): string {
   return digest(JSON.stringify(payload));
 }
 
@@ -324,7 +651,13 @@ function validateReceipt(value: unknown): VisualReviewReceipt {
     throw new Error("Visual review receipt is invalid.");
   }
   const receipt = value as VisualReviewReceipt;
-  const normalized = normalizePayload(receipt);
+  const normalized =
+    receipt.schemaVersion === 1
+      ? normalizeLegacyPayload(receipt)
+      : receipt.schemaVersion === 2
+        ? normalizeStrictPayload(receipt)
+        : undefined;
+  if (!normalized) throw new Error("Visual review receipt version is invalid.");
   const expectedHash = payloadHash(normalized);
   const match = REVIEW_HANDLE.exec(receipt.handle);
   if (
@@ -362,7 +695,7 @@ export async function persistVisualReviewReceipt(
   rootPathInput: string,
   input: PersistVisualReviewReceiptInput,
 ): Promise<VisualReviewReceipt> {
-  const payload = normalizePayload(input);
+  const payload = normalizeStrictPayload(input);
   const hash = payloadHash(payload);
   const receipt = validateReceipt({
     ...payload,

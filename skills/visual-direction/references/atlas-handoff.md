@@ -18,13 +18,14 @@ Build one projection with `scripts/build-atlas-handoff.mjs`. Include only:
 - immutable source receipt IDs already authorized by the parent source ledger;
 - bounded Atlas handles;
 - selected visual contract handle, content hash, and expiry;
-- state-matrix plus registered capture handles, full SHA256 hashes, viewport and
-  state (never paths or image bodies);
+- explicit state-matrix cases (`id`, route, viewport, state), registered browser
+  capture handles/full SHA256 hashes, and separate Figma comparison per case
+  (never paths or image bodies);
 - cleanup state and next safe action.
 
-The complete projection has an 8 KB hard ceiling so the largest supported
-state matrix can carry its hash-bound captures. Ordinary selection handoffs
-should remain below 3 KB.
+The complete projection has an 8 KB hard ceiling and supports at most 14
+explicit cases with their hash-bound captures and comparisons. Ordinary
+selection handoffs should remain below 3 KB.
 
 Exclude prompts, source bodies, preview payloads, temporary paths, expanded
 receipts, discarded alternatives, code, diffs, and model transcripts.
@@ -40,8 +41,10 @@ capsule:
   review produces `attach-review`, creating an immutable, task- and
   contract-bound `visual-review:` receipt. Captures must use
   `artifact-<hash12>-<uuid8>` handles whose prefix matches the supplied full
-  SHA256; every declared viewport and required state must be covered without a
-  duplicate viewport/state pair;
+  SHA256. Every declared case needs one browser capture and one Figma
+  comparison. Exact Figma comparisons use the exact contract/snapshot node ID
+  with `match` or `deviation`; non-Figma authority uses `not-applicable`. A v1
+  review remains readable but cannot pass new work;
 - `resumeHandles` carries only bounded opaque handles for later
   `atlas_expand_context` calls;
 - `checkpoint` is an exact `atlas_task_state` `checkpoint` payload. Use it only

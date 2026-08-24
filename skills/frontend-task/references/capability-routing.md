@@ -66,15 +66,22 @@ warning rather than silently displacing required authority.
 2. Prefer the active Figma Desktop connection when it is connected,
    authorized, and exposes the needed read operation. Use another configured
    provider only after naming the unavailable operation and permitted fallback.
-3. For a direct node, preserve the exact file/node identity and inspect sparse
+3. Before every deep read, call `atlas_task_state` action
+   `check-figma-snapshot` with the exact file/node and required semantic
+   categories. For an existing cache, the first call permits metadata only;
+   repeat with the current task receipt. Reuse only an exact
+   file/node/version/lastModified identity and complete coverage. With no cache
+   or a mismatch, surface its quota warning and make one bounded read. Never
+   infer an unchanged remote source.
+4. For a direct node, preserve the exact file/node identity and inspect sparse
    metadata before deep context. Do not rank alternatives.
-4. For a file/page, inspect sparse hierarchy, rank only a few task-relevant
+5. For a file/page, inspect sparse hierarchy, rank only a few task-relevant
    candidates, and confirm one before deep retrieval.
-5. Segment broad pages from the start. After timeout, narrow to children and
+6. Segment broad pages from the start. After timeout, narrow to children and
    retain successful results; never repeat the same oversized request.
-6. Treat Ready for dev, global Variables, and Code Connect as useful signals,
+7. Treat Ready for dev, global Variables, and Code Connect as useful signals,
    never eligibility requirements.
-7. After the required reads, call `atlas_task_state` action
+8. After the required reads, call `atlas_task_state` action
    `record-figma-snapshot` while prepared and before locking. Persist the exact
    file/node/version/lastModified,
    source receipts, bounded semantic nodes/components/styles/states/assets, and
@@ -83,12 +90,12 @@ warning rather than silently displacing required authority.
    coverage as complete or cache raw trees, SVG/body data, blobs, or temporary
    provider URLs. After locking, a new snapshot is accepted only inside a named
    relock-required window.
-8. Keep binary/SVG bodies out of context. While prepared, call
+9. Keep binary/SVG bodies out of context. While prepared, call
    `atlas_task_state` action `capture-figma-asset` with one exact task receipt,
    provider-local URL, and scope node. Lock its returned `figma-asset:` handle
    plus the exact destination, then call action `materialize-figma-asset`;
    materialization fails outside `ChangeSurface.allowedFiles`.
-9. Never write to Figma unless the user explicitly requests and approves that
+10. Never write to Figma unless the user explicitly requests and approves that
    separate write.
 
 When visual authority is unresolved rather than unavailable, invoke

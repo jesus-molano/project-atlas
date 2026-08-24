@@ -23,6 +23,11 @@ const REVIEW_RESULTS = new Set([
   "fix-and-recapture",
   "blocked",
 ]);
+const FIGMA_COMPARISON_STATUSES = new Set([
+  "match",
+  "deviation",
+  "not-applicable",
+]);
 const RECEIPT_ID = /^receipt-(?:[a-f0-9]{16}|[a-f0-9]{64})$/u;
 const ATLAS_HANDLE = /^(?:code|design|memory):[^\u0000-\u001f]{1,240}$/u;
 const VISUAL_HANDLE = /^visual:vd-[A-Za-z0-9_-]+:[a-f0-9]{16}$/u;
@@ -39,6 +44,7 @@ const REVIEW_HANDLE =
 const CLEANUP_RECEIPT =
   /^cleanup:v1:[a-f0-9]{16}:vd-[A-Za-z0-9_-]+:(?:close|cancel|expired):[a-z0-9]+:[a-f0-9]{16}$/u;
 const MAX_HANDOFF_BYTES = 8_192;
+const MAX_VISUAL_REVIEW_CASES = 14;
 const MAX_VISUAL_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function requireObject(value, label) {
@@ -230,22 +236,39 @@ function parseSelectedContract(value, workflowState) {
 function parseStateMatrix(value) {
   if (value === undefined) return undefined;
   const matrix = requireObject(value, "stateMatrix");
-  const viewports = uniqueCheckedStrings(
-    matrix.viewports,
-    "stateMatrix.viewports",
-    /^[A-Za-z0-9_.:-]{1,48}$/u,
-    6,
+  const cases = requireArray(
+    matrix.cases,
+    "stateMatrix.cases",
+    MAX_VISUAL_REVIEW_CASES,
   );
-  const requiredStates = uniqueCheckedStrings(
-    matrix.requiredStates,
-    "stateMatrix.requiredStates",
-    /^[A-Za-z0-9_.:-]{1,48}$/u,
-    14,
+  if (cases.length === 0) {
+    throw new Error("stateMatrix.cases must contain at least one explicit case.");
+  }
+  const parsedCases = cases.map((rawCase, index) => {
+    const entry = requireObject(rawCase, `stateMatrix.cases[${index}]`);
+    return {
+      id: requireString(entry.id, `stateMatrix.cases[${index}].id`, 64),
+      route: requireString(entry.route, `stateMatrix.cases[${index}].route`, 160),
+      viewport: requireString(
+        entry.viewport,
+        `stateMatrix.cases[${index}].viewport`,
+        48,
+      ),
+      state: requireString(entry.state, `stateMatrix.cases[${index}].state`, 48),
+    };
+  });
+  if (new Set(parsedCases.map((entry) => entry.id)).size !== parsedCases.length) {
+    throw new Error("stateMatrix.cases ids must be unique.");
+  }
+  const caseTuples = parsedCases.map(
+    (entry) => `${entry.route}\0${entry.viewport}\0${entry.state}`,
   );
+  if (new Set(caseTuples).size !== caseTuples.length) {
+    throw new Error("stateMatrix.cases route/viewport/state tuples must be unique.");
+  }
   return {
     surface: requireString(matrix.surface, "stateMatrix.surface", 120),
-    viewports,
-    requiredStates,
+    cases: parsedCases,
   };
 }
 
@@ -259,7 +282,11 @@ function parseReview(value, workflowState) {
   const review = requireObject(value, "visualReview");
   const captures = review.captures === undefined
     ? []
-    : requireArray(review.captures, "visualReview.captures", 24).map(
+    : requireArray(
+        review.captures,
+        "visualReview.captures",
+        MAX_VISUAL_REVIEW_CASES,
+      ).map(
         (rawCapture, index) => {
           const capture = requireObject(
             rawCapture,
@@ -295,24 +322,62 @@ function parseReview(value, workflowState) {
             handle,
             hash,
             receipt,
-            viewport: requireString(
-              capture.viewport,
-              `visualReview.captures[${index}].viewport`,
-              48,
-            ),
-            state: requireString(
-              capture.state,
-              `visualReview.captures[${index}].state`,
-              48,
+            caseId: requireString(
+              capture.caseId,
+              `visualReview.captures[${index}].caseId`,
+              64,
             ),
           };
         },
       );
+  const figmaComparisons = review.figmaComparisons === undefined
+    ? []
+    : requireArray(
+        review.figmaComparisons,
+        "visualReview.figmaComparisons",
+        MAX_VISUAL_REVIEW_CASES,
+      ).map((rawComparison, index) => {
+        const comparison = requireObject(
+          rawComparison,
+          `visualReview.figmaComparisons[${index}]`,
+        );
+        const status = requireEnum(
+          comparison.status,
+          FIGMA_COMPARISON_STATUSES,
+          `visualReview.figmaComparisons[${index}].status`,
+        );
+        const nodeId = comparison.nodeId === undefined
+          ? undefined
+          : requireString(
+              comparison.nodeId,
+              `visualReview.figmaComparisons[${index}].nodeId`,
+              240,
+            );
+        if (status === "not-applicable" && nodeId) {
+          throw new Error(
+            `visualReview.figmaComparisons[${index}] not-applicable cannot carry nodeId.`,
+          );
+        }
+        if (status !== "not-applicable" && !nodeId) {
+          throw new Error(
+            `visualReview.figmaComparisons[${index}] ${status} requires nodeId.`,
+          );
+        }
+        return {
+          caseId: requireString(
+            comparison.caseId,
+            `visualReview.figmaComparisons[${index}].caseId`,
+            64,
+          ),
+          status,
+          ...(nodeId ? { nodeId } : {}),
+        };
+      });
   const captureCount = requireInteger(
     review.captureCount ?? captures.length,
     "visualReview.captureCount",
     0,
-    24,
+    MAX_VISUAL_REVIEW_CASES,
   );
   if (captures.length > 0 && captureCount !== captures.length) {
     throw new Error("visualReview.captureCount must match captures.length.");
@@ -342,6 +407,7 @@ function parseReview(value, workflowState) {
     ),
     captureCount,
     captures,
+    figmaComparisons,
     ...(preliminaryReviewHandle ? { preliminaryReviewHandle } : {}),
   };
 }
@@ -479,34 +545,72 @@ export function buildAtlasHandoff(rawInput) {
     if (!stateMatrix) {
       throw new Error("A structured visual review requires a stateMatrix.");
     }
-    const pairs = visualReview.captures.map(
-      (capture) => `${capture.viewport}\0${capture.state}`,
+    const caseIds = new Set(stateMatrix.cases.map((entry) => entry.id));
+    const captureCaseIds = visualReview.captures.map((capture) => capture.caseId);
+    const comparisonCaseIds = visualReview.figmaComparisons.map(
+      (comparison) => comparison.caseId,
     );
-    if (new Set(pairs).size !== pairs.length) {
-      throw new Error("Visual review capture viewport/state pairs must be unique.");
+    if (new Set(captureCaseIds).size !== captureCaseIds.length) {
+      throw new Error("Visual review capture caseIds must be unique.");
     }
-    if (
-      visualReview.captures.some(
-        (capture) =>
-          !stateMatrix.viewports.includes(capture.viewport) ||
-          !stateMatrix.requiredStates.includes(capture.state),
-      )
-    ) {
-      throw new Error("Every visual review capture must belong to the stateMatrix.");
+    if (new Set(comparisonCaseIds).size !== comparisonCaseIds.length) {
+      throw new Error("Visual review Figma comparison caseIds must be unique.");
     }
-    const coveredViewports = new Set(
-      visualReview.captures.map((capture) => capture.viewport),
-    );
-    const coveredStates = new Set(
-      visualReview.captures.map((capture) => capture.state),
-    );
+    if (captureCaseIds.some((caseId) => !caseIds.has(caseId))) {
+      throw new Error("Every visual review capture must belong to stateMatrix.cases.");
+    }
+    if (comparisonCaseIds.some((caseId) => !caseIds.has(caseId))) {
+      throw new Error(
+        "Every visual review Figma comparison must belong to stateMatrix.cases.",
+      );
+    }
+    const hasExactCaseCoverage = (coveredCaseIds) =>
+      coveredCaseIds.length === stateMatrix.cases.length &&
+      stateMatrix.cases.every((entry) => coveredCaseIds.includes(entry.id));
     if (
       visualReview.result === "pass" &&
-      (!stateMatrix.viewports.every((viewport) => coveredViewports.has(viewport)) ||
-        !stateMatrix.requiredStates.every((state) => coveredStates.has(state)))
+      (!hasExactCaseCoverage(captureCaseIds) ||
+        !hasExactCaseCoverage(comparisonCaseIds))
     ) {
       throw new Error(
-        "A passing visual review must cover every viewport and required state in stateMatrix.",
+        "A passing visual review must cover every explicit stateMatrix case with browser and Figma evidence.",
+      );
+    }
+    const hasOnlyNotApplicableComparisons = visualReview.figmaComparisons.every(
+      (comparison) => comparison.status === "not-applicable",
+    );
+    if (
+      visualAuthority === "exact-figma" &&
+      visualReview.figmaComparisons.some(
+        (comparison) => comparison.status === "not-applicable",
+      )
+    ) {
+      throw new Error(
+        "Exact Figma authority requires a node-backed match or deviation for every compared case.",
+      );
+    }
+    if (visualAuthority !== "exact-figma" && !hasOnlyNotApplicableComparisons) {
+      throw new Error(
+        "Non-Figma visual authority only permits not-applicable Figma comparisons.",
+      );
+    }
+    if (
+      visualReview.result === "pass" &&
+      (visualReview.deviationCount !== 0 ||
+        visualReview.figmaComparisons.some(
+          (comparison) => comparison.status === "deviation",
+        ))
+    ) {
+      throw new Error(
+        "A passing visual review cannot retain Figma deviations.",
+      );
+    }
+    const figmaDeviationCount = visualReview.figmaComparisons.filter(
+      (comparison) => comparison.status === "deviation",
+    ).length;
+    if (visualReview.deviationCount < figmaDeviationCount) {
+      throw new Error(
+        "visualReview.deviationCount cannot be lower than its Figma deviations.",
       );
     }
     if (
@@ -628,10 +732,24 @@ export function buildAtlasHandoff(rawInput) {
         contract_hash: selectedContract.contractHash,
         state_matrix: {
           surface: stateMatrix.surface,
-          viewports: stateMatrix.viewports,
-          required_states: stateMatrix.requiredStates,
+          cases: stateMatrix.cases.map((entry) => ({
+            id: entry.id,
+            route: entry.route,
+            viewport: entry.viewport,
+            state: entry.state,
+          })),
         },
-        captures: visualReview.captures,
+        captures: visualReview.captures.map((capture) => ({
+          case_id: capture.caseId,
+          handle: capture.handle,
+          hash: capture.hash,
+          receipt: capture.receipt,
+        })),
+        figma_comparisons: visualReview.figmaComparisons.map((comparison) => ({
+          case_id: comparison.caseId,
+          status: comparison.status,
+          ...(comparison.nodeId ? { node_id: comparison.nodeId } : {}),
+        })),
         result: visualReview.result,
         deviation_count: visualReview.deviationCount,
         cleanup: {

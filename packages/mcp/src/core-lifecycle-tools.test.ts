@@ -148,7 +148,26 @@ async function emitVisualSelection(
   );
   return receipt;
 }
-
+function blockedExactReview(
+  contractHandle: string, contractHash: string,
+  cleanup: Record<string, string>,
+  figmaComparisons: Array<Record<string, string>> = [],
+  preliminaryReviewHandle?: string,
+) {
+  return {
+    contract_handle: contractHandle,
+    contract_hash: contractHash,
+    state_matrix: { surface: "Exact visual surface", cases: [
+      { id: "exact-default-desktop", route: "/exact", viewport: "desktop", state: "default" },
+    ] },
+    captures: [],
+    figma_comparisons: figmaComparisons,
+    result: "blocked",
+    deviation_count: 1,
+    cleanup,
+    ...(preliminaryReviewHandle ? { preliminary_review_handle: preliminaryReviewHandle } : {}),
+  };
+}
 describe("core lifecycle tools", () => {
   it("requires visual authority at lock and supersedes an expired contract during explicit relock", async () => {
     const root = await createGitRoot(true);
@@ -189,6 +208,16 @@ describe("core lifecycle tools", () => {
     });
 
     await withCoreClient(async (client) => {
+      const attachReview = (visualReview: ReturnType<typeof blockedExactReview>) =>
+        client.callTool({
+          name: "atlas_task_state",
+          arguments: {
+            root_path: root,
+            task_id: "task-visual-relock",
+            action: "attach-review",
+            visual_review: visualReview,
+          },
+        });
       const lockArguments = {
         root_path: root,
         task_id: "task-visual-relock",
@@ -314,27 +343,28 @@ describe("core lifecycle tools", () => {
           .lock.evidenceHandles,
       ).not.toContain(oldHandle);
 
-      const blockedReview = await client.callTool({
-        name: "atlas_task_state",
-        arguments: {
-          root_path: root,
-          task_id: "task-visual-relock",
-          action: "attach-review",
-          visual_review: {
-            contract_handle: newHandle,
-            contract_hash: newHash,
-            state_matrix: {
-              surface: "Exact visual surface",
-              viewports: ["desktop"],
-              required_states: ["default"],
+      const unbackedFigmaComparison = await attachReview(
+        blockedExactReview(
+          newHandle,
+          newHash,
+          { state: "not-applicable" },
+          [
+            {
+              case_id: "exact-default-desktop",
+              status: "match",
+              node_id: "12:34",
             },
-            captures: [],
-            result: "blocked",
-            deviation_count: 1,
-            cleanup: { state: "cleanup-pending" },
-          },
-        },
-      });
+          ],
+        ),
+      );
+      expect(unbackedFigmaComparison.isError).toBe(true);
+      expect(JSON.stringify(unbackedFigmaComparison.content)).toMatch(
+        /semantic snapshot/iu,
+      );
+
+      const blockedReview = await attachReview(
+        blockedExactReview(newHandle, newHash, { state: "cleanup-pending" }),
+      );
       expect(
         blockedReview.structuredContent,
         JSON.stringify(blockedReview.content),
@@ -351,27 +381,9 @@ describe("core lifecycle tools", () => {
         },
       });
       expect(prematurePartial.isError).toBe(true);
-      const preliminaryReview = await client.callTool({
-        name: "atlas_task_state",
-        arguments: {
-          root_path: root,
-          task_id: "task-visual-relock",
-          action: "attach-review",
-          visual_review: {
-            contract_handle: newHandle,
-            contract_hash: newHash,
-            state_matrix: {
-              surface: "Exact visual surface",
-              viewports: ["desktop"],
-              required_states: ["default"],
-            },
-            captures: [],
-            result: "blocked",
-            deviation_count: 1,
-            cleanup: { state: "selected-retained" },
-          },
-        },
-      });
+      const preliminaryReview = await attachReview(
+        blockedExactReview(newHandle, newHash, { state: "selected-retained" }),
+      );
       expect(
         preliminaryReview.isError,
         JSON.stringify(preliminaryReview.content),
@@ -392,28 +404,15 @@ describe("core lifecycle tools", () => {
         "task-visual-relock",
         "vd-new",
       );
-      const closedReview = await client.callTool({
-        name: "atlas_task_state",
-        arguments: {
-          root_path: root,
-          task_id: "task-visual-relock",
-          action: "attach-review",
-          visual_review: {
-            contract_handle: newHandle,
-            contract_hash: newHash,
-            state_matrix: {
-              surface: "Exact visual surface",
-              viewports: ["desktop"],
-              required_states: ["default"],
-            },
-            captures: [],
-            result: "blocked",
-            deviation_count: 1,
-            cleanup: { state: "clean", receipt: cleanupReceipt },
-            preliminary_review_handle: preliminaryHandle,
-          },
-        },
-      });
+      const closedReview = await attachReview(
+        blockedExactReview(
+          newHandle,
+          newHash,
+          { state: "clean", receipt: cleanupReceipt },
+          [],
+          preliminaryHandle,
+        ),
+      );
       expect(
         closedReview.isError,
         JSON.stringify(closedReview.content),

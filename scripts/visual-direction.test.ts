@@ -688,8 +688,26 @@ describe("visual-direction Atlas handoff", () => {
       },
       stateMatrix: {
         surface: "Pricing comparison",
-        viewports: ["desktop", "narrow"],
-        requiredStates: ["default", "focus-visible", "overflow"],
+        cases: [
+          {
+            id: "pricing-default-desktop",
+            route: "/pricing",
+            viewport: "desktop",
+            state: "default",
+          },
+          {
+            id: "pricing-focus-narrow",
+            route: "/pricing",
+            viewport: "narrow",
+            state: "focus-visible",
+          },
+          {
+            id: "pricing-overflow-narrow",
+            route: "/pricing",
+            viewport: "narrow",
+            state: "overflow",
+          },
+        ],
       },
       cleanup: { state: "selected-retained" },
       sourceReceiptIds: ["receipt-fedcba9876543210"],
@@ -747,8 +765,20 @@ describe("visual-direction Atlas handoff", () => {
       },
       stateMatrix: {
         surface: "Confirmation dialog",
-        viewports: ["desktop", "narrow"],
-        requiredStates: ["default", "focus-visible"],
+        cases: [
+          {
+            id: "dialog-default-desktop",
+            route: "/confirm",
+            viewport: "desktop",
+            state: "default",
+          },
+          {
+            id: "dialog-focus-narrow",
+            route: "/confirm",
+            viewport: "narrow",
+            state: "focus-visible",
+          },
+        ],
       },
       visualReview: {
         result: "pass",
@@ -758,16 +788,18 @@ describe("visual-direction Atlas handoff", () => {
             handle: "artifact-aaaaaaaaaaaa-00000001",
             hash: "a".repeat(64),
             receipt: syntheticCaptureReceipt("a".repeat(64)),
-            viewport: "desktop",
-            state: "default",
+            caseId: "dialog-default-desktop",
           },
           {
             handle: "artifact-bbbbbbbbbbbb-00000002",
             hash: "b".repeat(64),
             receipt: syntheticCaptureReceipt("b".repeat(64)),
-            viewport: "narrow",
-            state: "focus-visible",
+            caseId: "dialog-focus-narrow",
           },
+        ],
+        figmaComparisons: [
+          { caseId: "dialog-default-desktop", status: "not-applicable" },
+          { caseId: "dialog-focus-narrow", status: "not-applicable" },
         ],
         preliminaryReviewHandle: SYNTHETIC_PRELIMINARY_REVIEW,
       },
@@ -788,24 +820,38 @@ describe("visual-direction Atlas handoff", () => {
           "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
         state_matrix: {
           surface: "Confirmation dialog",
-          viewports: ["desktop", "narrow"],
-          required_states: ["default", "focus-visible"],
+          cases: [
+            {
+              id: "dialog-default-desktop",
+              route: "/confirm",
+              viewport: "desktop",
+              state: "default",
+            },
+            {
+              id: "dialog-focus-narrow",
+              route: "/confirm",
+              viewport: "narrow",
+              state: "focus-visible",
+            },
+          ],
         },
         captures: [
           {
             handle: "artifact-aaaaaaaaaaaa-00000001",
             hash: "a".repeat(64),
             receipt: syntheticCaptureReceipt("a".repeat(64)),
-            viewport: "desktop",
-            state: "default",
+            case_id: "dialog-default-desktop",
           },
           {
             handle: "artifact-bbbbbbbbbbbb-00000002",
             hash: "b".repeat(64),
             receipt: syntheticCaptureReceipt("b".repeat(64)),
-            viewport: "narrow",
-            state: "focus-visible",
+            case_id: "dialog-focus-narrow",
           },
+        ],
+        figma_comparisons: [
+          { case_id: "dialog-default-desktop", status: "not-applicable" },
+          { case_id: "dialog-focus-narrow", status: "not-applicable" },
         ],
         result: "pass",
         deviation_count: 0,
@@ -819,7 +865,7 @@ describe("visual-direction Atlas handoff", () => {
     });
   });
 
-  it("rejects incomplete or duplicated passing capture coverage", () => {
+  it("requires exact explicit-case browser and Figma coverage", () => {
     const authorityDecision = resolveAuthority({
       scope: "component",
       hasExistingProject: true,
@@ -837,8 +883,10 @@ describe("visual-direction Atlas handoff", () => {
       },
       stateMatrix: {
         surface: "Dialog",
-        viewports: ["desktop", "narrow"],
-        requiredStates: ["default", "focus-visible"],
+        cases: [
+          { id: "dialog-default-desktop", route: "/dialog", viewport: "desktop", state: "default" },
+          { id: "dialog-focus-narrow", route: "/dialog", viewport: "narrow", state: "focus-visible" },
+        ],
       },
       cleanup: { state: "not-applicable" },
     };
@@ -846,46 +894,118 @@ describe("visual-direction Atlas handoff", () => {
       handle: "artifact-aaaaaaaaaaaa-00000001",
       hash: "a".repeat(64),
       receipt: syntheticCaptureReceipt("a".repeat(64)),
-      viewport: "desktop",
-      state: "default",
+      caseId: "dialog-default-desktop",
     };
-    expect(() =>
-      buildAtlasHandoff({
-        ...base,
-        visualReview: { result: "pass", deviationCount: 0, captures: [desktop] },
+    const invalidReview = (visualReview: Record<string, unknown>) => () =>
+      buildAtlasHandoff({ ...base, visualReview });
+    const notApplicable = { caseId: "dialog-default-desktop", status: "not-applicable" };
+    expect(
+      invalidReview({
+        result: "pass", deviationCount: 0, captures: [desktop],
+        figmaComparisons: [notApplicable],
       }),
-    ).toThrow(/cover every viewport/i);
-    expect(() =>
-      buildAtlasHandoff({
-        ...base,
-        visualReview: {
-          result: "blocked",
-          deviationCount: 1,
-          captures: [desktop, { ...desktop, handle: "artifact-aaaaaaaaaaaa-00000002" }],
-        },
+    ).toThrow(/every explicit stateMatrix case/i);
+    expect(
+      invalidReview({
+        result: "blocked", deviationCount: 1,
+        captures: [desktop, { ...desktop, handle: "artifact-aaaaaaaaaaaa-00000002" }],
+        figmaComparisons: [notApplicable],
       }),
-    ).toThrow(/pairs must be unique/i);
+    ).toThrow(/capture caseIds must be unique/i);
+    expect(
+      invalidReview({
+        result: "blocked", deviationCount: 1, captures: [desktop],
+        figmaComparisons: [notApplicable, notApplicable],
+      }),
+    ).toThrow(/comparison caseIds must be unique/i);
   });
-
-  it("keeps the largest declared state coverage inside the bounded evidence handoff", () => {
-    const authorityDecision = resolveAuthority({
+  it("keeps Figma comparison authority separate from browser evidence", () => {
+    const exactFigmaAuthority = resolveAuthority({
       scope: "component",
       hasExistingProject: true,
-      visualDecision: "selected-direction",
+      hasExactFigma: true,
+      exactFigma: {
+        fileKey: "ExactFile",
+        nodeId: "42:7",
+        url: "https://www.figma.com/design/ExactFile/Product?node-id=42-7",
+      },
     });
-    const viewports = Array.from({ length: 6 }, (_, index) => `viewport-${index}`);
-    const requiredStates = Array.from({ length: 14 }, (_, index) => `state-${index}`);
-    const captures = requiredStates.map((state, index) => {
+    const base = {
+      authorityDecision: exactFigmaAuthority,
+      workflowState: "review",
+      selectedContract: {
+        contractHandle: "visual:vd-exact-review:1234567890abcdef",
+        contractHash: "1234567890abcdef".repeat(4),
+        expiresAt: futureVisualExpiry(),
+        selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
+      },
+      stateMatrix: {
+        surface: "Exact dialog",
+        cases: [
+          { id: "exact-default", route: "/exact", viewport: "desktop", state: "default" },
+        ],
+      },
+      visualReview: {
+        result: "blocked",
+        deviationCount: 1,
+        captures: [],
+      },
+      cleanup: { state: "not-applicable" },
+    };
+    const invalidReview = (
+      visualReview: Record<string, unknown>,
+      authorityDecision = exactFigmaAuthority,
+    ) => () => buildAtlasHandoff({ ...base, authorityDecision, visualReview });
+    expect(
+      invalidReview({
+        ...base.visualReview,
+        figmaComparisons: [{ caseId: "exact-default", status: "not-applicable" }],
+      }),
+    ).toThrow(/Exact Figma authority/i);
+    expect(
+      invalidReview({
+        ...base.visualReview,
+        figmaComparisons: [{ caseId: "exact-default", status: "match" }],
+      }),
+    ).toThrow(/requires nodeId/i);
+    expect(
+      invalidReview({
+        ...base.visualReview, deviationCount: 0,
+        figmaComparisons: [{ caseId: "exact-default", status: "deviation", nodeId: "42:7" }],
+      }),
+    ).toThrow(/cannot be lower than its Figma deviations/i);
+
+    const selectedDirectionAuthority = resolveAuthority(
+      { scope: "component", hasExistingProject: true, visualDecision: "selected-direction" },
+    );
+    expect(
+      invalidReview(
+        {
+          ...base.visualReview,
+          figmaComparisons: [{ caseId: "exact-default", status: "match", nodeId: "42:7" }],
+        },
+        selectedDirectionAuthority,
+      ),
+    ).toThrow(/Non-Figma visual authority/i);
+  });
+  it("keeps the largest declared state coverage inside the bounded evidence handoff", () => {
+    const authorityDecision = resolveAuthority(
+      { scope: "component", hasExistingProject: true, visualDecision: "selected-direction" },
+    );
+    const cases = Array.from({ length: 14 }, (_, index) => ({
+      id: `case-${index}`,
+      route: `/dense/${index}`,
+      viewport: `viewport-${index % 6}`,
+      state: `state-${index}`,
+    }));
+    const captures = cases.map((entry, index) => {
       const fill = (index % 15).toString(16);
       const hash = fill.repeat(64);
       return {
-        handle: `artifact-${hash.slice(0, 12)}-${(index + 1)
-          .toString(16)
-          .padStart(8, "0")}`,
+        handle: `artifact-${hash.slice(0, 12)}-${(index + 1).toString(16).padStart(8, "0")}`,
         hash,
         receipt: syntheticCaptureReceipt(hash),
-        viewport: viewports[index % viewports.length]!,
-        state,
+        caseId: entry.id,
       };
     });
     const handoff = buildAtlasHandoff({
@@ -898,22 +1018,18 @@ describe("visual-direction Atlas handoff", () => {
         selectionReceipt: SYNTHETIC_SELECTION_RECEIPT,
         selectedDirectionId: "max-review",
       },
-      stateMatrix: { surface: "Dense state surface", viewports, requiredStates },
+      stateMatrix: { surface: "Dense state surface", cases },
       visualReview: {
         result: "pass",
         deviationCount: 0,
         captures,
+        figmaComparisons: cases.map((entry) => ({ caseId: entry.id, status: "not-applicable" })),
         preliminaryReviewHandle: SYNTHETIC_PRELIMINARY_REVIEW,
       },
-      cleanup: {
-        state: "clean",
-        receipt:
-          "cleanup:v1:0123456789abcdef:vd-max-review:close:m1234567:abcdef0123456789",
-      },
+      cleanup: { state: "clean", receipt:
+        "cleanup:v1:0123456789abcdef:vd-max-review:close:m1234567:abcdef0123456789" },
     });
-    expect(Buffer.byteLength(JSON.stringify(handoff), "utf8")).toBeLessThanOrEqual(
-      8_192,
-    );
+    expect(Buffer.byteLength(JSON.stringify(handoff), "utf8")).toBeLessThanOrEqual(8_192);
   });
 
   it("makes cleanup failure recoverable and blocks ready claims", () => {

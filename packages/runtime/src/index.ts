@@ -90,6 +90,7 @@ export {
   type VisualEvidenceContract,
 } from "./visual-contract.js";
 export {
+  assessLatestFigmaSnapshotReuse,
   expandFigmaSnapshot,
   loadFigmaSnapshot,
   loadLatestFigmaSnapshot,
@@ -99,6 +100,7 @@ export {
   FIGMA_SNAPSHOT_SCHEMA_VERSION,
   MAX_FIGMA_SNAPSHOT_BYTES,
   MAX_FIGMA_SNAPSHOT_ITEMS,
+  type AssessLatestFigmaSnapshotReuseInput,
   type FigmaSemanticItem,
   type FigmaSemanticProperty,
   type FigmaSemanticVariant,
@@ -110,6 +112,8 @@ export {
   type FigmaSnapshotCoverageEntry,
   type FigmaSnapshotCoverageStatus,
   type FigmaSnapshotIdentity,
+  type FigmaSnapshotReuseAssessment,
+  type FigmaSnapshotReuseStatus,
   type PersistFigmaSnapshotInput,
 } from "./figma-snapshot.js";
 export {
@@ -173,9 +177,15 @@ export {
   expandVisualReviewReceipt,
   loadVisualReviewReceipt,
   persistVisualReviewReceipt,
+  type LegacyVisualReviewCapture,
+  type LegacyVisualReviewReceipt,
   type PersistVisualReviewReceiptInput,
+  type StrictVisualReviewReceipt,
   type VisualCleanupReceiptMetadata,
+  type VisualReviewCase,
   type VisualReviewCapture,
+  type VisualReviewFigmaComparison,
+  type VisualReviewFigmaComparisonStatus,
   type VisualReviewReceipt,
 } from "./visual-review-receipt.js";
 export {
